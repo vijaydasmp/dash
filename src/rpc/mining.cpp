@@ -17,11 +17,12 @@
 #include <policy/fees.h>
 #include <pow.h>
 #include <rpc/blockchain.h>
-#include <rpc/mining.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
+#include <script/script.h>
 #include <shutdown.h>
 #include <txmempool.h>
+#include <univalue.h>
 #include <util/fees.h>
 #include <util/strencodings.h>
 #include <util/system.h>
@@ -107,7 +108,7 @@ static UniValue getnetworkhashps(const JSONRPCRequest& request)
 }
 
 #if ENABLE_MINER
-UniValue generateBlocks(std::shared_ptr<CReserveScript> coinbaseScript, int nGenerate, uint64_t nMaxTries, bool keepScript)
+static UniValue generateBlocks(const CScript& coinbase_script, int nGenerate, uint64_t nMaxTries)
 {
     int nHeightEnd = 0;
     int nHeight = 0;
@@ -121,7 +122,7 @@ UniValue generateBlocks(std::shared_ptr<CReserveScript> coinbaseScript, int nGen
     UniValue blockHashes(UniValue::VARR);
     while (nHeight < nHeightEnd && !ShutdownRequested())
     {
-        std::unique_ptr<CBlockTemplate> pblocktemplate(BlockAssembler(Params()).CreateNewBlock(coinbaseScript->reserveScript));
+        std::unique_ptr<CBlockTemplate> pblocktemplate(BlockAssembler(Params()).CreateNewBlock(coinbase_script));
         if (!pblocktemplate.get())
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Couldn't create new block");
         CBlock *pblock = &pblocktemplate->block;
@@ -144,13 +145,6 @@ UniValue generateBlocks(std::shared_ptr<CReserveScript> coinbaseScript, int nGen
             throw JSONRPCError(RPC_INTERNAL_ERROR, "ProcessNewBlock, block not accepted");
         ++nHeight;
         blockHashes.push_back(pblock->GetHash().GetHex());
-
-        //mark script as important because it was used at least for one coinbase output if the script came from the wallet
-        if (keepScript)
-        {
-            LOCK(cs_main);
-            coinbaseScript->KeepScript();
-        }
     }
     return blockHashes;
 }
@@ -185,10 +179,9 @@ static UniValue generatetoaddress(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Error: Invalid address");
     }
 
-    std::shared_ptr<CReserveScript> coinbaseScript = std::make_shared<CReserveScript>();
-    coinbaseScript->reserveScript = GetScriptForDestination(destination);
+    CScript coinbase_script = GetScriptForDestination(destination);
 
-    return generateBlocks(coinbaseScript, nGenerate, nMaxTries, false);
+    return generateBlocks(coinbase_script, nGenerate, nMaxTries);
 }
 #else
 static UniValue generatetoaddress(const JSONRPCRequest& request)
