@@ -201,9 +201,13 @@ class InvalidTxRequestTest(BitcoinTestFramework):
         rejected_parent.vin.append(CTxIn(outpoint=COutPoint(tx_orphan_2_invalid.sha256, 0)))
         rejected_parent.vout.append(CTxOut(nValue=11 * COIN, scriptPubKey=SCRIPT_PUB_KEY_OP_TRUE))
         rejected_parent.rehash()
-        # TODO: somehow it fails on `block` stage without 'not keeping orphan'
-        #with node.assert_debug_log(['not keeping orphan with rejected parents {}'.format(rejected_parent.hash)]):
-        node.p2ps[0].send_txs_and_test([rejected_parent], node, success=False)
+        if resolve_via_block:
+            # connecting the block advanced the tip, which resets the recent rejects filter, so the
+            # parent is no longer known to be rejected here and this orphan is kept after all
+            node.p2ps[0].send_txs_and_test([rejected_parent], node, success=False)
+        else:
+            with node.assert_debug_log([f'not keeping orphan with rejected parents {rejected_parent.hash}']):
+                node.p2ps[0].send_txs_and_test([rejected_parent], node, success=False)
 
 
 if __name__ == '__main__':
