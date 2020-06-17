@@ -98,9 +98,10 @@ class NotificationsTest(DashTestFramework):
             # node 1, generate spends from node 0, and check notifications
             # triggered by node 1
             self.log.info("test -walletnotify with conflicting transactions")
-            self.nodes[0].sethdseed(seed=self.nodes[1].dumpprivkey(keyhash_to_p2pkh(hex_str_to_bytes(self.nodes[1].getwalletinfo()['hdseedid'])[::-1])))
+            self.nodes[0].sethdseed(seed=self.nodes[1].dumpprivkey(keyhash_to_p2pkh(bytes.fromhex(self.nodes[1].getwalletinfo()['hdseedid'])[::-1])))
             self.nodes[0].rescanblockchain()
             self.nodes[0].generatetoaddress(100, ADDRESS_BCRT1_UNSPENDABLE)
+            self.sync_blocks()
 
             # Generate transaction on node 0, sync mempools, and check for
             # notification on node 1.
