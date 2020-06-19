@@ -54,7 +54,7 @@ FUZZ_TARGET_INIT(process_messages, initialize_process_messages)
         const std::string random_message_type{fuzzed_data_provider.ConsumeBytesAsString(CMessageHeader::COMMAND_SIZE).c_str()};
 
         CSerializedNetMsg net_msg;
-        net_msg.command = random_message_type;
+        net_msg.m_type = random_message_type;
         net_msg.data = ConsumeRandomLengthByteVector(fuzzed_data_provider);
 
         CNode& random_node = *peers.at(fuzzed_data_provider.ConsumeIntegralInRange<int>(0, peers.size() - 1));
