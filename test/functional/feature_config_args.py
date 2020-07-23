@@ -117,6 +117,32 @@ class ConfArgsTest(BitcoinTestFramework):
             ])
         self.stop_node(0)
 
+    def test_networkactive(self):
+        self.log.info('Test -networkactive option')
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: true\n']):
+            self.start_node(0)
+        self.stop_node(0)
+
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: true\n']):
+            self.start_node(0, extra_args=['-networkactive'])
+        self.stop_node(0)
+
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: true\n']):
+            self.start_node(0, extra_args=['-networkactive=1'])
+        self.stop_node(0)
+
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: false\n']):
+            self.start_node(0, extra_args=['-networkactive=0'])
+        self.stop_node(0)
+
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: false\n']):
+            self.start_node(0, extra_args=['-nonetworkactive'])
+        self.stop_node(0)
+
+        with self.nodes[0].assert_debug_log(expected_msgs=['SetNetworkActive: false\n']):
+            self.start_node(0, extra_args=['-nonetworkactive=1'])
+        self.stop_node(0)
+
     def test_seed_peers(self):
         self.log.info('Test seed peers, this will take about 2 minutes')
         default_data_dir = self.nodes[0].datadir
@@ -178,6 +204,7 @@ class ConfArgsTest(BitcoinTestFramework):
         self.test_log_buffer()
         self.test_args_log()
         self.test_seed_peers()
+        self.test_networkactive()
 
         self.test_config_file_parser()
 
