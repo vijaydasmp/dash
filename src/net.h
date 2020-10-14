@@ -16,7 +16,6 @@
 #include <crypto/siphash.h>
 #include <hash.h>
 #include <i2p.h>
-#include <limitedmap.h>
 #include <net_permissions.h>
 #include <netaddress.h>
 #include <netbase.h>

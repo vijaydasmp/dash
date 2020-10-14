@@ -197,6 +197,7 @@ BITCOIN_TESTS =\
   test/txindex_tests.cpp \
   test/txpackage_tests.cpp \
   test/txreconciliation_tests.cpp \
+  test/txrequest_tests.cpp \
   test/txvalidation_tests.cpp \
   test/txvalidationcache_tests.cpp \
   test/uint256_tests.cpp \
@@ -380,6 +381,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/tx_out.cpp \
  test/fuzz/tx_pool.cpp \
  test/fuzz/txorphan.cpp \
+ test/fuzz/txrequest.cpp \
  test/fuzz/utxo_snapshot.cpp \
  test/fuzz/utxo_total_supply.cpp \
  test/fuzz/validation_load_mempool.cpp \
