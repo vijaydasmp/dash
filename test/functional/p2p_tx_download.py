@@ -154,8 +154,6 @@ class TxDownloadTest(BitcoinTestFramework):
             assert_equal(peer_fallback.tx_getdata_count, 0)
         self.bump_mocktime(GETDATA_TX_INTERVAL + 1)  # Wait for request to peer_expiry to expire
         peer_fallback.wait_until(lambda: peer_fallback.tx_getdata_count >= 1, timeout=1)
-        with p2p_lock:
-            assert_equal(peer_fallback.tx_getdata_count, 1)
 
     def test_disconnect_fallback(self):
         self.log.info('Check that disconnect will select another peer for download')
@@ -173,8 +171,6 @@ class TxDownloadTest(BitcoinTestFramework):
         peer_disconnect.peer_disconnect()
         peer_disconnect.wait_for_disconnect()
         peer_fallback.wait_until(lambda: peer_fallback.tx_getdata_count >= 1, timeout=1)
-        with p2p_lock:
-            assert_equal(peer_fallback.tx_getdata_count, 1)
 
     def test_notfound_fallback(self):
         self.log.info('Check that notfounds will select another peer for download immediately')
@@ -191,8 +187,6 @@ class TxDownloadTest(BitcoinTestFramework):
             assert_equal(peer_fallback.tx_getdata_count, 0)
         peer_notfound.send_and_ping(msg_notfound(vec=[CInv(MSG_TX, TXID)]))  # Send notfound, so that fallback peer is selected
         peer_fallback.wait_until(lambda: peer_fallback.tx_getdata_count >= 1, timeout=1)
-        with p2p_lock:
-            assert_equal(peer_fallback.tx_getdata_count, 1)
 
     def test_preferred_inv(self):
         self.log.info('Check that invs from preferred peers are downloaded immediately')
@@ -200,8 +194,6 @@ class TxDownloadTest(BitcoinTestFramework):
         peer = self.nodes[0].add_p2p_connection(TestP2PConn())
         peer.send_message(msg_inv([CInv(t=MSG_TX, h=0xff00ff00)]))
         peer.wait_until(lambda: peer.tx_getdata_count >= 1, timeout=1)
-        with p2p_lock:
-            assert_equal(peer.tx_getdata_count, 1)
 
     def test_spurious_notfound(self):
         self.log.info('Check that spurious notfound is ignored')
