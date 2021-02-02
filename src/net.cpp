@@ -3967,11 +3967,9 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
         pnode->mapSendBytesPerMsgCmd[msg.m_type] += nTotalSize;
         pnode->nSendSize += nTotalSize;
 
-        if (pnode->nSendSize > nSendBufferMaxSize)
-            pnode->fPauseSend = true;
+        if (pnode->nSendSize > nSendBufferMaxSize) pnode->fPauseSend = true;
         pnode->vSendMsg.push_back(std::move(serializedHeader));
-        if (nMessageSize)
-            pnode->vSendMsg.push_back(std::move(msg.data));
+        if (nMessageSize) pnode->vSendMsg.push_back(std::move(msg.data));
         pnode->nSendMsgSize = pnode->vSendMsg.size();
 
         {
@@ -3989,8 +3987,7 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
         if (!hasPendingData && wakeupSelectNeeded)
             WakeSelect();
     }
-    if (nBytesSent)
-        RecordBytesSent(nBytesSent);
+    if (nBytesSent) RecordBytesSent(nBytesSent);
 }
 
 bool CConnman::ForNode(const CService& addr, std::function<bool(const CNode* pnode)> cond, std::function<bool(CNode* pnode)> func)
@@ -4160,4 +4157,31 @@ void CConnman::UnregisterEvents(CNode *pnode)
                 epollfd, EPOLL_CTL_DEL, pnode->hSocket, NetworkErrorString(WSAGetLastError()));
     }
 #endif
+}
+void CaptureMessage(const CAddress& addr, const std::string& msg_type, const Span<const unsigned char>& data, bool is_incoming)
+{
+    // Note: This function captures the message at the time of processing,
+    // not at socket receive/send time.
+    // This ensures that the messages are always in order from an application
+    // layer (processing) perspective.
+    auto now = GetTime<std::chrono::microseconds>();
+
+    // Windows folder names can not include a colon
+    std::string clean_addr = addr.ToString();
+    std::replace(clean_addr.begin(), clean_addr.end(), ':', '_');
+
+    fs::path base_path = GetDataDir() / "message_capture" / clean_addr;
+    fs::create_directories(base_path);
+
+    fs::path path = base_path / (is_incoming ? "msgs_recv.dat" : "msgs_sent.dat");
+    CAutoFile f(fsbridge::fopen(path, "ab"), SER_DISK, CLIENT_VERSION);
+
+    ser_writedata64(f, now.count());
+    f.write(msg_type.data(), msg_type.length());
+    for (auto i = msg_type.length(); i < CMessageHeader::COMMAND_SIZE; ++i) {
+        f << '\0';
+    }
+    uint32_t size = data.size();
+    ser_writedata32(f, size);
+    f.write((const char*)data.data(), data.size());
 }
