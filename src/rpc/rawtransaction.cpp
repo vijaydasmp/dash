@@ -130,7 +130,7 @@ static RPCHelpMan getrawtransaction()
             "If verbose is 'false' or omitted, returns a string that is serialized, hex-encoded data for 'txid'.\n",
                 {
                     {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                    {"verbose", RPCArg::Type::BOOL, /* default */ "false", "If false, return a string, otherwise return a json object"},
+                    {"verbose", RPCArg::Type::BOOL, RPCArg::Default{false}, "If false, return a string, otherwise return a json object"},
                     {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED_NAMED_ARG, "The block in which to look for the transaction"},
                 },
                 {
@@ -743,7 +743,7 @@ static RPCHelpMan createrawtransaction()
                         {
                             {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
                             {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                            {"sequence", RPCArg::Type::NUM, /* default */ "", "The sequence number"},
+                            {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{""}, "The sequence number"},
                         },
                         },
                 },
@@ -1123,7 +1123,7 @@ RPCHelpMan sendrawtransaction()
                 "\nRelated RPCs: createrawtransaction, signrawtransactionwithkey\n",
                 {
                     {"hexstring", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex string of the raw transaction"},
-                    {"maxfeerate", RPCArg::Type::AMOUNT, /* default */ FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK()),
+                    {"maxfeerate", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK())},
                         "Reject transactions whose fee rate is higher than the specified value, expressed in " + CURRENCY_UNIT +
                             "/kB.\nSet to 0 to accept any fee rate.\n"},
                     {"instantsend", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Deprecated and ignored"},
@@ -1193,7 +1193,7 @@ static RPCHelpMan testmempoolaccept()
                             {"rawtx", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, ""},
                         },
                         },
-                    {"maxfeerate", RPCArg::Type::AMOUNT, /* default */ FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK()),
+                    {"maxfeerate", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK())},
                      "Reject transactions whose fee rate is higher than the specified value, expressed in " + CURRENCY_UNIT + "/kB\n"},
                 },
                 RPCResult{
@@ -1628,7 +1628,7 @@ static RPCHelpMan finalizepsbt()
                 "Implements the Finalizer and Extractor roles.\n",
                 {
                     {"psbt", RPCArg::Type::STR, RPCArg::Optional::NO, "A base64 string of a PSBT"},
-                    {"extract", RPCArg::Type::BOOL, /* default */ "true", "If true and the transaction is complete,\n"
+                    {"extract", RPCArg::Type::BOOL, RPCArg::Default{true}, "If true and the transaction is complete,\n"
             "                             extract and return the complete transaction in normal network serialization instead of the PSBT."},
                 },
                 RPCResult{
@@ -1690,7 +1690,7 @@ static RPCHelpMan createpsbt()
                         {
                             {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
                             {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                            {"sequence", RPCArg::Type::NUM, /* default */ "depends on the value of 'locktime' argument", "The sequence number"},
+                            {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of 'locktime' argument"}, "The sequence number"},
                         },
                         },
                 },
@@ -1712,7 +1712,7 @@ static RPCHelpMan createpsbt()
                         },
                 },
                 },
-            {"locktime", RPCArg::Type::NUM, /* default */ "0", "Raw locktime. Non-0 value also locktime-activates inputs"},
+            {"locktime", RPCArg::Type::NUM, RPCArg::Default{0}, "Raw locktime. Non-0 value also locktime-activates inputs"},
         },
         RPCResult{
             RPCResult::Type::STR, "", "The resulting raw transaction (base64-encoded string)"
@@ -1758,7 +1758,7 @@ static RPCHelpMan converttopsbt()
                 "createpsbt and walletcreatefundedpsbt should be used for new applications.\n",
                 {
                     {"hexstring", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex string of a raw transaction"},
-                    {"permitsigdata", RPCArg::Type::BOOL, /* default */ "false", "If true, any signatures in the input will be discarded and conversion\n"
+                    {"permitsigdata", RPCArg::Type::BOOL, RPCArg::Default{false}, "If true, any signatures in the input will be discarded and conversion\n"
                             "                              will continue. If false, RPC will fail if any signatures are present."},
                 },
                 RPCResult{

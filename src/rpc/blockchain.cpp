@@ -288,7 +288,7 @@ static RPCHelpMan waitfornewblock()
         "\nWaits for a specific new block and returns useful info about it.\n"
         "\nReturns the current block on timeout or exit.\n",
         {
-            {"timeout", RPCArg::Type::NUM, /* default */ "0", "Time in milliseconds to wait for a response. 0 indicates no timeout."},
+            {"timeout", RPCArg::Type::NUM, RPCArg::Default{0}, "Time in milliseconds to wait for a response. 0 indicates no timeout."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -331,7 +331,7 @@ static RPCHelpMan waitforblock()
         "\nReturns the current block on timeout or exit.\n",
         {
             {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Block hash to wait for."},
-            {"timeout", RPCArg::Type::NUM, /* default */ "0", "Time in milliseconds to wait for a response. 0 indicates no timeout."},
+            {"timeout", RPCArg::Type::NUM, RPCArg::Default{0}, "Time in milliseconds to wait for a response. 0 indicates no timeout."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -378,7 +378,7 @@ static RPCHelpMan waitforblockheight()
         "\nReturns the current block on timeout or exit.\n",
         {
             {"height", RPCArg::Type::NUM, RPCArg::Optional::NO, "Block height to wait for."},
-            {"timeout", RPCArg::Type::NUM, /* default */ "0", "Time in milliseconds to wait for a response. 0 indicates no timeout."},
+            {"timeout", RPCArg::Type::NUM, RPCArg::Default{0}, "Time in milliseconds to wait for a response. 0 indicates no timeout."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -390,25 +390,6 @@ static RPCHelpMan waitforblockheight()
             HelpExampleCli("waitforblockheight", "100 1000")
     + HelpExampleRpc("waitforblockheight", "100, 1000")
         },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
-{
-    int timeout = 0;
-
-    int height = request.params[0].get_int();
-
-    if (!request.params[1].isNull())
-        timeout = request.params[1].get_int();
-
-    CUpdatedBlock block;
-    {
-        WAIT_LOCK(cs_blockchange, lock);
-        if(timeout)
-            cond_blockchange.wait_for(lock, std::chrono::milliseconds(timeout), [&height]() EXCLUSIVE_LOCKS_REQUIRED(cs_blockchange) {return latestblock.height >= height || !IsRPCRunning();});
-        else
-            cond_blockchange.wait(lock, [&height]() EXCLUSIVE_LOCKS_REQUIRED(cs_blockchange) {return latestblock.height >= height || !IsRPCRunning(); });
-        block = latestblock;
-    }
-    UniValue ret(UniValue::VOBJ);
     ret.pushKV("hash", block.hash.GetHex());
     ret.pushKV("height", block.height);
     return ret;
@@ -565,7 +546,7 @@ static RPCHelpMan getrawmempool()
         "\nReturns all transaction ids in memory pool as a json array of string transaction ids.\n"
         "\nHint: use getmempoolentry to fetch a specific transaction from the mempool.\n",
         {
-            {"verbose", RPCArg::Type::BOOL, /* default */ "false", "True for a json object, false for array of transaction ids"},
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{false}, "True for a json object, false for array of transaction ids"},
         },
         {
             RPCResult{"for verbose = false",
@@ -603,7 +584,7 @@ static RPCHelpMan getmempoolancestors()
         "\nIf txid is in the mempool, returns all in-mempool ancestors.\n",
         {
             {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id (must be in mempool)"},
-            {"verbose", RPCArg::Type::BOOL, /* default */ "false", "True for a json object, false for array of transaction ids"},
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{false}, "True for a json object, false for array of transaction ids"},
         },
         {
             RPCResult{"for verbose = false",
@@ -670,22 +651,14 @@ static RPCHelpMan getmempooldescendants()
         "\nIf txid is in the mempool, returns all in-mempool descendants.\n",
         {
             {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id (must be in mempool)"},
-            {"verbose", RPCArg::Type::BOOL, /* default */ "false", "True for a json object, false for array of transaction ids"},
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{false}, "True for a json object, false for array of transaction ids"},
         },
         {
             RPCResult{"for verbose = false",
-                RPCResult::Type::ARR, "", "",
                 {{RPCResult::Type::STR_HEX, "", "The transaction id of an in-mempool descendant transaction"}}},
             RPCResult{"for verbose = true",
                 RPCResult::Type::OBJ_DYN, "", "",
                 {
-                    {RPCResult::Type::OBJ, "transactionid", "", MempoolEntryDescription()},
-                }},
-        },
-        RPCExamples{
-            HelpExampleCli("getmempooldescendants", "\"mytxid\"")
-    + HelpExampleRpc("getmempooldescendants", "\"mytxid\"")
-        },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
     bool fVerbose = false;
@@ -893,7 +866,7 @@ static RPCHelpMan getblockheader()
         "If verbose is true, returns an Object with information about blockheader <hash>.\n",
         {
             {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The block hash"},
-            {"verbose", RPCArg::Type::BOOL, /* default */ "true", "true for a json object, false for the hex-encoded data"},
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{true}, "true for a json object, false for the hex-encoded data"},
         },
         {
             RPCResult{"for verbose = true",
@@ -967,8 +940,8 @@ static RPCHelpMan getblockheaders()
         "If verbose is true, each item is an Object with information about a single blockheader.\n",
         {
             {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The block hash"},
-            {"count", RPCArg::Type::NUM, /* default */ strprintf("%s", MAX_HEADERS_RESULTS), ""},
-            {"verbose", RPCArg::Type::BOOL, /* default */ "true", "true for a json object, false for the hex-encoded data"},
+            {"count", RPCArg::Type::NUM, RPCArg::DefaultHint{strprintf("%s", MAX_HEADERS_RESULTS), ""},
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{true}, "true for a json object, false for the hex-encoded data"},
         },
         {
             RPCResult{"for verbose = true",
@@ -1105,7 +1078,7 @@ static RPCHelpMan getmerkleblocks()
         {
             {"filter", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex-encoded bloom filter"},
             {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The block hash"},
-            {"count", RPCArg::Type::NUM, /* default */ strprintf("%s", MAX_HEADERS_RESULTS), ""},
+            {"count", RPCArg::Type::NUM, RPCArg::DefaultHint{strprintf("%s", MAX_HEADERS_RESULTS), ""},
         },
         RPCResult{
                 RPCResult::Type::ARR, "", "",
@@ -1181,7 +1154,7 @@ static RPCHelpMan getblock()
                 "If verbosity is 2, returns an Object with information about block <hash> and information about each transaction. \n",
                 {
                     {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The block hash"},
-                    {"verbosity|verbose", RPCArg::Type::NUM, /* default */ "1", "0 for hex-encoded data, 1 for a json object, and 2 for json object with transaction data"},
+                    {"verbosity|verbose", RPCArg::Type::NUM, RPCArg::Default{1}, "0 for hex-encoded data, 1 for a json object, and 2 for json object with transaction data"},
                 },
                 {
                     RPCResult{"for verbosity = 0",
@@ -1358,9 +1331,9 @@ static RPCHelpMan gettxoutsetinfo()
         "\nReturns statistics about the unspent transaction output set.\n"
         "Note this call may take some time if you are not using coinstatsindex.\n",
         {
-            {"hash_type", RPCArg::Type::STR, /* default */ "hash_serialized_2", "Which UTXO set hash should be calculated. Options: 'hash_serialized_2' (the legacy algorithm), 'muhash', 'none'."},
+            {"hash_type", RPCArg::Type::STR, RPCArg::Default{"hash_serialized_2"}, "Which UTXO set hash should be calculated. Options: 'hash_serialized_2' (the legacy algorithm), 'muhash', 'none'."},
             {"hash_or_height", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The block hash or height of the target height (only available with coinstatsindex).", "", {"", "string or numeric"}},
-            {"use_index", RPCArg::Type::BOOL, /* default */ "true", "Use coinstatsindex, if available."},
+            {"use_index", RPCArg::Type::BOOL, RPCArg::Default{true}, "Use coinstatsindex, if available."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -1385,12 +1358,6 @@ static RPCHelpMan gettxoutsetinfo()
                     {
                         {RPCResult::Type::STR_AMOUNT, "genesis_block", "The unspendable amount of the Genesis block subsidy"},
                         {RPCResult::Type::STR_AMOUNT, "bip30", "Transactions overridden by duplicates (no longer possible with BIP30)"},
-                        {RPCResult::Type::STR_AMOUNT, "scripts", "Amounts sent to scripts that are unspendable (for example OP_RETURN outputs)"},
-                        {RPCResult::Type::STR_AMOUNT, "unclaimed_rewards", "Fee rewards that miners did not claim in their coinbase transaction"},
-                    }}
-                }},
-            }},
-        RPCExamples{
                 HelpExampleCli("gettxoutsetinfo", "") +
                 HelpExampleCli("gettxoutsetinfo", R"("none")") +
                 HelpExampleCli("gettxoutsetinfo", R"("none" 1000)") +
@@ -1502,7 +1469,7 @@ static RPCHelpMan gettxout()
         {
             {"txid", RPCArg::Type::STR, RPCArg::Optional::NO, "The transaction id"},
             {"n", RPCArg::Type::NUM, RPCArg::Optional::NO, "vout number"},
-            {"include_mempool", RPCArg::Type::BOOL, /* default */ "true", "Whether to include the mempool. Note that an unspent output that is spent in the mempool won't appear."},
+            {"include_mempool", RPCArg::Type::BOOL, RPCArg::Default{true}, "Whether to include the mempool. Note that an unspent output that is spent in the mempool won't appear."},
         },
         {
             RPCResult{"If the UTXO was not found", RPCResult::Type::NONE, "", ""},
@@ -1589,9 +1556,9 @@ static RPCHelpMan verifychain()
     return RPCHelpMan{"verifychain",
         "\nVerifies blockchain database.\n",
         {
-            {"checklevel", RPCArg::Type::NUM, /* default */ strprintf("%d, range=0-4", DEFAULT_CHECKLEVEL),
+            {"checklevel", RPCArg::Type::NUM, RPCArg::DefaultHint{strprintf("%d, range=0-4", DEFAULT_CHECKLEVEL),
                         strprintf("How thorough the block verification is:\n - %s", Join(CHECKLEVEL_DOC, "\n- "))},
-            {"nblocks", RPCArg::Type::NUM, /* default */ strprintf("%d, 0=all", DEFAULT_CHECKBLOCKS), "The number of blocks to check."},
+            {"nblocks", RPCArg::Type::NUM, RPCArg::DefaultHint{strprintf("%d, 0=all", DEFAULT_CHECKBLOCKS), "The number of blocks to check."},
         },
         RPCResult{
             RPCResult::Type::BOOL, "", "Verified or not"},
@@ -2144,8 +2111,8 @@ static RPCHelpMan getchaintxstats()
     return RPCHelpMan{"getchaintxstats",
                 "\nCompute statistics about the total number and rate of transactions in the chain.\n",
                 {
-                    {"nblocks", RPCArg::Type::NUM, /* default */ "one month", "Size of the window in number of blocks"},
-                    {"blockhash", RPCArg::Type::STR_HEX, /* default */ "chain tip", "The hash of the block that ends the window."},
+                    {"nblocks", RPCArg::Type::NUM, RPCArg::DefaultHint{"one month"}, "Size of the window in number of blocks"},
+                    {"blockhash", RPCArg::Type::STR_HEX, RPCArg::DefaultHint{"chain tip"}, "The hash of the block that ends the window."},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -2294,7 +2261,7 @@ static RPCHelpMan getblockstats()
                 "It won't work for some heights with pruning.\n",
                 {
                     {"hash_or_height", RPCArg::Type::NUM, RPCArg::Optional::NO, "The block hash or height of the target block", "", {"", "string or numeric"}},
-                    {"stats", RPCArg::Type::ARR, /* default */ "all values", "Values to plot (see result below)",
+                    {"stats", RPCArg::Type::ARR, RPCArg::DefaultHint{"all values"}, "Values to plot (see result below)",
                         {
                             {"height", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Selected statistic"},
                             {"time", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Selected statistic"},
@@ -2514,8 +2481,8 @@ static RPCHelpMan getspecialtxes()
             {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The block hash"},
             {"type", RPCArg::Type::NUM, /* default */ "-1", "Filter special txes by type, -1 means all types"},
             {"count", RPCArg::Type::NUM, /* default */ "10", "The number of transactions to return"},
-            {"skip", RPCArg::Type::NUM, /* default */ "0", "The number of transactions to skip"},
-            {"verbosity", RPCArg::Type::NUM, /* default */ "0", "0 for hashes, 1 for hex-encoded data, and 2 for json object"},
+            {"skip", RPCArg::Type::NUM, RPCArg::Default{0}, "The number of transactions to skip"},
+            {"verbosity", RPCArg::Type::NUM, RPCArg::Default{0}, "0 for hashes, 1 for hex-encoded data, and 2 for json object"},
         },
         {
             RPCResult{"for verbosity = 0",
@@ -2729,7 +2696,7 @@ static RPCHelpMan scantxoutset()
                     {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "An object with output descriptor and metadata",
                         {
                             {"desc", RPCArg::Type::STR, RPCArg::Optional::NO, "An output descriptor"},
-                            {"range", RPCArg::Type::RANGE, /* default */ "1000", "The range of HD chain indexes to explore (either end or [begin,end])"},
+                            {"range", RPCArg::Type::RANGE, RPCArg::Default{1000}, "The range of HD chain indexes to explore (either end or [begin,end])"},
                         },
                     },
                 },
@@ -2875,7 +2842,7 @@ static RPCHelpMan getblockfilter()
         "\nRetrieve a BIP 157 content filter for a particular block.\n",
         {
             {"blockhash", RPCArg::Type::STR, RPCArg::Optional::NO, "The hash of the block"},
-            {"filtertype", RPCArg::Type::STR, /* default */ "basic", "The type name of the filter"},
+            {"filtertype", RPCArg::Type::STR, RPCArg::Default{"basic"}, "The type name of the filter"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
