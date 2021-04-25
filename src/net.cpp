@@ -3521,37 +3521,23 @@ void CConnman::StopNodes()
         }
     }
 
-    {
-        LOCK(cs_vNodes);
-
-        // Close sockets
-        for (CNode *pnode : vNodes)
-            pnode->CloseSocketDisconnect(this);
-    }
-    for (ListenSocket& hListenSocket : vhListenSocket)
-        if (hListenSocket.socket != INVALID_SOCKET) {
-#ifdef USE_KQUEUE
-            if (socketEventsMode == SOCKETEVENTS_KQUEUE) {
-                struct kevent event;
-                EV_SET(&event, hListenSocket.socket, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-                kevent(kqueuefd, &event, 1, nullptr, 0, nullptr);
-            }
-#endif
-#ifdef USE_EPOLL
-            if (socketEventsMode == SOCKETEVENTS_EPOLL) {
-                epoll_ctl(epollfd, EPOLL_CTL_DEL, hListenSocket.socket, nullptr);
-            }
-#endif
-            if (!CloseSocket(hListenSocket.socket))
-                LogPrintf("CloseSocket(hListenSocket) failed with error %s\n", NetworkErrorString(WSAGetLastError()));
-        }
-
-    // clean up some globals (to help leak detection)
+    // Delete peer connections.
     std::vector<CNode*> nodes;
     WITH_LOCK(cs_vNodes, nodes.swap(vNodes));
     for (CNode* pnode : nodes) {
-        DeleteNode(pnode);
+            pnode->CloseSocketDisconnect(this);
+            DeleteNode(pnode);
     }
+
+    // Close listening sockets.
+    for (ListenSocket& hListenSocket : vhListenSocket) {
+        if (hListenSocket.socket != INVALID_SOCKET) {
+            if (!CloseSocket(hListenSocket.socket)) {
+                LogPrintf("CloseSocket(hListenSocket) failed with error %s\n", NetworkErrorString(WSAGetLastError()));
+            }
+        }
+    }
+
     for (CNode* pnode : vNodesDisconnected) {
         DeleteNode(pnode);
     }
