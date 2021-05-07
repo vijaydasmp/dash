@@ -26,6 +26,7 @@
 #include <reverse_iterator.h>
 #include <scheduler.h>
 #include <streams.h>
+#include <sync.h>
 #include <tinyformat.h>
 #include <index/txindex.h>
 #include <txmempool.h>
@@ -406,6 +407,9 @@ public:
 private:
     /** Helper to process result of external handlers of message */
     void ProcessPeerMsgRet(const PeerMsgRet& ret, CNode& pfrom);
+
+    void _RelayTransaction(const uint256& txid)
+        EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
     void ConsiderEviction(CNode& pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -1428,7 +1432,10 @@ void PeerManagerImpl::ReattemptInitialBroadcast(CScheduler& scheduler)
         CTransactionRef tx = m_mempool.get(txid);
 
         if (tx != nullptr) {
-            RelayTransaction(txid);
+            LOCK(cs_main);
+            {
+                _RelayTransaction(txid);
+            }
         } else {
             m_mempool.RemoveUnbroadcastTx(txid, true);
         }
@@ -2259,6 +2266,11 @@ void PeerManagerImpl::RelayInvFiltered(CInv &inv, const uint256& relatedTxHash, 
 
 void PeerManagerImpl::RelayTransaction(const uint256& txid)
 {
+    WITH_LOCK(cs_main, _RelayTransaction(txid););
+}
+
+void PeerManagerImpl::_RelayTransaction(const uint256& txid)
+{
     LOCK(m_peer_mutex);
     for(auto& it : m_peer_map) {
         Peer& peer = *it.second;
@@ -2937,7 +2949,7 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
 
         if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
-            RelayTransaction(porphanTx->GetHash());
+            _RelayTransaction(porphanTx->GetHash());
             for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
                 if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
@@ -4068,7 +4080,7 @@ void PeerManagerImpl::ProcessMessage(
                     LogPrintf("Not relaying non-mempool transaction %s from forcerelay peer=%d\n", tx.GetHash().ToString(), pfrom.GetId());
                 } else {
                     LogPrintf("Force relaying tx %s from peer=%d\n", tx.GetHash().ToString(), pfrom.GetId());
-                    RelayTransaction(tx.GetHash());
+                    _RelayTransaction(tx.GetHash());
                 }
             }
             return;
@@ -4086,7 +4098,7 @@ void PeerManagerImpl::ProcessMessage(
             }
 
             m_mempool.check(m_chainman.ActiveChainstate());
-            RelayTransaction(tx.GetHash());
+            _RelayTransaction(tx.GetHash());
 
             for (unsigned int i = 0; i < tx.vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(txid, i));
