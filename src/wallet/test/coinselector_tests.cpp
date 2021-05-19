@@ -287,8 +287,7 @@ BOOST_AUTO_TEST_CASE(bnb_search_test)
     {
         std::unique_ptr<CWallet> wallet = std::make_unique<CWallet>(m_node.chain.get(), "", CreateMockWalletDatabase());
         wallet->SetupLegacyScriptPubKeyMan();
-        bool firstRun;
-        wallet->LoadWallet(firstRun);
+        wallet->LoadWallet();
         LOCK(wallet->cs_wallet);
         add_coin(*wallet, 5 * CENT, 6 * 24, false, 0, true);
         add_coin(*wallet, 3 * CENT, 6 * 24, false, 0, true);
