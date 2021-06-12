@@ -322,6 +322,9 @@ public:
 
     //! Return true if an assumed-valid chain is in use.
     virtual bool hasAssumedValidChain() = 0;
+
+    //! Check if Taproot has activated
+    virtual bool isTaprootActive() const = 0;
 };
 
 //! Interface to let node manage chain clients (wallets, or maybe tools for
