@@ -167,6 +167,7 @@ BASE_SCRIPTS = [
     'rpc_signrawtransaction.py',
     'p2p_addrv2_relay.py',
     'wallet_groups.py',
+    'p2p_compactblocks_hb.py',
     'p2p_disconnect_ban.py',
     'feature_addressindex.py',
     'feature_timestampindex.py',
