@@ -7,12 +7,56 @@
 
 import random
 
-from test_framework.blocktools import COINBASE_MATURITY, create_block, create_coinbase
-from test_framework.messages import BlockTransactions, BlockTransactionsRequest, calculate_shortid, CBlock, CBlockHeader, CInv, COutPoint, CTransaction, CTxIn, CTxOut, FromHex, HeaderAndShortIDs, msg_block, msg_blocktxn, msg_cmpctblock, msg_getblocktxn, msg_getdata, msg_getheaders, msg_headers, msg_inv, msg_sendcmpct, msg_sendheaders, msg_tx, MSG_BLOCK, MSG_CMPCT_BLOCK, NODE_NETWORK, P2PHeaderAndShortIDs, PrefilledTransaction, ToHex, NODE_HEADERS_COMPRESSED
+from test_framework.blocktools import (
+    COINBASE_MATURITY,
+    create_block,
+    create_coinbase,
+)
+from test_framework.messages import (
+    BlockTransactions,
+    BlockTransactionsRequest,
+    CBlock,
+    CBlockHeader,
+    CInv,
+    COutPoint,
+    CTransaction,
+    CTxIn,
+    CTxOut,
+    from_hex,
+    HeaderAndShortIDs,
+    MSG_BLOCK,
+    MSG_CMPCT_BLOCK,
+    NODE_HEADERS_COMPRESSED,
+    NODE_NETWORK,
+    P2PHeaderAndShortIDs,
+    PrefilledTransaction,
+    ToHex,
+    calculate_shortid,
+    msg_block,
+    msg_blocktxn,
+    msg_cmpctblock,
+    msg_getblocktxn,
+    msg_getdata,
+    msg_getheaders,
+    msg_headers,
+    msg_inv,
+    msg_sendcmpct,
+    msg_sendheaders,
+    msg_tx,
+    ser_uint256,
+    tx_from_hex,
+)
 from test_framework.mininode import mininode_lock, P2PInterface
-from test_framework.script import CScript, OP_TRUE, OP_DROP
+from test_framework.script import (
+    CScript,
+    OP_DROP,
+    OP_TRUE,
+)
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, wait_until
+from test_framework.util import (
+    assert_equal,
+    wait_until,
+)
 
 # TestP2PConn: A peer we use to send messages to dashd, and store responses.
 class TestP2PConn(P2PInterface):
@@ -252,7 +296,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         for i in range(num_transactions):
             txid = node.sendtoaddress(address, 0.1)
             hex_tx = node.gettransaction(txid)["hex"]
-            tx = FromHex(CTransaction(), hex_tx)
+            tx = tx_from_hex(hex_tx)
 
         # Wait until we've seen the block announcement for the resulting tip
         tip = int(node.getbestblockhash(), 16)
@@ -266,7 +310,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         block_hash = int(node.generate(1)[0], 16)
 
         # Store the raw block in our internal format.
-        block = FromHex(CBlock(), node.getblock("%064x" % block_hash, False))
+        block = from_hex(CBlock(), node.getblock("%064x" % block_hash, False))
         for tx in block.vtx:
             tx.calc_sha256()
         block.rehash()
@@ -532,7 +576,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         current_height = chain_height
         while (current_height >= chain_height - MAX_GETBLOCKTXN_DEPTH):
             block_hash = node.getblockhash(current_height)
-            block = FromHex(CBlock(), node.getblock(block_hash, False))
+            block = from_hex(CBlock(), node.getblock(block_hash, False))
 
             msg = msg_getblocktxn()
             msg.block_txn_request = BlockTransactionsRequest(int(block_hash, 16), [])
@@ -629,7 +673,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         [l.clear_block_announcement() for l in listeners]
 
-        node.submitblock(ToHex(block))
+        node.submitblock(block.serialize().hex())
 
         for l in listeners:
             wait_until(lambda: "cmpctblock" in l.last_message, timeout=30, lock=mininode_lock)

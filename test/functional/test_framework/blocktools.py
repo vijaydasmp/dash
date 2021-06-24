@@ -15,7 +15,7 @@ from .messages import (
     CTransaction,
     CTxIn,
     CTxOut,
-    FromHex,
+    tx_from_hex,
     uint256_to_string,
 )
 from .script import CScript, CScriptNum, CScriptOp, OP_TRUE, OP_CHECKSIG

@@ -19,7 +19,11 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.mininode import P2PInterface, P2PDataStore
 from test_framework.util import assert_equal, wait_until
 from test_framework.blocktools import COINBASE_MATURITY, create_block, create_coinbase
-from test_framework.messages import CTransaction, FromHex, msg_pong, msg_tx
+from test_framework.messages import (
+    msg_pong,
+    msg_tx,
+    tx_from_hex,
+)
 
 
 class SlowP2PDataStore(P2PDataStore):
@@ -85,7 +89,7 @@ class P2PEvict(BitcoinTestFramework):
                     'scriptPubKey': prevtx['vout'][0]['scriptPubKey']['hex'],
                 }],
             )['hex']
-            txpeer.send_message(msg_tx(FromHex(CTransaction(), sigtx)))
+            txpeer.send_message(msg_tx(tx_from_hex(sigtx)))
             protected_peers.add(current_peer)
 
         self.log.info("Create 8 peers and protect them from eviction by having faster pings")
