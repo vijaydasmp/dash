@@ -7,8 +7,10 @@
 #include <core_io.h>
 #include <core_memusage.h>
 #include <key.h>
+#include <key_io.h>
 #include <policy/policy.h>
 #include <pubkey.h>
+#include <rpc/util.h>
 #include <script/descriptor.h>
 #include <script/interpreter.h>
 #include <script/script.h>
@@ -169,5 +171,10 @@ FUZZ_TARGET_INIT(script, initialize_script)
         const CTxDestination tx_destination_2 = ConsumeTxDestination(fuzzed_data_provider);
         (void)(tx_destination_1 == tx_destination_2);
         (void)(tx_destination_1 < tx_destination_2);
+        if (tx_destination_1 == tx_destination_2) {
+            Assert(encoded_dest == EncodeDestination(tx_destination_2));
+            Assert(json_dest.write() == DescribeAddress(tx_destination_2).write());
+            Assert(dest == GetScriptForDestination(tx_destination_2));
+        }
     }
 }

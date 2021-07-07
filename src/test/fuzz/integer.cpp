@@ -16,7 +16,6 @@
 #include <pow.h>
 #include <protocol.h>
 #include <pubkey.h>
-#include <rpc/util.h>
 #include <script/sign.h>
 #include <script/standard.h>
 #include <serialize.h>
@@ -153,14 +152,6 @@ FUZZ_TARGET_INIT(integer, initialize_integer)
 
     const PKHash key_id{u160};
     const ScriptHash script_id{u160};
-    // CTxDestination = CNoDestination ∪ PKHash ∪ ScriptHash
-    const std::vector<CTxDestination> destinations{key_id, script_id};
-    for (const CTxDestination& destination : destinations) {
-        (void)DescribeAddress(destination);
-        (void)EncodeDestination(destination);
-        (void)GetScriptForDestination(destination);
-        (void)IsValidDestination(destination);
-    }
 
     {
         CDataStream stream(SER_NETWORK, INIT_PROTO_VERSION);
