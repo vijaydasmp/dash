@@ -190,8 +190,8 @@ static bool rest_headers(const CoreContext& context,
     if (path.size() != 2)
         return RESTERR(req, HTTP_BAD_REQUEST, "No header count specified. Use /rest/headers/<count>/<hash>.<ext>.");
 
-    long count = strtol(path[0].c_str(), nullptr, 10);
-    if (count < 1 || count > MAX_REST_HEADERS_RESULTS)
+    const auto parsed_count{ToIntegral<size_t>(path[0])};
+    if (!parsed_count.has_value() || *parsed_count  < 1 || parsed_count > MAX_REST_HEADERS_RESULTS)
         return RESTERR(req, HTTP_BAD_REQUEST, strprintf("Header count out of acceptable range (1-%u): %s",  MAX_REST_HEADERS_RESULTS,   + path[0]));
 
     std::string hashStr = path[1];
@@ -200,8 +200,8 @@ static bool rest_headers(const CoreContext& context,
         return RESTERR(req, HTTP_BAD_REQUEST, "Invalid hash: " + hashStr);
 
     const CBlockIndex* tip = nullptr;
-    std::vector<const CBlockIndex *> headers;
-    headers.reserve(count);
+    std::vector<const CBlockIndex*> headers;
+    headers.reserve(*parsed_count);
     {
         ChainstateManager* maybe_chainman = GetChainman(context, req);
         if (!maybe_chainman) return false;
@@ -212,8 +212,9 @@ static bool rest_headers(const CoreContext& context,
         const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);
         while (pindex != nullptr && active_chain.Contains(pindex)) {
             headers.push_back(pindex);
-            if (headers.size() == (unsigned long)count)
+            if (headers.size() == *parsed_count) {
                 break;
+            }
             pindex = active_chain.Next(pindex);
         }
     }
