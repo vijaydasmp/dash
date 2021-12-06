@@ -77,7 +77,7 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
 
     def test_validateaddress(self):
         # Invalid Bech32
-        self.check_invalid(BECH32_INVALID_PREFIX, 'Invalid HRP or Base58 character in address')
+        self.check_invalid(BECH32_INVALID_PREFIX, 'Not a valid Bech32m or Base58 encoding')
         self.check_invalid(BECH32_TOO_LONG, 'Bech32 string too long', list(range(90, len(BECH32_TOO_LONG))))
         self.check_invalid(BECH32_ONE_ERROR, 'Invalid Bech32m checksum', [10])
         self.check_invalid(BECH32_TWO_ERRORS, 'Invalid Bech32m checksum', [10, 30])
@@ -105,19 +105,19 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
         self.check_valid(BASE58_VALID)
 
         # Invalid address format
-        self.check_invalid(INVALID_ADDRESS, 'Invalid HRP or Base58 character in address')
-        self.check_invalid(INVALID_ADDRESS_2, 'Invalid HRP or Base58 character in address')
+        self.check_invalid(INVALID_ADDRESS, 'Not a valid Bech32m or Base58 encoding')
+        self.check_invalid(INVALID_ADDRESS_2, 'Not a valid Bech32m or Base58 encoding')
 
     def test_getaddressinfo(self):
         node = self.nodes[0]
 
         assert_raises_rpc_error(-5, "Invalid Platform address payload length", node.getaddressinfo, BECH32_INVALID_SIZE)
 
-        assert_raises_rpc_error(-5, "Invalid HRP or Base58 character in address", node.getaddressinfo, BECH32_INVALID_PREFIX)
+        assert_raises_rpc_error(-5, "Not a valid Bech32m or Base58 encoding", node.getaddressinfo, BECH32_INVALID_PREFIX)
 
         assert_raises_rpc_error(-5, "Invalid prefix for Base58-encoded address", node.getaddressinfo, BASE58_INVALID_PREFIX)
 
-        assert_raises_rpc_error(-5, "Invalid HRP or Base58 character in address", node.getaddressinfo, INVALID_ADDRESS)
+        assert_raises_rpc_error(-5, "Not a valid Bech32m or Base58 encoding", node.getaddressinfo, INVALID_ADDRESS)
 
     def run_test(self):
         self.test_validateaddress()
