@@ -1455,6 +1455,7 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
                                        int64_t accept_time, bool bypass_limits, bool test_accept)
     EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
+    AssertLockHeld(::cs_main);
     const CChainParams& chainparams{active_chainstate.m_params};
     assert(active_chainstate.GetMempool() != nullptr);
     CTxMemPool& pool{*active_chainstate.GetMempool()};
@@ -4585,6 +4586,7 @@ bool ChainstateManager::ProcessNewBlock(const std::shared_ptr<const CBlock>& blo
 
 MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef& tx, bool test_accept, bool bypass_limits)
 {
+    AssertLockHeld(cs_main);
     Chainstate& active_chainstate = ActiveChainstate();
     if (!active_chainstate.GetMempool()) {
         TxValidationState state;
