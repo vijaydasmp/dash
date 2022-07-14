@@ -929,7 +929,7 @@ private:
     std::array<ThresholdConditionCache, VERSIONBITS_NUM_BITS> m_warningcache GUARDED_BY(::cs_main);
 
 public:
-    using Options = ChainstateManagerOpts;
+    using Options = kernel::ChainstateManagerOpts;
 
     explicit ChainstateManager(const Options& opts)
         : m_chainparams{opts.chainparams},
