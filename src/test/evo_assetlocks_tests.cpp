@@ -20,7 +20,7 @@
 #include <boost/test/unit_test.hpp>
 
 // Helpers:
-bool IsStandardTx(const CTransaction& tx, std::string& reason)
+static bool IsStandardTx(const CTransaction& tx, std::string& reason)
 {
     return IsStandardTx(tx, MAX_OP_RETURN_RELAY, DEFAULT_PERMIT_BAREMULTISIG, CFeeRate{DUST_RELAY_TX_FEE}, reason);
 }
