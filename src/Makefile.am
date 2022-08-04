@@ -293,6 +293,7 @@ BITCOIN_CORE_H = \
   kernel/mempool_limits.h \
   kernel/mempool_options.h \
   kernel/mempool_persist.h \
+  kernel/validation_cache_sizes.h \
   key.h \
   key_io.h \
   limitedmap.h \
@@ -357,6 +358,7 @@ BITCOIN_CORE_H = \
   node/transaction.h \
   node/txreconciliation.h \
   node/utxo_snapshot.h \
+  node/validation_cache_args.h \
   noui.h \
   outputtype.h \
   policy/feerate.h \
@@ -629,6 +631,7 @@ libbitcoin_node_a_SOURCES = \
   node/transaction.cpp \
   node/txreconciliation.cpp \
   node/utxo_snapshot.cpp \
+  node/validation_cache_args.cpp \
   noui.cpp \
   policy/fees.cpp \
   policy/fees_args.cpp \
