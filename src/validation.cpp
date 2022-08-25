@@ -5739,11 +5739,11 @@ bool ChainstateManager::IsQuorumTypeEnabled(const Consensus::LLMQType llmqType,
     case Consensus::LLMQType::LLMQ_DEVNET:
         return true;
     case Consensus::LLMQType::LLMQ_50_60:
-        return !fDIP0024IsActive || !fHaveDIP0024Quorums || m_chainparams.NetworkIDString() == CBaseChainParams::TESTNET ||
-               m_chainparams.NetworkIDString() == CBaseChainParams::DEVNET;
+        return !fDIP0024IsActive || !fHaveDIP0024Quorums || GetParams().NetworkIDString() == CBaseChainParams::TESTNET ||
+               GetParams().NetworkIDString() == CBaseChainParams::DEVNET;
     case Consensus::LLMQType::LLMQ_TEST_INSTANTSEND:
         return !fDIP0024IsActive || !fHaveDIP0024Quorums ||
-               m_chainparams.GetConsensus().llmqTypeDIP0024InstantSend == Consensus::LLMQType::LLMQ_TEST_INSTANTSEND;
+               GetConsensus().llmqTypeDIP0024InstantSend == Consensus::LLMQType::LLMQ_TEST_INSTANTSEND;
     case Consensus::LLMQType::LLMQ_TEST:
     case Consensus::LLMQType::LLMQ_TEST_PLATFORM:
     case Consensus::LLMQType::LLMQ_400_60:
