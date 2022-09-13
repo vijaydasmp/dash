@@ -32,7 +32,7 @@ struct MockedTxPool : public CTxMemPool {
     }
 };
 
-class DummyChainState final : public CChainState
+class DummyChainState final : public Chainstate
 {
 public:
     void SetMempool(CTxMemPool* mempool)
@@ -91,7 +91,7 @@ void SetMempoolConstraints(ArgsManager& args, FuzzedDataProvider& fuzzed_data_pr
                      ToString(fuzzed_data_provider.ConsumeIntegralInRange<unsigned>(0, 999)));
 }
 
-void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, const NodeContext& node, CChainState& chainstate)
+void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, const NodeContext& node, Chainstate& chainstate)
 {
     WITH_LOCK(::cs_main, tx_pool.check(chainstate.CoinsTip(), chainstate.m_chain.Height() + 1));
     {
@@ -115,7 +115,7 @@ void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, con
     SyncWithValidationInterfaceQueue();
 }
 
-void MockTime(FuzzedDataProvider& fuzzed_data_provider, const CChainState& chainstate)
+void MockTime(FuzzedDataProvider& fuzzed_data_provider, const Chainstate& chainstate)
 {
     const auto time = ConsumeTime(fuzzed_data_provider,
                                   chainstate.m_chain.Tip()->GetMedianTimePast() + 1,

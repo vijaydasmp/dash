@@ -19,7 +19,7 @@
 #include <string_view>
 #include <unordered_map>
 
-class CChainState;
+class Chainstate;
 class CDataStream;
 class CDBBatch;
 class CDBWrapper;

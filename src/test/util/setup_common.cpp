@@ -490,7 +490,7 @@ void TestChainSetup::mineBlocks(int num_blocks)
 CBlock TestChainSetup::CreateAndProcessBlock(
     const std::vector<CMutableTransaction>& txns,
     const CScript& scriptPubKey,
-    CChainState* chainstate)
+    Chainstate* chainstate)
 {
     if (!chainstate) {
         chainstate = &Assert(m_node.chainman)->ActiveChainstate();
@@ -506,7 +506,7 @@ CBlock TestChainSetup::CreateAndProcessBlock(
 CBlock TestChainSetup::CreateBlock(
     const std::vector<CMutableTransaction>& txns,
     const CScript& scriptPubKey,
-    CChainState& chainstate)
+    Chainstate& chainstate)
 {
     const CChainParams& chainparams = Params();
     CTxMemPool empty_pool;

@@ -83,7 +83,7 @@ static GlobalMutex cs_blockchange;
 static std::condition_variable cond_blockchange;
 static CUpdatedBlock latestblock GUARDED_BY(cs_blockchange);
 
-extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, const CTxMemPool& mempool, const CChainState& active_chainstate, const chainlock::Chainlocks& chainlocks, const llmq::CInstantSendManager& isman, UniValue& entry, TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS);
+extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, const CTxMemPool& mempool, const Chainstate& active_chainstate, const chainlock::Chainlocks& chainlocks, const llmq::CInstantSendManager& isman, UniValue& entry, TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS);
 
 /* Calculate the difficulty for a given block index.
  */
@@ -725,7 +725,7 @@ static RPCHelpMan getblockheaders()
 
     ChainstateManager& chainman = EnsureChainman(node);
 
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
     CChain& active_chain = active_chainstate.m_chain;
 
     const CBlockIndex* pblockindex;
@@ -1062,7 +1062,7 @@ static RPCHelpMan pruneblockchain()
 
     ChainstateManager& chainman = EnsureAnyChainman(request.context);
     LOCK(cs_main);
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
     CChain& active_chain = active_chainstate.m_chain;
 
     int heightParam = request.params[0].getInt<int>();
@@ -1198,7 +1198,7 @@ static RPCHelpMan gettxoutsetinfo()
 
     const NodeContext& node = EnsureAnyNodeContext(request.context);
     ChainstateManager& chainman = EnsureChainman(node);
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
     active_chainstate.ForceFlushStateToDisk();
 
     CCoinsView* coins_view;
@@ -1331,7 +1331,7 @@ static RPCHelpMan gettxout()
     ChainstateManager& chainman = EnsureChainman(node);
     LOCK(cs_main);
 
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
 
     UniValue ret(UniValue::VOBJ);
 
@@ -1400,7 +1400,7 @@ static RPCHelpMan verifychain()
     ChainstateManager& chainman = EnsureChainman(node);
     LOCK(cs_main);
 
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
     return CVerifyDB().VerifyDB(
         active_chainstate, Params().GetConsensus(), active_chainstate.CoinsTip(), *CHECK_NONFATAL(node.evodb), check_level, check_depth);
 },
@@ -1545,7 +1545,7 @@ RPCHelpMan getblockchaininfo()
     ChainstateManager& chainman = EnsureChainman(node);
 
     LOCK(cs_main);
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
 
     const CBlockIndex& tip{*CHECK_NONFATAL(active_chainstate.m_chain.Tip())};
     const int height{tip.nHeight};
@@ -1815,7 +1815,7 @@ static RPCHelpMan invalidateblock()
         }
     }
 
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
     active_chainstate.InvalidateBlock(state, pblockindex);
 
     if (state.IsValid()) {
@@ -1848,7 +1848,7 @@ static RPCHelpMan reconsiderblock()
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
     ChainstateManager& chainman = EnsureAnyChainman(request.context);
-    CChainState& active_chainstate = chainman.ActiveChainstate();
+    Chainstate& active_chainstate = chainman.ActiveChainstate();
 
     uint256 hash(ParseHashV(request.params[0], "blockhash"));
     const bool ignore_chainlocks{request.params[1].isNull() ? false : request.params[1].get_bool()};
@@ -2554,7 +2554,7 @@ static RPCHelpMan scantxoutset()
         {
             ChainstateManager& chainman = EnsureChainman(node);
             LOCK(cs_main);
-            CChainState& active_chainstate = chainman.ActiveChainstate();
+            Chainstate& active_chainstate = chainman.ActiveChainstate();
             active_chainstate.ForceFlushStateToDisk();
             pcursor = CHECK_NONFATAL(active_chainstate.CoinsDB().Cursor());
             tip = CHECK_NONFATAL(active_chainstate.m_chain.Tip());
@@ -2735,7 +2735,7 @@ static RPCHelpMan dumptxoutset()
 
 UniValue CreateUTXOSnapshot(
     NodeContext& node,
-    CChainState& chainstate,
+    Chainstate& chainstate,
     AutoFile& afile,
     const fs::path& path,
     const fs::path& temppath)
