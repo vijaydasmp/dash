@@ -64,7 +64,7 @@ std::optional<ChainstateLoadingError> LoadChainstate(bool fReset,
                                                      std::function<bool()> shutdown_requested,
                                                      std::function<void()> coins_error_cb)
 {
-    auto is_coinsview_empty = [&](CChainState* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return fReset || fReindexChainState || chainstate->CoinsTip().GetBestBlock().IsNull();
     };
 
@@ -152,7 +152,7 @@ std::optional<ChainstateLoadingError> LoadChainstate(bool fReset,
     // At this point we're either in reindex or we've loaded a useful
     // block tree into BlockIndex()!
 
-    for (CChainState* chainstate : chainman.GetAll()) {
+    for (Chainstate* chainstate : chainman.GetAll()) {
         chainstate->InitCoinsDB(
             /*cache_size_bytes=*/nCoinDBCache,
             /*in_memory=*/coins_db_in_memory,
@@ -262,13 +262,13 @@ std::optional<ChainstateLoadVerifyError> VerifyLoadedChainstate(ChainstateManage
                                                                 std::function<int64_t()> get_unix_time_seconds,
                                                                 std::function<void(bool)> notify_bls_state)
 {
-    auto is_coinsview_empty = [&](CChainState* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return fReset || fReindexChainState || chainstate->CoinsTip().GetBestBlock().IsNull();
     };
 
     LOCK(cs_main);
 
-    for (CChainState* chainstate : chainman.GetAll()) {
+    for (Chainstate* chainstate : chainman.GetAll()) {
         if (!is_coinsview_empty(chainstate)) {
             const CBlockIndex* tip = chainstate->m_chain.Tip();
             if (tip && tip->nTime > get_unix_time_seconds() + MAX_FUTURE_BLOCK_TIME) {
@@ -300,7 +300,7 @@ std::optional<ChainstateLoadVerifyError> VerifyLoadedChainstate(ChainstateManage
             }
 
         } else {
-            // TODO: CEvoDB instance should probably be a part of CChainState
+            // TODO: CEvoDB instance should probably be a part of Chainstate
             // (for multiple chainstates to actually work in parallel)
             // and not a global
             if (&chainman.ActiveChainstate() == chainstate && !evodb.IsEmpty()) {

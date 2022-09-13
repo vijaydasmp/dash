@@ -26,6 +26,23 @@ constexpr int OLD_ACTIVE_SET_FAILURE_MISBEHAVIOR_SCORE{20};
 constexpr auto WORK_THREAD_SLEEP_INTERVAL{std::chrono::milliseconds{100}};
 } // namespace
 
+static std::optional<int> GetBlockHeight(llmq::CInstantSendManager& is_manager, const Chainstate& chainstate,
+                                         const uint256& hash)
+{
+    if (hash.IsNull()) {
+        return std::nullopt;
+    }
+    auto ret = is_manager.GetCachedHeight(hash);
+    if (ret) return ret;
+
+    const CBlockIndex* pindex = WITH_LOCK(::cs_main, return chainstate.m_blockman.LookupBlockIndex(hash));
+    if (pindex == nullptr) {
+        return std::nullopt;
+    }
+    is_manager.CacheBlockHeight(pindex);
+    return pindex->nHeight;
+}
+
 struct NetInstantSend::BatchVerificationData {
     CBLSBatchVerifier<NodeId, uint256> batchVerifier{false, true, BATCH_VERIFIER_SOURCE_THRESHOLD};
     Uint256HashMap<llmq::CRecoveredSig> recSigs;

@@ -170,7 +170,7 @@ private:
 
     BlockManager& m_blockman;
     CChainstateHelper& m_chain_helper;
-    CChainState& m_chainstate;
+    Chainstate& m_chainstate;
     CEvoDB& m_evoDb;
     const chainlock::Chainlocks& m_chainlocks;
     chainlock::ChainlockHandler& m_clhandler;
@@ -187,8 +187,8 @@ public:
         CFeeRate blockMinFeeRate;
     };
 
-    explicit BlockAssembler(CChainState& chainstate, const node::NodeContext& node, const CTxMemPool* mempool, const CChainParams& params);
-    explicit BlockAssembler(CChainState& chainstate, const node::NodeContext& node, const CTxMemPool* mempool, const CChainParams& params,
+    explicit BlockAssembler(Chainstate& chainstate, const node::NodeContext& node, const CTxMemPool* mempool, const CChainParams& params);
+    explicit BlockAssembler(Chainstate& chainstate, const node::NodeContext& node, const CTxMemPool* mempool, const CChainParams& params,
                             const Options& options);
 
     /** Construct a new block template with coinbase to scriptPubKeyIn */

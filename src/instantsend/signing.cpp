@@ -30,8 +30,8 @@ using node::fReindex;
 using node::GetTransaction;
 
 namespace instantsend {
-InstantSendSigner::InstantSendSigner(CChainState& chainstate, const chainlock::Chainlocks& chainlocks,
-                                     InstantSendSignerParent& isman, llmq::CSigningManager& sigman,
+InstantSendSigner::InstantSendSigner(Chainstate& chainstate, const chainlock::Chainlocks& chainlocks,
+                                     llmq::CInstantSendManager& isman, llmq::CSigningManager& sigman,
                                      llmq::CSigSharesManager& shareman, llmq::CQuorumManager& qman,
                                      CSporkManager& sporkman, CTxMemPool& mempool, const CMasternodeSync& mn_sync) :
     m_chainstate{chainstate},

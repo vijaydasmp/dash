@@ -46,7 +46,7 @@ public:
 class InstantSendSigner final : public llmq::CRecoveredSigsListener
 {
 private:
-    CChainState& m_chainstate;
+    Chainstate& m_chainstate;
     const chainlock::Chainlocks& m_chainlocks;
     InstantSendSignerParent& m_isman;
     llmq::CSigningManager& m_sigman;
@@ -79,8 +79,13 @@ public:
     InstantSendSigner() = delete;
     InstantSendSigner(const InstantSendSigner&) = delete;
     InstantSendSigner& operator=(const InstantSendSigner&) = delete;
+<<<<<<< HEAD
     explicit InstantSendSigner(CChainState& chainstate, const chainlock::Chainlocks& chainlocks,
                                InstantSendSignerParent& isman, llmq::CSigningManager& sigman,
+=======
+    explicit InstantSendSigner(Chainstate& chainstate, const chainlock::Chainlocks& chainlocks,
+                               llmq::CInstantSendManager& isman, llmq::CSigningManager& sigman,
+>>>>>>> ce1eab6ce5 (Fixing CChainState in other places)
                                llmq::CSigSharesManager& shareman, llmq::CQuorumManager& qman, CSporkManager& sporkman,
                                CTxMemPool& mempool, const CMasternodeSync& mn_sync);
     ~InstantSendSigner();
