@@ -22,7 +22,6 @@ static constexpr bool DEFAULT_COINSTATSINDEX{false};
 class CoinStatsIndex final : public BaseIndex
 {
 private:
-    std::string m_name;
     std::unique_ptr<BaseIndex::DB> m_db;
 
     MuHash3072 m_muhash;
@@ -53,8 +52,6 @@ protected:
     bool CustomRewind(const interfaces::BlockKey& current_tip, const interfaces::BlockKey& new_tip) override;
 
     BaseIndex::DB& GetDB() const override { return *m_db; }
-
-    const char* GetName() const override { return "coinstatsindex"; }
 
 public:
     // Constructs the index, which becomes available to be queried.
