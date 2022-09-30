@@ -161,7 +161,10 @@ static RPCArg GetRpcArg(const std::string& strParamName)
                             {"reward", RPCArg::Type::NUM, RPCArg::Optional::NO, "The payout share in basis points."},
                         }},
                 },
-                "\"payoutAddress\"|[{\"address\",\"reward\"},...]", {"string or array", "string or array"}}
+                RPCArgOptions{
+                    .oneline_description={"\"payoutAddress\" | [{\"address\",\"reward\"},...] (string or array)"},
+                    .type_str={"string or array", "string or array"},
+                }}
         },
         {"payoutAddress_update",
             {"payoutAddress", RPCArg::Type::ARR, RPCArg::Optional::NO,
@@ -175,7 +178,10 @@ static RPCArg GetRpcArg(const std::string& strParamName)
                             {"reward", RPCArg::Type::NUM, RPCArg::Optional::NO, "The payout share in basis points."},
                         }},
                 },
-                "\"payoutAddress\"|[{\"address\",\"reward\"},...]", {"string or array", "string or array"}}
+                RPCArgOptions{
+                    .oneline_description={"\"payoutAddress\" | [{\"address\",\"reward\"},...] (string or array)"},
+                    .type_str={"string or array", "string or array"},
+                }}
         },
         {"proTxHash",
             {"proTxHash", RPCArg::Type::STR, RPCArg::Optional::NO,
