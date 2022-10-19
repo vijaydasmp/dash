@@ -24,7 +24,9 @@ from test_framework.psbt import (
     PSBT_IN_SHA256,
     PSBT_IN_HASH160,
     PSBT_IN_HASH256,
+    PSBT_IN_NON_WITNESS_UTXO,
 )
+from test_framework.script import CScript, OP_TRUE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_approx,
@@ -644,6 +646,21 @@ class PSBTTest(BitcoinTestFramework):
         psbt2 = PSBT(g=PSBTMap({PSBT_GLOBAL_UNSIGNED_TX: tx.serialize()}), i=[PSBTMap()], o=[PSBTMap()]).to_base64()
         assert_raises_rpc_error(-8, "PSBTs not compatible (different transactions)", self.nodes[0].combinepsbt, [psbt1, psbt2])
         assert_equal(self.nodes[0].combinepsbt([psbt1, psbt1]), psbt1)
+
+        self.log.info("Test that PSBT inputs are being checked via script execution")
+        acs_prev_tx = CTransaction()
+        acs_prev_tx.vin = [CTxIn(outpoint=COutPoint(hash=int('dd' * 32, 16), n=0), scriptSig=b"")]
+        acs_prev_tx.vout = [CTxOut(nValue=0, scriptPubKey=CScript([OP_TRUE]))]
+        acs_prev_tx.rehash()
+        tx = CTransaction()
+        tx.vin = [CTxIn(outpoint=COutPoint(hash=acs_prev_tx.sha256, n=0), scriptSig=b"")]
+        tx.vout = [CTxOut(nValue=0, scriptPubKey=b"")]
+        psbt = PSBT()
+        psbt.g = PSBTMap({PSBT_GLOBAL_UNSIGNED_TX: tx.serialize()})
+        psbt.i = [PSBTMap({bytes([PSBT_IN_NON_WITNESS_UTXO]) : acs_prev_tx.serialize()})]
+        psbt.o = [PSBTMap()]
+        assert_equal(self.nodes[0].finalizepsbt(psbt.to_base64()),
+            {'hex': tx.serialize().hex(), 'complete': True})
 
 
 if __name__ == '__main__':
