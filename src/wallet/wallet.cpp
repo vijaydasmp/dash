@@ -2130,12 +2130,12 @@ bool CWallet::ShouldResend() const
 
     // Do this infrequently and randomly to avoid giving away
     // that these are our transactions.
-    if (GetTime() < m_next_resend) return false;
+    if (NodeClock::now() < m_next_resend) return false;
 
     return true;
 }
 
-int64_t CWallet::GetDefaultNextResend() { return GetTime() + (1 * 60 * 60) + GetRand(2 * 60 * 60); }
+NodeClock::time_point CWallet::GetDefaultNextResend() { return FastRandomContext{}.rand_uniform_delay(NodeClock::now() + 1h, 2h); }
 
 // Resubmit transactions from the wallet to the mempool, optionally asking the
 // mempool to relay them. On startup, we will do this for all unconfirmed
