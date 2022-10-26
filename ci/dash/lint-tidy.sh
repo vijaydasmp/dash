@@ -102,6 +102,7 @@ iwyu_tool.py \
   "src/init" \
   "src/kernel" \
   "src/node/chainstate.cpp" \
+  "src/node/chainstatemanager_args.cpp" \
   "src/node/mempool_args.cpp" \
   "src/node/minisketchwrapper.cpp" \
   "src/policy/feerate.cpp" \
