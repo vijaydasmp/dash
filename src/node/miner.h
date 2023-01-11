@@ -19,6 +19,7 @@
 #include <boost/multi_index/tag.hpp>
 #include <boost/multi_index_container.hpp>
 
+class ArgsManager;
 class CBlockIndex;
 class CChainParams;
 class CChainstateHelper;
@@ -154,6 +155,9 @@ private:
     unsigned int nBlockMaxSigOps;
     CFeeRate blockMinFeeRate;
 
+    // Whether to call TestBlockValidity() at the end of CreateNewBlock().
+    const bool test_block_validity;
+
     // Information on the current status of the block
     uint64_t nBlockSize;
     uint64_t nBlockTx;
@@ -179,6 +183,7 @@ public:
         Options();
         size_t nBlockMaxSize;
         CFeeRate blockMinFeeRate;
+        bool test_block_validity;
     };
 
     explicit BlockAssembler(Chainstate& chainstate, const node::NodeContext& node, const CTxMemPool* mempool);
@@ -219,6 +224,9 @@ private:
 };
 
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev);
+
+/** Apply -blockmintxfee and -blockmaxsize options from ArgsManager to BlockAssembler options. */
+void ApplyArgsManOptions(const ArgsManager& gArgs, BlockAssembler::Options& options);
 } // namespace node
 
 #endif // BITCOIN_NODE_MINER_H

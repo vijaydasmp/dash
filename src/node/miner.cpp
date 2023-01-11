@@ -66,9 +66,11 @@ BlockAssembler::Options::Options()
 {
     blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
     nBlockMaxSize = DEFAULT_BLOCK_MAX_SIZE;
+    test_block_validity = true;
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, const CTxMemPool* mempool, const Options& options) :
+      test_block_validity{options.test_block_validity},
       m_chain_helper(chainstate.ChainHelper()),
       m_chainstate(chainstate),
       m_evoDb(*Assert(node.evodb)),
@@ -82,10 +84,9 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, 
     nBlockMaxSize = options.nBlockMaxSize;
 }
 
-static BlockAssembler::Options DefaultOptions()
+void ApplyArgsManOptions(const ArgsManager& gArgs, BlockAssembler::Options& options)
 {
     // Block resource limits
-    BlockAssembler::Options options;
     options.nBlockMaxSize = DEFAULT_BLOCK_MAX_SIZE;
     if (gArgs.IsArgSet("-blockmaxsize")) {
         options.nBlockMaxSize = gArgs.GetIntArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
@@ -96,11 +97,16 @@ static BlockAssembler::Options DefaultOptions()
     } else {
         options.blockMinFeeRate = CFeeRate{DEFAULT_BLOCK_MIN_TX_FEE};
     }
+}
+static BlockAssembler::Options ConfiguredOptions()
+{
+    BlockAssembler::Options options;
+    ApplyArgsManOptions(gArgs, options);
     return options;
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, const CTxMemPool* mempool)
-    : BlockAssembler(chainstate, node, mempool, DefaultOptions()) {}
+    : BlockAssembler(chainstate, node, mempool, ConfiguredOptions()) {}
 
 void BlockAssembler::resetBlock()
 {
@@ -330,7 +336,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(*pblock->vtx[0]);
 
     BlockValidationState state;
-    if (!TestBlockValidity(state, m_chainlocks, m_evoDb, chainparams, m_chainstate, *pblock, pindexPrev, false, false)) {
+    if (test_block_validity && !TestBlockValidity(state, m_chainlocks, m_evoDb, chainparams, m_chainstate, *pblock, pindexPrev, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false)) {
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, state.ToString()));
     }
     int64_t nTime2 = GetTimeMicros();
