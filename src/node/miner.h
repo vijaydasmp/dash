@@ -6,6 +6,7 @@
 #ifndef BITCOIN_NODE_MINER_H
 #define BITCOIN_NODE_MINER_H
 
+#include <policy/policy.h>
 #include <primitives/block.h>
 #include <txmempool.h>
 
@@ -150,14 +151,6 @@ private:
     // The constructed block template
     std::unique_ptr<CBlockTemplate> pblocktemplate;
 
-    // Configuration parameters for the block size
-    unsigned int nBlockMaxSize;
-    unsigned int nBlockMaxSigOps;
-    CFeeRate blockMinFeeRate;
-
-    // Whether to call TestBlockValidity() at the end of CreateNewBlock().
-    const bool test_block_validity;
-
     // Information on the current status of the block
     uint64_t nBlockSize;
     uint64_t nBlockTx;
@@ -180,10 +173,12 @@ private:
 
 public:
     struct Options {
-        Options();
-        size_t nBlockMaxSize;
-        CFeeRate blockMinFeeRate;
-        bool test_block_validity;
+        // Configuration parameters for the block size
+        mutable size_t nBlockMaxSize{DEFAULT_BLOCK_MAX_SIZE};
+        mutable size_t nBlockMaxSigOps{0};
+        CFeeRate blockMinFeeRate{DEFAULT_BLOCK_MIN_TX_FEE};
+        // Whether to call TestBlockValidity() at the end of CreateNewBlock().
+        bool test_block_validity{true};
     };
 
     explicit BlockAssembler(Chainstate& chainstate, const node::NodeContext& node, const CTxMemPool* mempool);
@@ -196,6 +191,8 @@ public:
     inline static std::optional<int64_t> m_last_block_size{};
 
 private:
+    const Options m_options;
+
     // utility functions
     /** Clear the block's state and prepare for assembling a new block */
     void resetBlock();
