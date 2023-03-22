@@ -73,7 +73,7 @@ bool CFinalCommitment::VerifySignatureAsync(const llmq::UtilParameters& util_par
         if (queue_control) {
             std::vector<utils::BlsCheck> vChecks;
             vChecks.emplace_back(membersSig, memberPubKeys, commitmentHash, members_id_string);
-            queue_control->Add(vChecks);
+            queue_control->Add(std::move(vChecks));
         } else {
             if (!membersSig.VerifySecureAggregated(memberPubKeys, commitmentHash)) {
                 LogPrint(BCLog::LLMQ, "%s\n", members_id_string);
@@ -87,7 +87,7 @@ bool CFinalCommitment::VerifySignatureAsync(const llmq::UtilParameters& util_par
         std::vector<CBLSPublicKey> public_keys;
         public_keys.push_back(quorumPublicKey);
         vChecks.emplace_back(quorumSig, public_keys, commitmentHash, qsig_id_string);
-        queue_control->Add(vChecks);
+        queue_control->Add(std::move(vChecks));
     } else {
         if (!quorumSig.VerifyInsecure(quorumPublicKey, commitmentHash)) {
             LogPrint(BCLog::LLMQ, "%s\n", qsig_id_string);
