@@ -7,11 +7,11 @@
 #include <wallet/walletdb.h>
 
 #include <key_io.h>
-#include <fs.h>
 #include <governance/common.h>
 #include <protocol.h>
 #include <serialize.h>
 #include <sync.h>
+#include <util/fs.h>
 #include <util/system.h>
 #include <util/time.h>
 #include <util/translation.h>
