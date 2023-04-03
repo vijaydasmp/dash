@@ -4,7 +4,6 @@
 
 #include <qt/walletframe.h>
 
-#include <fs.h>
 #include <node/interface_ui.h>
 #include <psbt.h>
 #include <util/system.h>
@@ -16,6 +15,8 @@
 #include <qt/psbtoperationsdialog.h>
 #include <qt/walletmodel.h>
 #include <qt/walletview.h>
+#include <util/fs.h>
+#include <util/fs_helpers.h>
 
 #include <cassert>
 #include <fstream>
