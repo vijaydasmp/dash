@@ -11,7 +11,6 @@
 
 #include <chainparams.h>
 #include <core_io.h>
-#include <fs.h>
 #include <policy/settings.h>
 #include <primitives/transaction.h>
 #include <rpc/server.h>
@@ -19,6 +18,7 @@
 #include <rpc/util.h>
 #include <txmempool.h>
 #include <univalue.h>
+#include <util/fs.h>
 #include <util/moneystr.h>
 #include <validation.h>
 #include <util/system.h>

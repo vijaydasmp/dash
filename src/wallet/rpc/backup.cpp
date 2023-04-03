@@ -7,7 +7,6 @@
 #include <chainparams.h>
 #include <clientversion.h>
 #include <core_io.h>
-#include <fs.h>
 #include <interfaces/chain.h>
 #include <key_io.h>
 #include <merkleblock.h>
@@ -19,6 +18,7 @@
 #include <sync.h>
 #include <util/bip32.h>
 #include <util/system.h>
+#include <util/fs.h>
 #include <util/time.h>
 #include <util/translation.h>
 #include <validation.h>
