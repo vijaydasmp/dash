@@ -22,7 +22,6 @@
 #include <consensus/validation.h>
 #include <cuckoocache.h>
 #include <flatfile.h>
-#include <fs.h>
 #include <hash.h>
 #include <logging.h>
 #include <logging/timer.h>
@@ -43,6 +42,8 @@
 #include <uint256.h>
 #include <undo.h>
 #include <util/check.h>
+#include <util/fs.h>
+#include <util/fs_helpers.h>
 #include <util/hasher.h>
 #include <util/strencodings.h>
 #include <util/time.h>

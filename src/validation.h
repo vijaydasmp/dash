@@ -18,7 +18,6 @@
 #include <kernel/chainstatemanager_opts.h>
 #include <consensus/amount.h>
 #include <deploymentstatus.h>
-#include <fs.h>
 #include <node/blockstorage.h>
 #include <policy/feerate.h>
 #include <policy/packages.h>
@@ -30,6 +29,7 @@
 #include <txmempool.h> // For CTxMemPool::cs
 #include <uint256.h>
 #include <util/check.h>
+#include <util/fs.h>
 #include <util/hasher.h>
 #include <util/translation.h>
 #include <versionbits.h>

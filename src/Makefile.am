@@ -236,7 +236,6 @@ BITCOIN_CORE_H = \
   external_signer.h \
   flat-database.h \
   flatfile.h \
-  fs.h \
   governance/common.h \
   governance/governance.h \
   governance/net_governance.h \
@@ -418,6 +417,8 @@ BITCOIN_CORE_H = \
   util/error.h \
   util/fastrange.h \
   util/fees.h \
+  util/fs.h \
+  util/fs_helpers.h \
   util/getuniquepath.h \
   util/golombrice.h \
   util/hash_type.h \
@@ -1006,7 +1007,6 @@ libbitcoin_util_a_SOURCES = \
   clientversion.cpp \
   coinjoin/common.cpp \
   coinjoin/options.cpp \
-  fs.cpp \
   interfaces/echo.cpp \
   interfaces/handler.cpp \
   interfaces/init.cpp \
@@ -1025,6 +1025,8 @@ libbitcoin_util_a_SOURCES = \
   util/edge.cpp \
   util/error.cpp \
   util/fees.cpp \
+  util/fs.cpp \
+  util/fs_helpers.cpp \
   util/getuniquepath.cpp \
   util/hasher.cpp \
   util/message.cpp \
@@ -1269,7 +1271,6 @@ libdashkernel_la_SOURCES = \
   evo/specialtx_filter.cpp \
   evo/specialtxman.cpp \
   flatfile.cpp \
-  fs.cpp \
   governance/common.cpp \
   governance/object.cpp \
   governance/superblock.cpp \
@@ -1351,6 +1352,8 @@ libdashkernel_la_SOURCES = \
   uint256.cpp \
   util/bytevectorhash.cpp \
   util/check.cpp \
+  util/fs.cpp \
+  util/fs_helpers.cpp \
   util/getuniquepath.cpp \
   util/hasher.cpp \
   util/message.cpp \
