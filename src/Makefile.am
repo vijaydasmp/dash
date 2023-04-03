@@ -245,7 +245,6 @@ BITCOIN_CORE_H = \
   gsl/pointers.h \
   flat-database.h \
   flatfile.h \
-  fs.h \
   httprpc.h \
   httpserver.h \
   i2p.h \
@@ -399,6 +398,8 @@ BITCOIN_CORE_H = \
   util/error.h \
   util/fastrange.h \
   util/fees.h \
+  util/fs.h \
+  util/fs_helpers.h \
   util/golombrice.h \
   util/hasher.h \
   util/hash_type.h \
@@ -980,7 +981,6 @@ libbitcoin_util_a_SOURCES = \
   support/lockedpool.cpp \
   chainparamsbase.cpp \
   clientversion.cpp \
-  fs.cpp \
   interfaces/echo.cpp \
   interfaces/handler.cpp \
   interfaces/init.cpp \
@@ -998,6 +998,8 @@ libbitcoin_util_a_SOURCES = \
   util/edge.cpp \
   util/error.cpp \
   util/fees.cpp \
+  util/fs.cpp \
+  util/fs_helpers.cpp \
   util/hasher.cpp \
   util/getuniquepath.cpp \
   util/sock.cpp \

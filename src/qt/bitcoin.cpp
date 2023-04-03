@@ -10,7 +10,6 @@
 #include <qt/bitcoin.h>
 
 #include <chainparams.h>
-#include <fs.h>
 #include <init.h>
 #include <interfaces/handler.h>
 #include <interfaces/init.h>
@@ -32,6 +31,7 @@
 #include <qt/winshutdownmonitor.h>
 #include <stacktraces.h>
 #include <uint256.h>
+#include <util/fs.h>
 #include <util/string.h>
 #include <util/system.h>
 #include <util/threadnames.h>
