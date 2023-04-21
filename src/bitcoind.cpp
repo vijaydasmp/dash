@@ -10,6 +10,7 @@
 
 #include <chainparams.h>
 #include <clientversion.h>
+#include <common/args.h>
 #include <common/url.h>
 #include <compat/compat.h>
 #include <init.h>
@@ -260,7 +261,7 @@ MAIN_FUNCTION
     RegisterPrettySignalHandlers();
 
 #ifdef WIN32
-    util::WinCmdLineArgs winArgs;
+    common::WinCmdLineArgs winArgs;
     std::tie(argc, argv) = winArgs.get();
 #endif
 

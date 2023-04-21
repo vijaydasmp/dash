@@ -18,6 +18,7 @@
 
 #include <clientversion.h>
 #include <governance/object.h>
+#include <common/args.h>
 #include <interfaces/handler.h>
 #include <interfaces/node.h>
 #include <net.h>

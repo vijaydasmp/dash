@@ -5,9 +5,12 @@
 
 #include <compat/compat.h>
 #include <fs.h>
+#include <logging.h>
+#include <util/time.h>
 #include <wallet/bdb.h>
 #include <wallet/db.h>
 
+#include <sync.h>
 #include <util/strencodings.h>
 #include <util/translation.h>
 

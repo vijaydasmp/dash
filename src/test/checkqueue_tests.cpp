@@ -5,6 +5,7 @@
 #include <test/util/setup_common.h>
 
 #include <checkqueue.h>
+#include <common/args.h>
 #include <sync.h>
 #include <test/util/random.h>
 #include <util/time.h>

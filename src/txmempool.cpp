@@ -12,6 +12,7 @@
 #include <consensus/validation.h>
 #include <hash.h>
 #include <index/addressindex_util.h>
+#include <logging.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <policy/settings.h>

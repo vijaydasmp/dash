@@ -9,6 +9,7 @@
 #include <chainparams.h>
 #include <clientversion.h>
 #include <fs.h>
+#include <common/args.h>
 #include <hash.h>
 #include <logging/timer.h>
 #include <netbase.h>
@@ -18,7 +19,6 @@
 #include <tinyformat.h>
 #include <univalue.h>
 #include <util/settings.h>
-#include <util/system.h>
 #include <util/translation.h>
 
 #include <cstdint>

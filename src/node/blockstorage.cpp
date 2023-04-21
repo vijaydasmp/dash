@@ -7,10 +7,12 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <clientversion.h>
+#include <common/args.h>
 #include <consensus/validation.h>
 #include <flatfile.h>
 #include <fs.h>
 #include <hash.h>
+#include <logging.h>
 #include <pow.h>
 #include <shutdown.h>
 #include <streams.h>
