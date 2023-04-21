@@ -4,9 +4,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/args.h>
 #include <rpc/client.h>
 #include <tinyformat.h>
-#include <util/system.h>
 
 #include <map>
 #include <string>

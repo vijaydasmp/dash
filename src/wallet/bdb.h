@@ -13,6 +13,7 @@
 #include <util/system.h>
 #include <wallet/db.h>
 
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <string>

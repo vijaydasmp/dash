@@ -3,12 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
+#include <common/args.h>
 #include <index/base.h>
 #include <node/blockstorage.h>
 #include <node/interface_ui.h>
 #include <shutdown.h>
 #include <tinyformat.h>
-#include <util/system.h>
 #include <util/thread.h>
 #include <util/translation.h>
 #include <validation.h>

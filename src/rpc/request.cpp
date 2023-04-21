@@ -6,10 +6,11 @@
 
 #include <rpc/request.h>
 
+#include <common/args.h>
 #include <fs.h>
+#include <logging.h>
 #include <random.h>
 #include <rpc/protocol.h>
-#include <util/system.h>
 #include <util/strencodings.h>
 
 #include <fstream>

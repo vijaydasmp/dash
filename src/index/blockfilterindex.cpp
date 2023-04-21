@@ -4,12 +4,12 @@
 
 #include <map>
 
+#include <common/args.h>
 #include <dbwrapper.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
 #include <node/blockstorage.h>
 #include <serialize.h>
-#include <util/system.h>
 
 using node::UndoReadFromDisk;
 

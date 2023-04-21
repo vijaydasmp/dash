@@ -191,6 +191,7 @@ BITCOIN_CORE_H = \
   coinjoin/util.h \
   coinjoin/walletman.h \
   coins.h \
+  common/args.h \
   common/bloom.h \
   common/run_command.h \
   common/url.h \
@@ -925,7 +926,9 @@ libbitcoin_common_a_SOURCES = \
   bech32.cpp \
   chainparams.cpp \
   coins.cpp \
+  common/args.cpp \
   common/bloom.cpp \
+  common/config.cpp \
   common/run_command.cpp \
   compressor.cpp \
   core_read.cpp \
@@ -1182,6 +1185,8 @@ dash_chainstate_SOURCES = \
   chainparams.cpp \
   clientversion.cpp \
   coins.cpp \
+  common/args.cpp \
+  common/config.cpp \
   compressor.cpp \
   chainlock/clsig.cpp \
   chainlock/chainlock.cpp \
