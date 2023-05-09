@@ -104,8 +104,6 @@ using SecondsDouble = std::chrono::duration<double, std::chrono::seconds::period
  */
 int64_t GetTime();
 
-/** Returns the system time (not mockable) */
-int64_t GetTimeMicros();
 /**
  * DEPRECATED
  * Use SetMockTime with chrono type
