@@ -206,6 +206,7 @@ BITCOIN_CORE_H = \
   compat/compat.h \
   compat/cpuid.h \
   compat/endian.h \
+  common/settings.h \
   compressor.h \
   consensus/consensus.h \
   consensus/tx_check.h \
@@ -445,7 +446,6 @@ BITCOIN_CORE_H = \
   util/readwritefile.h \
   util/result.h \
   util/serfloat.h \
-  util/settings.h \
   util/sock.h \
   util/spanparsing.h \
   util/std23.h \
@@ -970,6 +970,7 @@ libbitcoin_common_a_SOURCES = \
   common/bloom.cpp \
   common/init.cpp \
   common/run_command.cpp \
+  common/settings.cpp \
   compressor.cpp \
   core_read.cpp \
   core_write.cpp \
@@ -1053,7 +1054,6 @@ libbitcoin_util_a_SOURCES = \
   util/ranges_set.cpp \
   util/readwritefile.cpp \
   util/serfloat.cpp \
-  util/settings.cpp \
   util/sock.cpp \
   util/spanparsing.cpp \
   util/strencodings.cpp \
@@ -1260,8 +1260,6 @@ libdashkernel_la_SOURCES = \
   chain.cpp \
   chainlock/chainlock.cpp \
   chainlock/clsig.cpp \
-  chainparams.cpp \
-  chainparamsbase.cpp \
   clientversion.cpp \
   coins.cpp \
   common/bloom.cpp \
@@ -1379,7 +1377,6 @@ libdashkernel_la_SOURCES = \
   util/moneystr.cpp \
   util/ranges_set.cpp \
   util/serfloat.cpp \
-  util/settings.cpp \
   util/sock.cpp \
   util/strencodings.cpp \
   util/string.cpp \
