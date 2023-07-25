@@ -41,6 +41,10 @@ class ChainlockHandler;
 
 /** Default for -maxorphantxsize, maximum size in megabytes the orphan map can grow before entries are removed */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE = 10; // this allows around 100 TXs of max size (and many more of normal size)
+/** Whether transaction reconciliation protocol should be enabled by default. */
+static constexpr bool DEFAULT_TXRECONCILIATION_ENABLE{false};
+/** Default for -maxorphantx, maximum number of orphan transactions kept in memory */
+static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS = 100;
 /** Default number of orphan+recently-replaced txn to keep around for block reconstruction */
 static const unsigned int DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN = 100;
 static const bool DEFAULT_PEERBLOOMFILTERS = true;
@@ -108,6 +112,15 @@ protected:
 class PeerManager : public CValidationInterface, public NetEventsInterface, public PeerManagerInternal
 {
 public:
+    struct Options {
+        /** Whether this node is running in -blocksonly mode */
+        bool ignore_incoming_txs{DEFAULT_BLOCKSONLY};
+        bool reconcile_txs{DEFAULT_TXRECONCILIATION_ENABLE};
+        uint32_t max_orphan_txs{DEFAULT_MAX_ORPHAN_TRANSACTIONS};
+        size_t max_extra_txs{DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN};
+        bool capture_messages{false};
+    };
+
     static std::unique_ptr<PeerManager> make(const CChainParams& chainparams, CConnman& connman, AddrMan& addrman,
                                              BanMan* banman, CDSTXManager& dstxman, ChainstateManager& chainman,
                                              CTxMemPool& pool, CMasternodeMetaMan& mn_metaman, CMasternodeSync& mn_sync,
@@ -118,7 +131,7 @@ public:
                                              const std::unique_ptr<CDeterministicMNManager>& dmnman,
                                              const std::unique_ptr<CJWalletManager>& cj_walletman,
                                              const std::unique_ptr<LLMQContext>& llmq_ctx,
-                                             const std::unique_ptr<llmq::ObserverContext>& observer_ctx, bool ignore_incoming_txs);
+                                             const std::unique_ptr<llmq::ObserverContext>& observer_ctx, Options opts);
     virtual ~PeerManager() { }
 
     /**

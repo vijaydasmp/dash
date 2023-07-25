@@ -47,7 +47,11 @@
 #include <node/context.h>
 #include <node/interface_ui.h>
 #include <node/sync_manager.h>
-#include <node/txreconciliation.h>
+#include <node/kernel_notifications.h>
+#include <node/mempool_args.h>
+#include <node/mempool_persist_args.h>
+#include <node/peerman_args.h>
+#include <node/validation_cache_args.h>
 #include <policy/feerate.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
@@ -154,6 +158,7 @@ using node::DEFAULT_PRINTPRIORITY;
 using node::DEFAULT_SPENTINDEX;
 using node::DEFAULT_STOPAFTERBLOCKIMPORT;
 using node::DEFAULT_TIMESTAMPINDEX;
+using node::ApplyArgsManOptions;
 using node::LoadChainstate;
 using node::NodeContext;
 using node::ThreadImport;
@@ -2172,11 +2177,16 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     node.clhandler = std::make_unique<chainlock::ChainlockHandler>(*node.chainlocks, chainman, *node.mempool, *node.mn_sync);
     RegisterValidationInterface(node.clhandler.get());
 
+    PeerManager::Options peerman_opts{
+        .ignore_incoming_txs = ignores_incoming_txs,
+    };
+    ApplyArgsManOptions(args, peerman_opts);
+
     assert(!node.peerman);
     node.peerman = PeerManager::make(chainparams, *node.connman, *node.addrman, node.banman.get(), *node.dstxman,
                                      chainman, *node.mempool, *node.mn_metaman, *node.mn_sync,
                                      *node.govman, *node.sporkman, *node.chainlocks, *node.clhandler, node.active_ctx, node.dmnman,
-                                     node.cj_walletman, node.llmq_ctx, node.observer_ctx, ignores_incoming_txs);
+                                     node.cj_walletman, node.llmq_ctx, node.observer_ctx, peerman_opts);
     RegisterValidationInterface(node.peerman.get());
 
     g_ds_notification_interface = std::make_unique<CDSNotificationInterface>(

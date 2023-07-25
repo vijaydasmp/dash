@@ -27,6 +27,8 @@
 #include <node/chainstate.h>
 #include <node/miner.h>
 #include <node/sync_manager.h>
+#include <node/peerman_args.h>
+#include <node/validation_cache_args.h>
 #include <policy/fees.h>
 #include <policy/settings.h>
 #include <pow.h>
@@ -82,6 +84,7 @@
 #include <memory>
 #include <stdexcept>
 
+using node::ApplyArgsManOptions;
 using node::BlockAssembler;
 using node::CalculateCacheSizes;
 using node::DashChainstateSetup;
@@ -131,11 +134,11 @@ std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              NodeContext& node,
                                              BanMan* banman,
                                              const CChainParams& chainparams,
-                                             bool ignore_incoming_txs)
+                                             PeerManager::Options opts)
 {
     return PeerManager::make(chainparams, connman, *node.addrman, banman, *node.dstxman, *node.chainman, *node.mempool, *node.mn_metaman,
                              *node.mn_sync, *node.govman, *node.sporkman, *node.chainlocks, *node.clhandler, node.active_ctx, node.dmnman, node.cj_walletman,
-                             node.llmq_ctx, node.observer_ctx, ignore_incoming_txs);
+                             node.llmq_ctx, node.observer_ctx, opts);
 }
 
 void DashChainstateSetup(ChainstateManager& chainman,
@@ -398,8 +401,10 @@ TestingSetup::TestingSetup(
 #endif // ENABLE_WALLET
 
     m_node.banman = std::make_unique<BanMan>(m_args.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
+    PeerManager::Options peerman_opts;
+    ApplyArgsManOptions(*m_node.args, peerman_opts);
     m_node.peerman = MakePeerManager(*m_node.connman, m_node, m_node.banman.get(), chainparams,
-                                     /*ignore_incoming_txs=*/false);
+                                     peerman_opts);
     {
         CConnman::Options options;
         options.m_msgproc = m_node.peerman.get();
