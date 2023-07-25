@@ -34,6 +34,8 @@ class Chainlocks;
 class ChainlockHandler;
 } // namespace chainlock
 
+/** Whether transaction reconciliation protocol should be enabled by default. */
+static constexpr bool DEFAULT_TXRECONCILIATION_ENABLE{false};
 /** Default for -maxorphantxsize, maximum size in megabytes the orphan map can grow before entries are removed */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE = 10; // this allows around 100 TXs of max size (and many more of normal size)
 /** Default number of orphan+recently-replaced txn to keep around for block reconstruction */
@@ -104,6 +106,15 @@ protected:
 class PeerManager : public CValidationInterface, public NetEventsInterface, public PeerManagerInternal
 {
 public:
+    struct Options {
+        /** Whether this node is running in -blocksonly mode */
+        bool ignore_incoming_txs{DEFAULT_BLOCKSONLY};
+        bool reconcile_txs{DEFAULT_TXRECONCILIATION_ENABLE};
+        uint32_t max_orphan_txs{DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE};
+        size_t max_extra_txs{DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN};
+        bool capture_messages{false};
+    };
+
     /**
      * @param nodeman Non-null iff masternode mode is on; null otherwise. Used both
      *                as the masternode-mode indicator and for direct access.
@@ -117,7 +128,7 @@ public:
                                              CActiveMasternodeManager* nodeman,
                                              const std::unique_ptr<CDeterministicMNManager>& dmnman,
                                              const std::unique_ptr<CJWalletManager>& cj_walletman,
-                                             const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
+                                             const std::unique_ptr<LLMQContext>& llmq_ctx, Options opts);
     virtual ~PeerManager() { }
 
     /**

@@ -85,7 +85,7 @@ std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              node::NodeContext& node,
                                              BanMan* banman,
                                              const CChainParams& chainparams,
-                                             bool ignore_incoming_txs);
+                                             const PeerManager::Options& opts);
 void DashChainstateSetup(ChainstateManager& chainman,
                          node::NodeContext& node,
                          bool llmq_dbs_in_memory,
