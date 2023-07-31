@@ -401,7 +401,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
 
         // A reload of the block index is required to recompute setBlockIndexCandidates
         // for the fully validated chainstate.
-        chainman.ActiveChainstate().UnloadBlockIndex();
+        chainman.ActiveChainstate().ClearBlockIndexCandidates();
 
         std::tie(init_status, init_error) = CompleteChainstateInitialization(chainman, cache_sizes, options, *evodb,
                                                                              dmnman, llmq_ctx, chain_helper);
