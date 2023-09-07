@@ -205,8 +205,7 @@ public:
 
     SERIALIZE_METHODS(CBlock, obj)
     {
-        READWRITEAS(CBlockHeader, obj);
-        READWRITE(obj.vtx);
+        READWRITE(AsBase<CBlockHeader>(obj), obj.vtx);
     }
 
     void SetNull()
