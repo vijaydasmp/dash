@@ -27,13 +27,6 @@
 extern bool fAllowPrivateNet;
 
 /**
- * A flag that is ORed into the protocol version to designate that addresses
- * should be serialized in (unserialized from) v2 format (BIP155).
- * Make sure that this does not collide with any of the values in `version.h`
- */
-static constexpr int ADDRV2_FORMAT = 0x20000000;
-
-/**
  * A network type.
  * @note An address may belong to more than one network, for example `10.0.0.1`
  * belongs to both `NET_UNROUTABLE` and `NET_IPV4`.
@@ -240,13 +233,23 @@ public:
         return IsIPv4() || IsIPv6() || IsTor() || IsI2P() || IsCJDNS();
     }
 
+    enum class Encoding {
+        V1,
+        V2, //!< BIP155 encoding
+    };
+    struct SerParams {
+        const Encoding enc;
+    };
+    static constexpr SerParams V1{Encoding::V1};
+    static constexpr SerParams V2{Encoding::V2};
+
     /**
      * Serialize to a stream.
      */
     template <typename Stream>
     void Serialize(Stream& s) const
     {
-        if (s.GetVersion() & ADDRV2_FORMAT) {
+        if (s.GetParams().enc == Encoding::V2) {
             SerializeV2Stream(s);
         } else {
             SerializeV1Stream(s);
@@ -259,7 +262,7 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s)
     {
-        if (s.GetVersion() & ADDRV2_FORMAT) {
+        if (s.GetParams().enc == Encoding::V2) {
             UnserializeV2Stream(s);
         } else {
             UnserializeV1Stream(s);
@@ -566,8 +569,7 @@ public:
 
     SERIALIZE_METHODS(CService, obj)
     {
-        READWRITEAS(CNetAddr, obj);
-        READWRITE(Using<BigEndianFormatter<2>>(obj.port));
+        READWRITE(AsBase<CNetAddr>(obj), Using<BigEndianFormatter<2>>(obj.port));
     }
 
     friend class CServiceHash;
