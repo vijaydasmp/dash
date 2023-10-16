@@ -1539,7 +1539,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_sync_tx_invalid_state_test, TestChain100Setup)
     BOOST_ASSERT(op_dest);
 
     CMutableTransaction mtx;
-    mtx.vout.emplace_back({COIN, GetScriptForDestination(*op_dest)});
+    mtx.vout.emplace_back(COIN, GetScriptForDestination(*op_dest));
     mtx.vin.emplace_back(CTxIn(g_insecure_rand_ctx.rand256(), 0));
     const auto& tx_id_to_spend = wallet.AddToWallet(MakeTransactionRef(mtx), TxStateInMempool{})->GetHash();
 
