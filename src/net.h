@@ -111,6 +111,8 @@ static const bool DEFAULT_BLOCKSONLY = false;
 static const int64_t DEFAULT_PEER_CONNECT_TIMEOUT = 60;
 /** Number of file descriptors required for message capture **/
 static const int NUM_FDS_MESSAGE_CAPTURE = 1;
+/** Interval for ASMap Health Check **/
+static constexpr std::chrono::hours ASMAP_HEALTH_CHECK_INTERVAL{24};
 
 static constexpr bool DEFAULT_FORCEDNSSEED{false};
 static constexpr bool DEFAULT_DNSSEED{true};
@@ -1272,6 +1274,7 @@ public:
     bool GetNetworkActive() const { return fNetworkActive; };
     bool GetUseAddrmanOutgoing() const { return m_use_addrman_outgoing; };
     void SetNetworkActive(bool active, CMasternodeSync* const mn_sync);
+    void ASMapHealthCheck();
     bool GetMasternodeThreadActive() const { return m_masternode_thread_active; };
     void SetMasternodeThreadActive(bool active) { m_masternode_thread_active = active; };
     bool IsActiveMasternode() const { return m_active_masternode; }
@@ -1405,8 +1408,9 @@ public:
      * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
      * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
      * @param[in] network        Select only addresses of this network (nullopt = all).
+     * @param[in] filtered       Select only addresses that are considered high quality (false = all).
      */
-    std::vector<CAddress> GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network) const;
+    std::vector<CAddress> GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network, const bool filtered = true) const;
 
     /**
      * Cache is used to minimize topology leaks, so it should
