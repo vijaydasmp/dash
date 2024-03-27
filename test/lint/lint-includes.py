@@ -14,6 +14,8 @@ import sys
 
 from subprocess import check_output, CalledProcessError
 
+from lint_ignore_dirs import SHARED_EXCLUDED_SUBTREES
+
 
 EXCLUDED_DIRS = ["src/leveldb/",
                  "src/crc32c/",
@@ -21,7 +23,7 @@ EXCLUDED_DIRS = ["src/leveldb/",
                  "src/minisketch/",
                  "src/dashbls/",
                  "src/immer/",
-                 "src/crypto/x11/"]
+                 "src/crypto/x11/"] + SHARED_EXCLUDED_SUBTREES
 
 EXPECTED_BOOST_INCLUDES = ["boost/date_time/posix_time/posix_time.hpp",
                            "boost/hana/for_each.hpp",
