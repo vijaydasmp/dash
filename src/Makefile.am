@@ -422,6 +422,7 @@ BITCOIN_CORE_H = \
   unordered_lru_cache.h \
   util/asmap.h \
   util/bip32.h \
+  util/bitset.h \
   util/bytevectorhash.h \
   util/check.h \
   util/edge.h \
