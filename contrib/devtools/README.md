@@ -7,6 +7,9 @@ clang-format-diff.py
 
 A script to format unified git diffs according to [.clang-format](../../src/.clang-format).
 
+Requires `clang-format`, installed e.g. via `brew install clang-format` on macOS,
+or `sudo apt install clang-format` on Debian/Ubuntu.
+
 For instance, to format the last commit with 0 lines of context,
 the script should be called from the git root folder as follows.
 
@@ -73,18 +76,18 @@ year rather than two hyphenated years.
 If the file already has a copyright for `The Dash Core developers`, the
 script will exit.
 
-gen-manpages.sh
+gen-manpages.py
 ===============
 
 A small script to automatically create manpages in ../../doc/man by running the release binaries with the -help option.
 This requires help2man which can be found at: https://www.gnu.org/software/help2man/
 
 With in-tree builds this tool can be run from any directory within the
-repostitory. To use this tool with out-of-tree builds set `BUILDDIR`. For
+repository. To use this tool with out-of-tree builds set `BUILDDIR`. For
 example:
 
 ```bash
-BUILDDIR=$PWD/build contrib/devtools/gen-manpages.sh
+BUILDDIR=$PWD/build contrib/devtools/gen-manpages.py
 ```
 
 github-merge.py
@@ -115,11 +118,37 @@ couldn't mess with the sources.
 
 Setup
 ---------
-Configuring the github-merge tool for the bitcoin repository is done in the following way:
+Configuring the github-merge tool for the Dash Core repository is done in the following way:
 
     git config githubmerge.repository dashpay/dash
     git config githubmerge.testcmd "make -j4 check" (adapt to whatever you want to use for testing)
-    git config --global user.signingkey mykeyid (if you want to GPG sign)
+    git config --global user.signingkey mykeyid
+
+Authentication (optional)
+--------------------------
+
+The API request limit for unauthenticated requests is quite low, but the
+limit for authenticated requests is much higher. If you start running
+into rate limiting errors it can be useful to set an authentication token
+so that the script can authenticate requests.
+
+- First, go to [Personal access tokens](https://github.com/settings/tokens).
+- Click 'Generate new token'.
+- Fill in an arbitrary token description. No further privileges are needed.
+- Click the `Generate token` button at the bottom of the form.
+- Copy the generated token (should be a hexadecimal string)
+
+Then do:
+
+    git config --global user.ghtoken "pasted token"
+
+Create and verify timestamps of merge commits
+---------------------------------------------
+To create or verify timestamps on the merge commits, install the OpenTimestamps
+client via `pip3 install opentimestamps-client`. Then, download the gpg wrapper
+`ots-git-gpg-wrapper.sh` and set it as git's `gpg.program`. See
+[the ots git integration documentation](https://github.com/opentimestamps/opentimestamps-client/blob/master/doc/git-integration.md#usage)
+for further details.
 
 optimize-pngs.py
 ================
@@ -130,22 +159,26 @@ repository (requires pngcrush).
 security-check.py and test-security-check.py
 ============================================
 
-Perform basic ELF security checks on a series of executables.
+Perform basic security checks on a series of executables.
 
 symbol-check.py
 ===============
 
-A script to check that the (Linux) executables produced by Gitian only contain
-allowed gcc, glibc and libstdc++ version symbols. This makes sure they are
-still compatible with the minimum supported Linux distribution versions.
+A script to check that release executables only contain
+certain symbols and are only linked against allowed libraries.
 
-Example usage after a Gitian build:
+For Linux this means checking for allowed gcc, glibc and libstdc++ version symbols.
+This makes sure they are still compatible with the minimum supported distribution versions.
 
-    find ../gitian-builder/build -type f -executable | xargs python contrib/devtools/symbol-check.py 
+For macOS and Windows we check that the executables are only linked against libraries we allow.
 
-If only supported symbols are used the return value will be 0 and the output will be empty.
+Example usage:
 
-If there are 'unsupported' symbols, the return value will be 1 a list like this will be printed:
+    find ../path/to/executables -type f -executable | xargs python3 contrib/devtools/symbol-check.py
+
+If no errors occur the return value will be 0 and the output will be empty.
+
+If there are any errors the return value will be 1 and output like this will be printed:
 
     .../64/test_dash: symbol memcpy from unsupported version GLIBC_2.14
     .../64/test_dash: symbol __fdelt_chk from unsupported version GLIBC_2.15

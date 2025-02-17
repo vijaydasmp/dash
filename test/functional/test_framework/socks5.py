@@ -40,6 +40,7 @@ class Socks5Configuration():
         self.af = socket.AF_INET # Bind address family
         self.unauth = False  # Support unauthenticated
         self.auth = False  # Support authentication
+        self.keep_alive = False  # Do not automatically close connections
 
 class Socks5Command():
     """Information about an incoming socks5 command."""
@@ -54,10 +55,9 @@ class Socks5Command():
         return 'Socks5Command(%s,%s,%s,%s,%s,%s)' % (self.cmd, self.atyp, self.addr, self.port, self.username, self.password)
 
 class Socks5Connection():
-    def __init__(self, serv, conn, peer):
+    def __init__(self, serv, conn):
         self.serv = serv
         self.conn = conn
-        self.peer = peer
 
     def handle(self):
         """Handle socks5 request according to RFC192."""
@@ -116,13 +116,14 @@ class Socks5Connection():
 
             cmdin = Socks5Command(cmd, atyp, addr, port, username, password)
             self.serv.queue.put(cmdin)
-            logger.info('Proxy: %s', cmdin)
+            logger.debug('Proxy: %s', cmdin)
             # Fall through to disconnect
         except Exception as e:
             logger.exception("socks5 request handling failed.")
             self.serv.queue.put(e)
         finally:
-            self.conn.close()
+            if not self.serv.keep_alive:
+                self.conn.close()
 
 class Socks5Server():
     def __init__(self, conf):
@@ -134,18 +135,19 @@ class Socks5Server():
         self.running = False
         self.thread = None
         self.queue = queue.Queue() # report connections and exceptions to client
+        self.keep_alive = conf.keep_alive
 
     def run(self):
         while self.running:
-            (sockconn, peer) = self.s.accept()
+            (sockconn, _) = self.s.accept()
             if self.running:
-                conn = Socks5Connection(self, sockconn, peer)
+                conn = Socks5Connection(self, sockconn)
                 thread = threading.Thread(None, conn.handle)
                 thread.daemon = True
                 thread.start()
 
     def start(self):
-        assert(not self.running)
+        assert not self.running
         self.running = True
         self.thread = threading.Thread(None, self.run)
         self.thread.daemon = True
@@ -158,4 +160,3 @@ class Socks5Server():
         s.connect(self.conf.addr)
         s.close()
         self.thread.join()
-

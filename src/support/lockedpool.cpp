@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Bitcoin Core developers
+// Copyright (c) 2016-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,18 +6,10 @@
 #include <support/cleanse.h>
 
 #if defined(HAVE_CONFIG_H)
-#include <config/dash-config.h>
+#include <config/bitcoin-config.h>
 #endif
 
 #ifdef WIN32
-#ifdef _WIN32_WINNT
-#undef _WIN32_WINNT
-#endif
-#define _WIN32_WINNT 0x0501
-#define WIN32_LEAN_AND_MEAN 1
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <windows.h>
 #else
 #include <sys/mman.h> // for mmap
@@ -27,13 +19,14 @@
 #endif
 
 #include <algorithm>
+#include <stdexcept>
 #ifdef ARENA_DEBUG
 #include <iomanip>
 #include <iostream>
 #endif
+#include <utility>
 
 LockedPoolManager* LockedPoolManager::_instance = nullptr;
-std::once_flag LockedPoolManager::init_flag;
 
 /*******************************************************************************/
 // Utilities
@@ -48,12 +41,12 @@ static inline size_t align_up(size_t x, size_t align)
 // Implementation: Arena
 
 Arena::Arena(void *base_in, size_t size_in, size_t alignment_in):
-    base(static_cast<char*>(base_in)), end(static_cast<char*>(base_in) + size_in), alignment(alignment_in)
+    base(base_in), end(static_cast<char*>(base_in) + size_in), alignment(alignment_in)
 {
     // Start with one free chunk that covers the entire arena
     auto it = size_to_free_chunk.emplace(size_in, base);
     chunks_free.emplace(base, it);
-    chunks_free_end.emplace(base + size_in, it);
+    chunks_free_end.emplace(static_cast<char*>(base) + size_in, it);
 }
 
 Arena::~Arena()
@@ -71,7 +64,7 @@ void* Arena::alloc(size_t size)
 
     // Pick a large enough free-chunk. Returns an iterator pointing to the first element that is not less than key.
     // This allocation strategy is best-fit. According to "Dynamic Storage Allocation: A Survey and Critical Review",
-    // Wilson et. al. 1995, http://www.scs.stanford.edu/14wi-cs140/sched/readings/wilson.pdf, best-fit and first-fit
+    // Wilson et. al. 1995, https://www.scs.stanford.edu/14wi-cs140/sched/readings/wilson.pdf, best-fit and first-fit
     // policies seem to work well in practice.
     auto size_ptr_it = size_to_free_chunk.lower_bound(size);
     if (size_ptr_it == size_to_free_chunk.end())
@@ -79,8 +72,9 @@ void* Arena::alloc(size_t size)
 
     // Create the used-chunk, taking its space from the end of the free-chunk
     const size_t size_remaining = size_ptr_it->first - size;
-    auto alloced = chunks_used.emplace(size_ptr_it->second + size_remaining, size).first;
-    chunks_free_end.erase(size_ptr_it->second + size_ptr_it->first);
+    char* const free_chunk = static_cast<char*>(size_ptr_it->second);
+    auto allocated = chunks_used.emplace(free_chunk + size_remaining, size).first;
+    chunks_free_end.erase(free_chunk + size_ptr_it->first);
     if (size_ptr_it->first == size) {
         // whole chunk is used up
         chunks_free.erase(size_ptr_it->second);
@@ -88,11 +82,11 @@ void* Arena::alloc(size_t size)
         // still some memory left in the chunk
         auto it_remaining = size_to_free_chunk.emplace(size_remaining, size_ptr_it->second);
         chunks_free[size_ptr_it->second] = it_remaining;
-        chunks_free_end.emplace(size_ptr_it->second + size_remaining, it_remaining);
+        chunks_free_end.emplace(free_chunk + size_remaining, it_remaining);
     }
     size_to_free_chunk.erase(size_ptr_it);
 
-    return reinterpret_cast<void*>(alloced->first);
+    return allocated->first;
 }
 
 void Arena::free(void *ptr)
@@ -103,11 +97,11 @@ void Arena::free(void *ptr)
     }
 
     // Remove chunk from used map
-    auto i = chunks_used.find(static_cast<char*>(ptr));
+    auto i = chunks_used.find(ptr);
     if (i == chunks_used.end()) {
         throw std::runtime_error("Arena: invalid or double free");
     }
-    std::pair<char*, size_t> freed = *i;
+    auto freed = std::make_pair(static_cast<char*>(i->first), i->second);
     chunks_used.erase(i);
 
     // coalesce freed with previous chunk
@@ -145,7 +139,7 @@ Arena::Stats Arena::stats() const
 }
 
 #ifdef ARENA_DEBUG
-void printchunk(void* base, size_t sz, bool used) {
+static void printchunk(void* base, size_t sz, bool used) {
     std::cout <<
         "0x" << std::hex << std::setw(16) << std::setfill('0') << base <<
         " 0x" << std::hex << std::setw(16) << std::setfill('0') << sz <<
@@ -208,7 +202,10 @@ void Win32LockedPageAllocator::FreeLocked(void* addr, size_t len)
 
 size_t Win32LockedPageAllocator::GetLimit()
 {
-    // TODO is there a limit on Windows, how to get it?
+    size_t min, max;
+    if(GetProcessWorkingSetSize(GetCurrentProcess(), &min, &max) != 0) {
+        return min;
+    }
     return std::numeric_limits<size_t>::max();
 }
 #endif
@@ -241,19 +238,21 @@ PosixLockedPageAllocator::PosixLockedPageAllocator()
 #endif
 }
 
-// Some systems (at least OS X) do not define MAP_ANONYMOUS yet and define
-// MAP_ANON which is deprecated
-#ifndef MAP_ANONYMOUS
-#define MAP_ANONYMOUS MAP_ANON
-#endif
-
 void *PosixLockedPageAllocator::AllocateLocked(size_t len, bool *lockingSuccess)
 {
     void *addr;
     len = align_up(len, page_size);
     addr = mmap(nullptr, len, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED) {
+        return nullptr;
+    }
     if (addr) {
         *lockingSuccess = mlock(addr, len) == 0;
+#if defined(MADV_DONTDUMP) // Linux
+        madvise(addr, len, MADV_DONTDUMP);
+#elif defined(MADV_NOCORE) // FreeBSD
+        madvise(addr, len, MADV_NOCORE);
+#endif
     }
     return addr;
 }
@@ -400,9 +399,9 @@ void LockedPoolManager::CreateInstance()
     // have a static deinitialization order/problem, but the check in
     // LockedPoolManagerBase's destructor helps us detect if that ever happens.
 #ifdef WIN32
-    std::unique_ptr<LockedPageAllocator> allocator(new Win32LockedPageAllocator());
+    std::unique_ptr<LockedPageAllocator> allocator{std::make_unique<Win32LockedPageAllocator>()};
 #else
-    std::unique_ptr<LockedPageAllocator> allocator(new PosixLockedPageAllocator());
+    std::unique_ptr<LockedPageAllocator> allocator{std::make_unique<PosixLockedPageAllocator>()};
 #endif
     static LockedPoolManager instance(std::move(allocator));
     LockedPoolManager::_instance = &instance;

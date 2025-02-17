@@ -1176,7 +1176,7 @@ QDialog#CoinControlDialog .CoinControlTreeWidget#treeWidget::branch:checked { /*
     background-position: center;
 }
 
-QDialog#CoinControlDialog .CoinControlTreeWidget#treeWidget::seperator {
+QDialog#CoinControlDialog .CoinControlTreeWidget#treeWidget::separator {
 
 }
 
@@ -1315,6 +1315,10 @@ QWidget#OverviewPage QLabel#labelAlerts {
      border-radius: 5px;
      padding: 5px;
  }
+
+QWidget#no_wallet_group {
+    border: 0;
+}
 
 /******************************************************
 OverviewPage Balances
@@ -1540,7 +1544,6 @@ QWidget .QFrame#frame_2 .QLabel#labelTransactionsStatus { /* Recent Transactions
 
 QWidget .QFrame#frame_2 QListView { /* Transaction List */
     background: #00000000;
-    max-width: 430px;
     margin-right: 10px;
 }
 
@@ -1584,6 +1587,13 @@ QWidget#RPCConsole QLabel#labelMempoolTitle,
 QWidget#RPCConsole QLabel#label_repair_header,
 QWidget#RPCConsole QLabel#peerHeading,
 QWidget#RPCConsole QLabel#banHeading {
+}
+
+QWidget#RPCConsole QLabel#label_alerts {
+    background-color: #c79304;
+    color: #222222;
+    border-radius: 5px;
+    padding: 5px;
 }
 
 QWidget#RPCConsole QLabel#labelNetwork,
@@ -1687,7 +1697,7 @@ QDialog#SendCoinsDialog .QScrollArea#scrollArea .QWidget#scrollAreaWidgetContent
     background-color: #00000000;
 }
 
-QDialog#SendCoinsDialog QLabel#labelBalanceText,
+QDialog#SendCoinsDialog QLabel#labelBalanceName,
 QDialog#SendCoinsDialog QLabel#labelBalance {
     qproperty-alignment: 'AlignLeading | AlignLeft';
     min-height: 20px;

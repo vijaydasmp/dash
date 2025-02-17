@@ -1,10 +1,10 @@
-// Copyright (c) 2018-2021 The Dash Core developers
+// Copyright (c) 2018-2024 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <evo/evodb.h>
 
-std::unique_ptr<CEvoDB> evoDb;
+#include <uint256.h>
 
 CEvoDBScopedCommitter::CEvoDBScopedCommitter(CEvoDB &_evoDB) :
     evoDB(_evoDB)
@@ -32,7 +32,7 @@ void CEvoDBScopedCommitter::Rollback()
 }
 
 CEvoDB::CEvoDB(size_t nCacheSize, bool fMemory, bool fWipe) :
-    db(fMemory ? "" : (GetDataDir() / "evodb"), nCacheSize, fMemory, fWipe),
+    db(fMemory ? "" : (gArgs.GetDataDirNet() / "evodb"), nCacheSize, fMemory, fWipe),
     rootBatch(db),
     rootDBTransaction(db, rootBatch),
     curDBTransaction(rootDBTransaction, rootDBTransaction)

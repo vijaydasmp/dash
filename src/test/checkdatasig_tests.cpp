@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2020 The Bitcoin developers
+// Copyright (c) 2021-2024 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,12 +6,11 @@
 #include <script/interpreter.h>
 
 #include <test/lcg.h>
-#include <test/test_dash.h>
+#include <test/util/setup_common.h>
 
 #include <boost/test/unit_test.hpp>
 
 #include <array>
-#include <bitset>
 
 typedef std::vector<uint8_t> valtype;
 typedef std::vector<valtype> stacktype;
@@ -43,7 +42,7 @@ static void CheckError(uint32_t flags, const stacktype& original_stack,
     BaseSignatureChecker sigchecker;
     ScriptError err = ScriptError::SCRIPT_ERR_OK;
     stacktype stack{original_stack};
-    bool r = EvalScript(stack, script, flags | SCRIPT_ENABLE_DIP0020_OPCODES, sigchecker, SigVersion::BASE, &err);
+    bool r = EvalScript(stack, script, flags, sigchecker, SigVersion::BASE, &err);
     BOOST_CHECK(!r);
     BOOST_CHECK(err == expected);
 }
@@ -54,7 +53,7 @@ static void CheckPass(uint32_t flags, const stacktype& original_stack,
     BaseSignatureChecker sigchecker;
     ScriptError err = ScriptError::SCRIPT_ERR_OK;
     stacktype stack{original_stack};
-    bool r = EvalScript(stack, script, flags | SCRIPT_ENABLE_DIP0020_OPCODES, sigchecker, SigVersion::BASE, &err);
+    bool r = EvalScript(stack, script, flags, sigchecker, SigVersion::BASE, &err);
     BOOST_CHECK(r);
     BOOST_CHECK(err == ScriptError::SCRIPT_ERR_OK);
     BOOST_CHECK(stack == expected);

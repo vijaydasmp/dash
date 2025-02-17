@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Bitcoin Core developers
+// Copyright (c) 2016-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -22,7 +22,7 @@ public:
     virtual ~LockedPageAllocator() {}
     /** Allocate and lock memory pages.
      * If len is not a multiple of the system page size, it is rounded up.
-     * Returns 0 in case of allocation failure.
+     * Returns nullptr in case of allocation failure.
      *
      * If locking the memory pages could not be accomplished it will still
      * return the memory, however the lockingSuccess flag will be false.
@@ -89,23 +89,23 @@ public:
      */
     bool addressInArena(void *ptr) const { return ptr >= base && ptr < end; }
 private:
-    typedef std::multimap<size_t, char*> SizeToChunkSortedMap;
+    typedef std::multimap<size_t, void*> SizeToChunkSortedMap;
     /** Map to enable O(log(n)) best-fit allocation, as it's sorted by size */
     SizeToChunkSortedMap size_to_free_chunk;
 
-    typedef std::unordered_map<char*, SizeToChunkSortedMap::const_iterator> ChunkToSizeMap;
+    typedef std::unordered_map<void*, SizeToChunkSortedMap::const_iterator> ChunkToSizeMap;
     /** Map from begin of free chunk to its node in size_to_free_chunk */
     ChunkToSizeMap chunks_free;
     /** Map from end of free chunk to its node in size_to_free_chunk */
     ChunkToSizeMap chunks_free_end;
 
     /** Map from begin of used chunk to its size */
-    std::unordered_map<char*, size_t> chunks_used;
+    std::unordered_map<void*, size_t> chunks_used;
 
     /** Base address of arena */
-    char* base;
+    void* base;
     /** End address of arena */
-    char* end;
+    void* end;
     /** Minimum chunk alignment */
     size_t alignment;
 };
@@ -221,7 +221,8 @@ public:
     /** Return the current instance, or create it once */
     static LockedPoolManager& Instance()
     {
-        std::call_once(LockedPoolManager::init_flag, LockedPoolManager::CreateInstance);
+        static std::once_flag init_flag;
+        std::call_once(init_flag, LockedPoolManager::CreateInstance);
         return *LockedPoolManager::_instance;
     }
 
@@ -234,7 +235,6 @@ private:
     static bool LockingFailed();
 
     static LockedPoolManager* _instance;
-    static std::once_flag init_flag;
 };
 
 #endif // BITCOIN_SUPPORT_LOCKEDPOOL_H

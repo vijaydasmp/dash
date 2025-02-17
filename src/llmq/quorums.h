@@ -1,34 +1,77 @@
-// Copyright (c) 2018-2021 The Dash Core developers
+// Copyright (c) 2018-2025 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_LLMQ_QUORUMS_H
 #define BITCOIN_LLMQ_QUORUMS_H
 
-#include <evo/evodb.h>
-#include <evo/deterministicmns.h>
-#include <llmq/quorums_commitment.h>
-
-#include <chain.h>
-#include <consensus/params.h>
-#include <saltedhasher.h>
-#include <unordered_lru_cache.h>
-#include <threadinterrupt.h>
+#include <llmq/params.h>
 
 #include <bls/bls.h>
 #include <bls/bls_worker.h>
+#include <ctpl_stl.h>
+#include <gsl/pointers.h>
+#include <protocol.h>
+#include <saltedhasher.h>
+#include <threadinterrupt.h>
+#include <unordered_lru_cache.h>
+#include <util/time.h>
 
-#include <ctpl.h>
+#include <atomic>
+#include <map>
+#include <utility>
 
+class CActiveMasternodeManager;
+class CBlockIndex;
+class CChain;
+class CChainState;
+class CConnman;
+class CDataStream;
+class CDeterministicMN;
+class CDeterministicMNManager;
+class CDBWrapper;
+class CEvoDB;
+class CMasternodeSync;
 class CNode;
+class CSporkManager;
+
+using CDeterministicMNCPtr = std::shared_ptr<const CDeterministicMN>;
 
 namespace llmq
 {
-
-// If true, we will connect to all new quorums and watch their communication
-static const bool DEFAULT_WATCH_QUORUMS = false;
+enum class VerifyRecSigStatus
+{
+    NoQuorum,
+    Invalid,
+    Valid,
+};
 
 class CDKGSessionManager;
+class CQuorumBlockProcessor;
+class CQuorumSnapshotManager;
+
+/**
+ * Object used as a key to store CQuorumDataRequest
+ */
+struct CQuorumDataRequestKey
+{
+    uint256 proRegTx;
+    bool m_we_requested;
+    uint256 quorumHash;
+    Consensus::LLMQType llmqType;
+
+    CQuorumDataRequestKey(const uint256& proRegTxIn, const bool _m_we_requested, const uint256& quorumHashIn, const Consensus::LLMQType llmqTypeIn) :
+        proRegTx(proRegTxIn),
+        m_we_requested(_m_we_requested),
+        quorumHash(quorumHashIn),
+        llmqType(llmqTypeIn)
+        {}
+
+    bool operator ==(const CQuorumDataRequestKey& obj) const
+    {
+        return (proRegTx == obj.proRegTx && m_we_requested == obj.m_we_requested && quorumHash == obj.quorumHash && llmqType == obj.llmqType);
+    }
+};
 
 /**
  * An object of this class represents a QGETDATA request or a QDATA response header
@@ -53,16 +96,17 @@ public:
     };
 
 private:
-    Consensus::LLMQType llmqType;
+    Consensus::LLMQType llmqType{Consensus::LLMQType::LLMQ_NONE};
     uint256 quorumHash;
-    uint16_t nDataMask;
+    uint16_t nDataMask{0};
     uint256 proTxHash;
-    Errors nError;
+    Errors nError{UNDEFINED};
 
-    int64_t nTime;
-    bool fProcessed;
+    int64_t nTime{GetTime()};
+    bool fProcessed{false};
 
-    static const int64_t EXPIRATION_TIMEOUT{300};
+    static constexpr int64_t EXPIRATION_TIMEOUT{300};
+    static constexpr int64_t EXPIRATION_BIAS{60};
 
 public:
 
@@ -71,60 +115,46 @@ public:
         llmqType(llmqTypeIn),
         quorumHash(quorumHashIn),
         nDataMask(nDataMaskIn),
-        proTxHash(proTxHashIn),
-        nError(UNDEFINED),
-        nTime(GetTime()),
-        fProcessed(false) {}
+        proTxHash(proTxHashIn)
+        {}
 
-    ADD_SERIALIZE_METHODS
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+    SERIALIZE_METHODS(CQuorumDataRequest, obj)
     {
-        READWRITE(llmqType);
-        READWRITE(quorumHash);
-        READWRITE(nDataMask);
-        READWRITE(proTxHash);
-        if (ser_action.ForRead()) {
+        bool fRead{false};
+        SER_READ(obj, fRead = true);
+        READWRITE(obj.llmqType, obj.quorumHash, obj.nDataMask, obj.proTxHash);
+        if (fRead) {
             try {
-                READWRITE(nError);
+                READWRITE(obj.nError);
             } catch (...) {
-                nError = UNDEFINED;
+                SER_READ(obj, obj.nError = UNDEFINED);
             }
-        } else if (nError != UNDEFINED) {
-            READWRITE(nError);
+        } else if (obj.nError != UNDEFINED) {
+            READWRITE(obj.nError);
         }
     }
 
-    const Consensus::LLMQType GetLLMQType() const { return llmqType; }
+    Consensus::LLMQType GetLLMQType() const { return llmqType; }
     const uint256& GetQuorumHash() const { return quorumHash; }
-    const uint16_t GetDataMask() const { return nDataMask; }
+    uint16_t GetDataMask() const { return nDataMask; }
     const uint256& GetProTxHash() const { return proTxHash; }
 
     void SetError(Errors nErrorIn) { nError = nErrorIn; }
-    const Errors GetError() const { return nError; }
+    Errors GetError() const { return nError; }
+    std::string GetErrorString() const;
 
-    bool IsExpired() const
-    {
-        return (GetTime() - nTime) >= EXPIRATION_TIMEOUT;
-    }
-    bool IsProcessed() const
-    {
-        return fProcessed;
-    }
-    void SetProcessed()
-    {
-        fProcessed = true;
-    }
+    bool IsExpired(bool add_bias) const { return (GetTime() - nTime) >= (EXPIRATION_TIMEOUT + (add_bias ? EXPIRATION_BIAS : 0)); }
+    bool IsProcessed() const { return fProcessed; }
+    void SetProcessed() { fProcessed = true; }
 
-    bool operator==(const CQuorumDataRequest& other)
+    bool operator==(const CQuorumDataRequest& other) const
     {
         return llmqType == other.llmqType &&
                quorumHash == other.quorumHash &&
                nDataMask == other.nDataMask &&
                proTxHash == other.proTxHash;
     }
-    bool operator!=(const CQuorumDataRequest& other)
+    bool operator!=(const CQuorumDataRequest& other) const
     {
         return !(*this == other);
     }
@@ -141,22 +171,22 @@ public:
  */
 
 class CQuorum;
-typedef std::shared_ptr<CQuorum> CQuorumPtr;
-typedef std::shared_ptr<const CQuorum> CQuorumCPtr;
+using CQuorumPtr = std::shared_ptr<CQuorum>;
+using CQuorumCPtr = std::shared_ptr<const CQuorum>;
+
+class CFinalCommitment;
+using CFinalCommitmentPtr = std::unique_ptr<CFinalCommitment>;
+
 
 class CQuorum
 {
     friend class CQuorumManager;
 public:
-    const Consensus::LLMQParams& params;
-    CFinalCommitment qc;
-    const CBlockIndex* pindexQuorum;
+    const Consensus::LLMQParams params;
+    CFinalCommitmentPtr qc;
+    const CBlockIndex* m_quorum_base_block_index{nullptr};
     uint256 minedBlockHash;
     std::vector<CDeterministicMNCPtr> members;
-
-    // These are only valid when we either participated in the DKG or fully watched it
-    BLSVerificationVectorPtr quorumVvec;
-    CBLSSecretKey skShare;
 
 private:
     // Recovery of public key shares is very slow, so we start a background thread that pre-populates a cache so that
@@ -164,24 +194,35 @@ private:
     mutable CBLSWorkerCache blsCache;
     mutable std::atomic<bool> fQuorumDataRecoveryThreadRunning{false};
 
+    mutable Mutex cs_vvec_shShare;
+    // These are only valid when we either participated in the DKG or fully watched it
+    BLSVerificationVectorPtr quorumVvec GUARDED_BY(cs_vvec_shShare);
+    CBLSSecretKey skShare GUARDED_BY(cs_vvec_shShare);
+
 public:
     CQuorum(const Consensus::LLMQParams& _params, CBLSWorker& _blsWorker);
-    ~CQuorum();
-    void Init(const CFinalCommitment& _qc, const CBlockIndex* _pindexQuorum, const uint256& _minedBlockHash, const std::vector<CDeterministicMNCPtr>& _members);
+    ~CQuorum() = default;
+    void Init(CFinalCommitmentPtr _qc, const CBlockIndex* _pQuorumBaseBlockIndex, const uint256& _minedBlockHash, Span<CDeterministicMNCPtr> _members);
 
-    bool SetVerificationVector(const BLSVerificationVector& quorumVecIn);
-    bool SetSecretKeyShare(const CBLSSecretKey& secretKeyShare);
+    bool SetVerificationVector(const std::vector<CBLSPublicKey>& quorumVecIn);
+    void SetVerificationVector(BLSVerificationVectorPtr vvec_in) {
+        LOCK(cs_vvec_shShare);
+        quorumVvec = std::move(vvec_in);
+    }
+    bool SetSecretKeyShare(const CBLSSecretKey& secretKeyShare, const CActiveMasternodeManager& mn_activeman);
 
+    bool HasVerificationVector() const LOCKS_EXCLUDED(cs_vvec_shShare);
     bool IsMember(const uint256& proTxHash) const;
     bool IsValidMember(const uint256& proTxHash) const;
     int GetMemberIndex(const uint256& proTxHash) const;
 
     CBLSPublicKey GetPubKeyShare(size_t memberIdx) const;
-    const CBLSSecretKey& GetSkShare() const;
+    CBLSSecretKey GetSkShare() const;
 
 private:
-    void WriteContributions(CEvoDB& evoDb);
-    bool ReadContributions(CEvoDB& evoDb);
+    bool HasVerificationVectorInternal() const EXCLUSIVE_LOCKS_REQUIRED(cs_vvec_shShare);
+    void WriteContributions(CDBWrapper& db) const;
+    bool ReadContributions(const CDBWrapper& db);
 };
 
 /**
@@ -193,33 +234,53 @@ private:
 class CQuorumManager
 {
 private:
-    CEvoDB& evoDb;
-    CBLSWorker& blsWorker;
-    CDKGSessionManager& dkgManager;
+    mutable Mutex cs_db;
+    std::unique_ptr<CDBWrapper> db GUARDED_BY(cs_db){nullptr};
 
-    mutable CCriticalSection quorumsCacheCs;
-    mutable std::map<Consensus::LLMQType, unordered_lru_cache<uint256, CQuorumPtr, StaticSaltedHasher>> mapQuorumsCache;
-    mutable std::map<Consensus::LLMQType, unordered_lru_cache<uint256, std::vector<CQuorumCPtr>, StaticSaltedHasher>> scanQuorumsCache;
+    CBLSWorker& blsWorker;
+    CChainState& m_chainstate;
+    CDeterministicMNManager& m_dmnman;
+    CDKGSessionManager& dkgManager;
+    CQuorumBlockProcessor& quorumBlockProcessor;
+    CQuorumSnapshotManager& m_qsnapman;
+    const CActiveMasternodeManager* const m_mn_activeman;
+    const CMasternodeSync& m_mn_sync;
+    const CSporkManager& m_sporkman;
+
+    mutable Mutex cs_map_quorums;
+    mutable std::map<Consensus::LLMQType, unordered_lru_cache<uint256, CQuorumPtr, StaticSaltedHasher>> mapQuorumsCache GUARDED_BY(cs_map_quorums);
+    mutable Mutex cs_scan_quorums;
+    mutable std::map<Consensus::LLMQType, unordered_lru_cache<uint256, std::vector<CQuorumCPtr>, StaticSaltedHasher>> scanQuorumsCache GUARDED_BY(cs_scan_quorums);
+    mutable Mutex cs_cleanup;
+    mutable std::map<Consensus::LLMQType, unordered_lru_cache<uint256, uint256, StaticSaltedHasher>> cleanupQuorumsCache GUARDED_BY(cs_cleanup);
+
+    mutable Mutex cs_quorumBaseBlockIndexCache;
+    // On mainnet, we have around 62 quorums active at any point; let's cache a little more than double that to be safe.
+    mutable unordered_lru_cache<uint256 /*quorum_hash*/, const CBlockIndex* /*pindex*/, StaticSaltedHasher, 128 /*max_size*/> quorumBaseBlockIndexCache;
 
     mutable ctpl::thread_pool workerPool;
     mutable CThreadInterrupt quorumThreadInterrupt;
 
 public:
-    CQuorumManager(CEvoDB& _evoDb, CBLSWorker& _blsWorker, CDKGSessionManager& _dkgManager);
+    CQuorumManager(CBLSWorker& _blsWorker, CChainState& chainstate, CDeterministicMNManager& dmnman,
+                   CDKGSessionManager& _dkgManager, CEvoDB& _evoDb, CQuorumBlockProcessor& _quorumBlockProcessor,
+                   CQuorumSnapshotManager& qsnapman, const CActiveMasternodeManager* const mn_activeman,
+                   const CMasternodeSync& mn_sync, const CSporkManager& sporkman, bool unit_tests, bool wipe);
     ~CQuorumManager();
 
     void Start();
     void Stop();
 
-    void TriggerQuorumDataRecoveryThreads(const CBlockIndex* pIndex) const;
+    void TriggerQuorumDataRecoveryThreads(CConnman& connman, const CBlockIndex* pIndex) const;
 
-    void UpdatedBlockTip(const CBlockIndex *pindexNew, bool fInitialDownload) const;
+    void UpdatedBlockTip(const CBlockIndex* pindexNew, CConnman& connman, bool fInitialDownload) const;
 
-    void ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv);
+    PeerMsgRet ProcessMessage(CNode& pfrom, CConnman& connman, const std::string& msg_type, CDataStream& vRecv);
 
-    static bool HasQuorum(Consensus::LLMQType llmqType, const uint256& quorumHash);
+    static bool HasQuorum(Consensus::LLMQType llmqType, const CQuorumBlockProcessor& quorum_block_processor, const uint256& quorumHash);
 
-    bool RequestQuorumData(CNode* pFrom, Consensus::LLMQType llmqType, const CBlockIndex* pQuorumIndex, uint16_t nDataMask, const uint256& proTxHash = uint256());
+    bool RequestQuorumData(CNode* pfrom, CConnman& connman, const CQuorumCPtr pQuorum, uint16_t nDataMask,
+                           const uint256& proTxHash = uint256()) const;
 
     // all these methods will lock cs_main for a short period of time
     CQuorumCPtr GetQuorum(Consensus::LLMQType llmqType, const uint256& quorumHash) const;
@@ -230,24 +291,54 @@ public:
 
 private:
     // all private methods here are cs_main-free
-    void EnsureQuorumConnections(Consensus::LLMQType llmqType, const CBlockIndex *pindexNew) const;
+    void CheckQuorumConnections(CConnman& connman, const Consensus::LLMQParams& llmqParams,
+                                const CBlockIndex* pindexNew) const;
 
-    CQuorumPtr BuildQuorumFromCommitment(Consensus::LLMQType llmqType, const CBlockIndex* pindexQuorum) const;
-    bool BuildQuorumContributions(const CFinalCommitment& fqc, std::shared_ptr<CQuorum>& quorum) const;
+    CQuorumPtr BuildQuorumFromCommitment(Consensus::LLMQType llmqType, gsl::not_null<const CBlockIndex*> pQuorumBaseBlockIndex, bool populate_cache) const;
+    bool BuildQuorumContributions(const CFinalCommitmentPtr& fqc, const std::shared_ptr<CQuorum>& quorum) const;
 
-    CQuorumCPtr GetQuorum(Consensus::LLMQType llmqType, const CBlockIndex* pindex) const;
+    CQuorumCPtr GetQuorum(Consensus::LLMQType llmqType, gsl::not_null<const CBlockIndex*> pindex, bool populate_cache = true) const;
     /// Returns the start offset for the masternode with the given proTxHash. This offset is applied when picking data recovery members of a quorum's
     /// memberlist and is calculated based on a list of all member of all active quorums for the given llmqType in a way that each member
     /// should receive the same number of request if all active llmqType members requests data from one llmqType quorum.
     size_t GetQuorumRecoveryStartOffset(const CQuorumCPtr pQuorum, const CBlockIndex* pIndex) const;
 
     void StartCachePopulatorThread(const CQuorumCPtr pQuorum) const;
-    void StartQuorumDataRecoveryThread(const CQuorumCPtr pQuorum, const CBlockIndex* pIndex, uint16_t nDataMask) const;
+    void StartQuorumDataRecoveryThread(CConnman& connman, const CQuorumCPtr pQuorum, const CBlockIndex* pIndex,
+                                       uint16_t nDataMask) const;
+
+    void StartCleanupOldQuorumDataThread(const CBlockIndex* pIndex) const;
+    void MigrateOldQuorumDB(CEvoDB& evoDb) const;
 };
 
-extern CQuorumManager* quorumManager;
+// when selecting a quorum for signing and verification, we use CQuorumManager::SelectQuorum with this offset as
+// starting height for scanning. This is because otherwise the resulting signatures would not be verifiable by nodes
+// which are not 100% at the chain tip.
+static constexpr int SIGN_HEIGHT_OFFSET{8};
 
+CQuorumCPtr SelectQuorumForSigning(const Consensus::LLMQParams& llmq_params, const CChain& active_chain, const CQuorumManager& qman,
+                                   const uint256& selectionHash, int signHeight = -1 /*chain tip*/, int signOffset = SIGN_HEIGHT_OFFSET);
+
+// Verifies a recovered sig that was signed while the chain tip was at signedAtTip
+VerifyRecSigStatus VerifyRecoveredSig(Consensus::LLMQType llmqType, const CChain& active_chain, const CQuorumManager& qman,
+                                      int signedAtHeight, const uint256& id, const uint256& msgHash, const CBLSSignature& sig,
+                                      int signOffset = SIGN_HEIGHT_OFFSET);
 } // namespace llmq
+
+template<typename T> struct SaltedHasherImpl;
+template<>
+struct SaltedHasherImpl<llmq::CQuorumDataRequestKey>
+{
+    static std::size_t CalcHash(const llmq::CQuorumDataRequestKey& v, uint64_t k0, uint64_t k1)
+    {
+        CSipHasher c(k0, k1);
+        c.Write(reinterpret_cast<const unsigned char*>(&v.proRegTx), sizeof(v.proRegTx));
+        c.Write(reinterpret_cast<const unsigned char*>(&v.m_we_requested), sizeof(v.m_we_requested));
+        c.Write(reinterpret_cast<const unsigned char*>(&v.quorumHash), sizeof(v.quorumHash));
+        c.Write(reinterpret_cast<const unsigned char*>(&v.llmqType), sizeof(v.llmqType));
+        return c.Finalize();
+    }
+};
 
 template<> struct is_serializable_enum<llmq::CQuorumDataRequest::Errors> : std::true_type {};
 

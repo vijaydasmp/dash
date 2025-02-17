@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2021 The Dash Core developers
+// Copyright (c) 2018-2024 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,6 +8,11 @@
 #include <bls/bls.h>
 #include <streams.h>
 
+/**
+ * All objects in this module working from assumption that basic scheme is
+ * available on all masternodes. Serialization of public key for Encrypt and
+ * Decrypt by bls_ies.h done using Basic Scheme.
+ */
 class CBLSIESEncryptedBlob
 {
 public:
@@ -17,19 +22,11 @@ public:
 
     uint256 GetIV(size_t idx) const;
 
-public:
-    ADD_SERIALIZE_METHODS
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+    SERIALIZE_METHODS(CBLSIESEncryptedBlob, obj)
     {
-        READWRITE(ephemeralPubKey);
-        READWRITE(ivSeed);
-        READWRITE(data);
+        READWRITE(obj.ephemeralPubKey, obj.ivSeed, obj.data);
     }
 
-public:
-    bool Encrypt(size_t idx, const CBLSPublicKey& peerPubKey, const void* data, size_t dataSize);
     bool Decrypt(size_t idx, const CBLSSecretKey& secretKey, CDataStream& decryptedDataRet) const;
     bool IsValid() const;
 };
@@ -38,26 +35,13 @@ template <typename Object>
 class CBLSIESEncryptedObject : public CBLSIESEncryptedBlob
 {
 public:
-    CBLSIESEncryptedObject()
-    {
-    }
+    CBLSIESEncryptedObject() = default;
 
     CBLSIESEncryptedObject(const CBLSPublicKey& ephemeralPubKeyIn, const uint256& ivSeedIn, const std::vector<unsigned char>& dataIn)
     {
         ephemeralPubKey = ephemeralPubKeyIn;
         ivSeed = ivSeedIn;
         data = dataIn;
-    }
-
-    bool Encrypt(size_t idx, const CBLSPublicKey& peerPubKey, const Object& obj, int nVersion)
-    {
-        try {
-            CDataStream ds(SER_NETWORK, nVersion);
-            ds << obj;
-            return CBLSIESEncryptedBlob::Encrypt(idx, peerPubKey, ds.data(), ds.size());
-        } catch (std::exception&) {
-            return false;
-        }
     }
 
     bool Decrypt(size_t idx, const CBLSSecretKey& secretKey, Object& objRet, int nVersion) const
@@ -68,7 +52,7 @@ public:
         }
         try {
             ds >> objRet;
-        } catch (std::exception& e) {
+        } catch (const std::exception&) {
             return false;
         }
         return true;
@@ -78,10 +62,9 @@ public:
 class CBLSIESMultiRecipientBlobs
 {
 public:
-    typedef std::vector<unsigned char> Blob;
-    typedef std::vector<Blob> BlobVector;
+    using Blob = std::vector<unsigned char>;
+    using BlobVector = std::vector<Blob>;
 
-public:
     CBLSPublicKey ephemeralPubKey;
     uint256 ivSeed;
     BlobVector blobs;
@@ -90,22 +73,13 @@ public:
     CBLSSecretKey ephemeralSecretKey;
     std::vector<uint256> ivVector;
 
-public:
-    bool Encrypt(const std::vector<CBLSPublicKey>& recipients, const BlobVector& _blobs);
-
     void InitEncrypt(size_t count);
     bool Encrypt(size_t idx, const CBLSPublicKey& recipient, const Blob& blob);
     bool Decrypt(size_t idx, const CBLSSecretKey& sk, Blob& blobRet) const;
 
-public:
-    ADD_SERIALIZE_METHODS
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+    SERIALIZE_METHODS(CBLSIESMultiRecipientBlobs, obj)
     {
-        READWRITE(ephemeralPubKey);
-        READWRITE(ivSeed);
-        READWRITE(blobs);
+        READWRITE(obj.ephemeralPubKey, obj.ivSeed, obj.blobs);
     }
 };
 
@@ -113,34 +87,11 @@ template <typename Object>
 class CBLSIESMultiRecipientObjects : public CBLSIESMultiRecipientBlobs
 {
 public:
-    typedef std::vector<Object> ObjectVector;
-
-public:
-    bool Encrypt(const std::vector<CBLSPublicKey>& recipients, const ObjectVector& _objects, int nVersion)
-    {
-        BlobVector blobs;
-        blobs.resize(_objects.size());
-
-        try {
-            CDataStream ds(SER_NETWORK, nVersion);
-            for (size_t i = 0; i < _objects.size(); i++) {
-                ds.clear();
-
-                ds << _objects[i];
-                blobs[i].assign(ds.begin(), ds.end());
-            }
-        } catch (std::exception&) {
-            return false;
-        }
-
-        return CBLSIESMultiRecipientBlobs::Encrypt(recipients, blobs);
-    }
-
     bool Encrypt(size_t idx, const CBLSPublicKey& recipient, const Object& obj, int nVersion)
     {
         CDataStream ds(SER_NETWORK, nVersion);
         ds << obj;
-        Blob blob(ds.begin(), ds.end());
+        Blob blob(UCharCast(ds.data()), UCharCast(ds.data() + ds.size()));
         return CBLSIESMultiRecipientBlobs::Encrypt(idx, recipient, blob);
     }
 
@@ -155,7 +106,7 @@ public:
             CDataStream ds(blob, SER_NETWORK, nVersion);
             ds >> objectRet;
             return true;
-        } catch (std::exception&) {
+        } catch (const std::exception&) {
             return false;
         }
     }

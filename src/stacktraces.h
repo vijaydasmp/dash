@@ -11,8 +11,6 @@
 
 #include <cxxabi.h>
 
-#include <tinyformat.h>
-
 std::string DemangleSymbol(const std::string& name);
 
 std::string GetPrettyExceptionStr(const std::exception_ptr& e);
@@ -39,4 +37,4 @@ inline std::string GetExceptionWhat(const T& e)
 void RegisterPrettyTerminateHander();
 void RegisterPrettySignalHandlers();
 
-#endif//BITCOIN_STACKTRACES_H
+#endif // BITCOIN_STACKTRACES_H

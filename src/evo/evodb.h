@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2020 The Dash Core developers
+// Copyright (c) 2018-2024 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,11 +7,13 @@
 
 #include <dbwrapper.h>
 #include <sync.h>
-#include <uint256.h>
 
+class uint256;
 // "b_b" was used in the initial version of deterministic MN storage
 // "b_b2" was used after compact diffs were introduced
-static const std::string EVODB_BEST_BLOCK = "b_b2";
+// "b_b3" was used after masternode type introduction in evoDB
+// "b_b4" was used after storing protx version for each masternode in evoDB
+static const std::string EVODB_BEST_BLOCK = "b_b4";
 
 class CEvoDB;
 
@@ -32,12 +34,12 @@ public:
 class CEvoDB
 {
 public:
-    CCriticalSection cs;
+    Mutex cs;
 private:
     CDBWrapper db;
 
-    typedef CDBTransaction<CDBWrapper, CDBBatch> RootTransaction;
-    typedef CDBTransaction<RootTransaction, RootTransaction> CurTransaction;
+    using RootTransaction = CDBTransaction<CDBWrapper, CDBBatch>;
+    using CurTransaction = CDBTransaction<RootTransaction, RootTransaction>;
 
     CDBBatch rootBatch;
     RootTransaction rootDBTransaction;
@@ -46,41 +48,41 @@ private:
 public:
     explicit CEvoDB(size_t nCacheSize, bool fMemory = false, bool fWipe = false);
 
-    std::unique_ptr<CEvoDBScopedCommitter> BeginTransaction()
+    std::unique_ptr<CEvoDBScopedCommitter> BeginTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         return std::make_unique<CEvoDBScopedCommitter>(*this);
     }
 
-    CurTransaction& GetCurTransaction()
+    CurTransaction& GetCurTransaction() EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
         AssertLockHeld(cs); // lock must be held from outside as long as the DB transaction is used
         return curDBTransaction;
     }
 
     template <typename K, typename V>
-    bool Read(const K& key, V& value)
+    bool Read(const K& key, V& value) EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         return curDBTransaction.Read(key, value);
     }
 
     template <typename K, typename V>
-    void Write(const K& key, const V& value)
+    void Write(const K& key, const V& value) EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         curDBTransaction.Write(key, value);
     }
 
     template <typename K>
-    bool Exists(const K& key)
+    bool Exists(const K& key) EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         return curDBTransaction.Exists(key);
     }
 
     template <typename K>
-    void Erase(const K& key)
+    void Erase(const K& key) EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         curDBTransaction.Erase(key);
@@ -91,25 +93,23 @@ public:
         return db;
     }
 
-    size_t GetMemoryUsage()
+    [[nodiscard]] size_t GetMemoryUsage() const
     {
         return rootDBTransaction.GetMemoryUsage();
     }
 
-    bool CommitRootTransaction();
+    bool CommitRootTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     bool IsEmpty() { return db.IsEmpty(); }
 
-    bool VerifyBestBlock(const uint256& hash);
-    void WriteBestBlock(const uint256& hash);
+    bool VerifyBestBlock(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    void WriteBestBlock(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
 private:
     // only CEvoDBScopedCommitter is allowed to invoke these
     friend class CEvoDBScopedCommitter;
-    void CommitCurTransaction();
-    void RollbackCurTransaction();
+    void CommitCurTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    void RollbackCurTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 };
-
-extern std::unique_ptr<CEvoDB> evoDb;
 
 #endif // BITCOIN_EVO_EVODB_H

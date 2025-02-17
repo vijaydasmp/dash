@@ -46,7 +46,7 @@ public:
      *          If true, the timer is started just after construction.
      *          Otherwise, it will not be automatically started.
      */
-    Timer(bool start = false);
+    explicit Timer(bool start = false);
 
     /**
      * Copy constructor.
@@ -107,7 +107,7 @@ public:
     /**
      * Return the elapsed time.
      *
-     * @param   duration_t
+     * @tparam   duration_t
      *          The duration type used to return the time elapsed. If not
      *          specified, it returns the time as represented by
      *          std::chrono::milliseconds.

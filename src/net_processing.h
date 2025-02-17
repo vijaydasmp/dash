@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,95 +7,145 @@
 #define BITCOIN_NET_PROCESSING_H
 
 #include <net.h>
-#include <validation.h>
 #include <validationinterface.h>
-#include <consensus/params.h>
-#include <sync.h>
+#include <version.h>
 
-extern CCriticalSection cs_main;
+#include <atomic>
+
+class CActiveMasternodeManager;
+class AddrMan;
+class CTxMemPool;
+class CCoinJoinQueue;
+class CDeterministicMNManager;
+class CMasternodeMetaMan;
+class CMasternodeSync;
+class ChainstateManager;
+class CCoinJoinServer;
+class CGovernanceManager;
+class CInv;
+class CSporkManager;
+class CTransaction;
+struct CJContext;
+struct LLMQContext;
 
 /** Default for -maxorphantxsize, maximum size in megabytes the orphan map can grow before entries are removed */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE = 10; // this allows around 100 TXs of max size (and many more of normal size)
 /** Default number of orphan+recently-replaced txn to keep around for block reconstruction */
 static const unsigned int DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN = 100;
-/** Default for BIP61 (sending reject messages) */
-static constexpr bool DEFAULT_ENABLE_BIP61 = true;
-
-class PeerLogicValidation final : public CValidationInterface, public NetEventsInterface {
-private:
-    CConnman* const connman;
-
-public:
-    explicit PeerLogicValidation(CConnman* connmanIn, CScheduler &scheduler, bool enable_bip61);
-
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected, const std::vector<CTransactionRef>& vtxConflicted) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void BlockChecked(const CBlock& block, const CValidationState& state) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock) override;
-
-    /** Initialize a peer by adding it to mapNodeState and pushing a message requesting its version */
-    void InitializeNode(CNode* pnode) override;
-    /** Handle removal of a peer by updating various state and removing it from mapNodeState */
-    void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime) override;
-    /**
-    * Process protocol messages received from a given node
-    *
-    * @param[in]   pfrom           The node which we have received messages from.
-    * @param[in]   interrupt       Interrupt condition for processing threads
-    */
-    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override;
-    /**
-    * Send queued protocol messages to be sent to a give node.
-    *
-    * @param[in]   pto             The node which we are sending messages to.
-    * @return                      True if there is more work to be done
-    */
-    bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
-
-    /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
-    void ConsiderEviction(CNode *pto, int64_t time_in_seconds);
-    /** Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound */
-    void CheckForStaleTipAndEvictPeers(const Consensus::Params &consensusParams);
-    /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
-    void EvictExtraOutboundPeers(int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
-private:
-    int64_t m_stale_tip_check_time; //! Next time to check for stale tip
-
-    /** Enable BIP61 (sending reject messages) */
-    const bool m_enable_bip61;
-};
+static const bool DEFAULT_PEERBLOOMFILTERS = true;
+static const bool DEFAULT_PEERBLOCKFILTERS = false;
+/** Threshold for marking a node to be discouraged, e.g. disconnected and added to the discouragement filter. */
+static const int DISCOURAGEMENT_THRESHOLD{100};
 
 struct CNodeStateStats {
-    int nMisbehavior = 0;
+    int m_misbehavior_score = 0;
     int nSyncHeight = -1;
     int nCommonHeight = -1;
+    int m_starting_height = -1;
+    std::chrono::microseconds m_ping_wait;
     std::vector<int> vHeightInFlight;
+    bool m_relay_txs;
+    uint64_t m_addr_processed = 0;
+    uint64_t m_addr_rate_limited = 0;
+    bool m_addr_relay_enabled{false};
+    ServiceFlags their_services;
 };
 
-/** Get statistics from node state */
-bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats);
-bool IsBanned(NodeId nodeid);
+class PeerManager : public CValidationInterface, public NetEventsInterface
+{
+public:
+    static std::unique_ptr<PeerManager> make(const CChainParams& chainparams, CConnman& connman, AddrMan& addrman,
+                                             BanMan* banman, ChainstateManager& chainman,
+                                             CTxMemPool& pool, CMasternodeMetaMan& mn_metaman, CMasternodeSync& mn_sync,
+                                             CGovernanceManager& govman, CSporkManager& sporkman,
+                                             const CActiveMasternodeManager* const mn_activeman,
+                                             const std::unique_ptr<CDeterministicMNManager>& dmnman,
+                                             const std::unique_ptr<CJContext>& cj_ctx,
+                                             const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
+    virtual ~PeerManager() { }
 
-// Upstream moved this into net_processing.cpp (13417), however since we use Misbehaving in a number of dash specific
-// files such as mnauth.cpp and governance.cpp it makes sense to keep it in the header
-/** Increase a node's misbehavior score. */
-void Misbehaving(NodeId nodeid, int howmuch, const std::string& message="") EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    /**
+     * Attempt to manually fetch block from a given peer. We must already have the header.
+     *
+     * @param[in]  peer_id      The peer id
+     * @param[in]  block_index  The blockindex
+     * @returns std::nullopt if a request was successfully made, otherwise an error message
+     */
+    virtual std::optional<std::string> FetchBlock(NodeId peer_id, const CBlockIndex& block_index) = 0;
 
-void EraseObjectRequest(NodeId nodeId, const CInv& inv);
-void RequestObject(NodeId nodeId, const CInv& inv, std::chrono::microseconds current_time, bool fForce=false);
-size_t GetRequestedObjectCount(NodeId nodeId);
+    /** Begin running background tasks, should only be called once */
+    virtual void StartScheduledTasks(CScheduler& scheduler) = 0;
+
+    /** Get statistics from node state */
+    virtual bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) const = 0;
+
+    /** Whether this node ignores txs received over p2p. */
+    virtual bool IgnoresIncomingTxs() = 0;
+
+    /** Send ping message to all peers */
+    virtual void SendPings() = 0;
+
+    /** Is an inventory in the known inventory filter. Used by InstantSend. */
+    virtual bool IsInvInFilter(NodeId nodeid, const uint256& hash) const = 0;
+
+    /** Ask a number of our peers, which have a transaction in their inventory, for the transaction. */
+    virtual void AskPeersForTransaction(const uint256& txid, bool is_masternode) = 0;
+
+    /** Broadcast inventory message to a specific peer. */
+    virtual void PushInventory(NodeId nodeid, const CInv& inv) = 0;
+
+    /** Relay DSQ based on peer preference */
+    virtual void RelayDSQ(const CCoinJoinQueue& queue) = 0;
+
+    /** Relay inventories to all peers */
+    virtual void RelayInv(CInv &inv) = 0;
+    virtual void RelayInv(CInv &inv, const int minProtoVersion) = 0;
+    virtual void RelayInvFiltered(CInv &inv, const CTransaction &relatedTx,
+                                  const int minProtoVersion = MIN_PEER_PROTO_VERSION) = 0;
+
+    /**
+     * This overload will not update node filters, use it only for the cases
+     * when other messages will update related transaction data in filters
+     */
+    virtual void RelayInvFiltered(CInv &inv, const uint256 &relatedTxHash,
+                                  const int minProtoVersion = MIN_PEER_PROTO_VERSION) = 0;
+
+    /** Relay transaction to all peers. */
+    virtual void RelayTransaction(const uint256& txid) = 0;
+
+    /** Relay recovered sigs to all interested peers */
+    virtual void RelayRecoveredSig(const uint256& sigHash) = 0;
+
+    /** Set the best height */
+    virtual void SetBestHeight(int height) = 0;
+
+    /**
+     * Increment peer's misbehavior score. If the new value surpasses DISCOURAGEMENT_THRESHOLD (specified on startup or by default), mark node to be discouraged, meaning the peer might be disconnected & added to the discouragement filter.
+     */
+    virtual void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message = "") = 0;
+
+    /**
+     * Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound.
+     * Public for unit testing.
+     */
+    virtual void CheckForStaleTipAndEvictPeers() = 0;
+
+    /** Process a single message from a peer. Public for fuzz testing */
+    virtual void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+                                const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
+
+    /** Finish message processing. Used for some specific messages */
+    virtual void PostProcessMessage(MessageProcessingResult&& ret, NodeId node = -1) = 0;
+
+    /** This function is used for testing the stale tip eviction logic, see denialofservice_tests.cpp */
+    virtual void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) = 0;
+
+    virtual bool IsBanned(NodeId pnode) = 0;
+
+    virtual void EraseObjectRequest(NodeId nodeid, const CInv& inv) = 0;
+    virtual void RequestObject(NodeId nodeid, const CInv& inv, std::chrono::microseconds current_time,
+                               bool is_masternode, bool fForce = false) = 0;
+    virtual size_t GetRequestedObjectCount(NodeId nodeid) const = 0;
+};
 
 #endif // BITCOIN_NET_PROCESSING_H

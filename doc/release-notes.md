@@ -1,106 +1,134 @@
-Dash Core version 0.17.0.3
-==========================
+# Dash Core version v22.1.0
 
-Release is now available from:
+This is a new minor version release, bringing new features, and various bugfixes.
+This release is **optional** for all nodes, although recommended.
 
-  <https://www.dash.org/downloads/#wallets>
-
-This is a new hotfix release.
-
-Please report bugs using the issue tracker at github:
+Please report bugs using the issue tracker at GitHub:
 
   <https://github.com/dashpay/dash/issues>
 
 
-Upgrading and downgrading
-=========================
+# Upgrading and downgrading
 
-How to Upgrade
---------------
+## How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
 installer (on Windows) or just copy over /Applications/Dash-Qt (on Mac) or
-dashd/dash-qt (on Linux). If you upgrade after DIP0003 activation and you were
-using version < 0.13 you will have to reindex (start with -reindex-chainstate
-or -reindex) to make sure your wallet has all the new data synced. Upgrading
-from version 0.13 should not require any additional actions.
+dashd/dash-qt (on Linux).
 
-When upgrading from a version prior to 0.14.0.3, the
-first startup of Dash Core will run a migration process which can take a few
-minutes to finish. After the migration, a downgrade to an older version is only
-possible with a reindex (or reindex-chainstate).
+## Downgrade warning
 
-Downgrade warning
------------------
+### Downgrade to a version < v22.0.0
 
-### Downgrade to a version < 0.14.0.3
+Downgrading to a version older than v22.0.0 may not be supported, and will
+likely require a reindex.
 
-Downgrading to a version older than 0.14.0.3 is no longer supported due to
-changes in the "evodb" database format. If you need to use an older version,
-you must either reindex or re-sync the whole chain.
+# Release Notes
 
-### Downgrade of masternodes to < 0.17.0.2
+Build Changes
+-------------
 
-Starting with the 0.16 release, masternodes verify the protocol version of other
-masternodes. This results in PoSe punishment/banning for outdated masternodes,
-so downgrading even prior to the activation of the introduced hard-fork changes
-is not recommended.
+The macOS distribution is no longer packaged in a disk image (DMG) and
+is now packaged in a ZIP archive. The macOS distribution is once again notarized.
 
-Notable changes
-===============
+BIP324 / v2 P2P Protocol
+------------------------
 
-This release adds some missing translations and help strings. It also fixes
-a couple of build issues and a rare crash on some linux systems.
+Version 2 of the Dash P2P protocol / BIP324, which enables encryption of the P2P protocol,
+has been enabled by default in this version. This was initially introduced in Dash Core
+v22.0.0 as an experimental feature and has now been enabled by default. This change is
+backward compatible, and connections to peers which do not support the v2 protocol will
+revert to using the v1 protocol.
 
-0.17.0.3 Change log
-===================
+Network Changes
+---------------
+System ports, or ports that are lower than 1024 are now considered to be "bad" ports.
+As a result, other peers will avoid connecting to nodes that are listening on these ports.
+This change is to prevent potential DDoS attacks against services running on these ports.
+A number of other ports commonly used for authenticated services are also considered "bad" ports.
+You can view [the list of bad ports here](https://github.com/dashpay/dash/blob/v22.1.x/doc/p2p-bad-ports.md).
 
-See detailed [set of changes](https://github.com/dashpay/dash/compare/v0.17.0.2...dashpay:v0.17.0.3).
+Tests
+-----
 
-- [`6a54af0df7`](https://github.com/dashpay/dash/commit/6a54af0df7) Bump to v0.17.0.3
-- [`97e8461234`](https://github.com/dashpay/dash/commit/97e8461234) doc: Archive v0.17.0.2 release notes
-- [`96c041896b`](https://github.com/dashpay/dash/commit/96c041896b) feat: add tor entrypoint script for use in dashmate (#4182)
-- [`3661f36bbd`](https://github.com/dashpay/dash/commit/3661f36bbd) Merge #14416: Fix OSX dmg issue (10.12 to 10.14) (#4177)
-- [`4f4bda0557`](https://github.com/dashpay/dash/commit/4f4bda0557) depends: Undefine `BLSALLOC_SODIUM` in `bls-dash.mk` (#4176)
-- [`575e0a3070`](https://github.com/dashpay/dash/commit/575e0a3070) qt: Add `QFont::Normal` as a supported font weight when no other font weights were found (#4175)
-- [`ce4a73b790`](https://github.com/dashpay/dash/commit/ce4a73b790) rpc: Fix `upgradetohd` help text (#4170)
-- [`2fa8ddf160`](https://github.com/dashpay/dash/commit/2fa8ddf160) Translations 202105 (add missing) (#4169)
+- Command line arguments `-dip8params` and `-bip147height` are removed in favor of `-testactivationheight`. (dash#6325)
+- Several hard forks now activate earlier on regtest.
 
-Credits
-=======
+## New RPCs
+
+- **`getislocks`**
+    - Retrieves the InstantSend lock data for the given transaction IDs (txids).
+      Returns the lock information in both a human-friendly JSON format and a binary hex-encoded zmq-compatible format.
+
+Updated RPCs
+------------
+
+- The top-level fee fields `fee`, `modifiedfee`, `ancestorfees` and `descendantfees`
+  returned by RPCs `getmempoolentry`,`getrawmempool(verbose=true)`,
+  `getmempoolancestors(verbose=true)` and `getmempooldescendants(verbose=true)`
+  are deprecated and will be removed in the next major version (use
+  `-deprecated=fees` if needed in this version). The same fee fields can be accessed
+  through the `fees` object in the result. WARNING: deprecated
+  fields `ancestorfees` and `descendantfees` are denominated in duffs, whereas all
+  fields in the `fees` object are denominated in DASH.
+- A new `hex` field has been added to the `getbestchainlock` RPC, which returns the ChainLock information in zmq-compatible, hex-encoded binary format.
+- `lockunspent` now optionally takes a third parameter, `persistent`, which
+  causes the lock to be written persistently to the wallet database. This
+  allows UTXOs to remain locked even after node restarts or crashes.
+
+GUI changes
+-----------
+
+- UTXOs locked via the GUI are now stored persistently in the
+  wallet database and are not lost on node shutdown or crash.
+- Improved GUI responsiveness for large wallets. (dash#6457)
+
+# v22.1.0 Change log
+
+See detailed [set of changes][set-of-changes].
+
+# Credits
 
 Thanks to everyone who directly contributed to this release:
 
-- dustinface (xdustinface)
-- strophy
+- Kittywhiskers Van Gogh
+- Konstantin Akimov
+- PastaPastaPasta
 - UdjinM6
+- Vijaydasmp
 
-As well as everyone that submitted issues and reviewed pull requests.
+As well as everyone that submitted issues, reviewed pull requests and helped
+debug the release candidates.
 
-Older releases
-==============
+# Older releases
 
-Dash was previously known as Darkcoin.
+These releases are considered obsolete. Old release notes can be found here:
 
-Darkcoin tree 0.8.x was a fork of Litecoin tree 0.8, original name was XCoin
-which was first released on Jan/18/2014.
-
-Darkcoin tree 0.9.x was the open source implementation of masternodes based on
-the 0.8.x tree and was first released on Mar/13/2014.
-
-Darkcoin tree 0.10.x used to be the closed source implementation of Darksend
-which was released open source on Sep/25/2014.
-
-Dash Core tree 0.11.x was a fork of Bitcoin Core tree 0.9,
-Darkcoin was rebranded to Dash.
-
-Dash Core tree 0.12.0.x was a fork of Bitcoin Core tree 0.10.
-
-Dash Core tree 0.12.1.x was a fork of Bitcoin Core tree 0.12.
-
-These release are considered obsolete. Old release notes can be found here:
-
+- [v22.0.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-22.0.0.md) released Dec/12/2024
+- [v21.1.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-21.1.1.md) released Oct/22/2024
+- [v21.1.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-21.1.0.md) released Aug/8/2024
+- [v21.0.2](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-21.0.2.md) released Aug/1/2024
+- [v21.0.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-21.0.0.md) released Jul/25/2024
+- [v20.1.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.1.1.md) released April/3/2024
+- [v20.1.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.1.0.md) released March/5/2024
+- [v20.0.4](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.0.4.md) released Jan/13/2024
+- [v20.0.3](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.0.3.md) released December/26/2023
+- [v20.0.2](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.0.2.md) released December/06/2023
+- [v20.0.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.0.1.md) released November/18/2023
+- [v20.0.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-20.0.0.md) released November/15/2023
+- [v19.3.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-19.3.0.md) released July/31/2023
+- [v19.2.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-19.2.0.md) released June/19/2023
+- [v19.1.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-19.1.0.md) released May/22/2023
+- [v19.0.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-19.0.0.md) released Apr/14/2023
+- [v18.2.2](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.2.2.md) released Mar/21/2023
+- [v18.2.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.2.1.md) released Jan/17/2023
+- [v18.2.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.2.0.md) released Jan/01/2023
+- [v18.1.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.1.1.md) released January/08/2023
+- [v18.1.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.1.0.md) released October/09/2022
+- [v18.0.2](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.0.2.md) released October/09/2022
+- [v18.0.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-18.0.1.md) released August/17/2022
+- [v0.17.0.3](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.17.0.3.md) released June/07/2021
 - [v0.17.0.2](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.17.0.2.md) released May/19/2021
 - [v0.16.1.1](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.16.1.1.md) released November/17/2020
 - [v0.16.1.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.16.1.0.md) released November/14/2020
@@ -130,3 +158,5 @@ These release are considered obsolete. Old release notes can be found here:
 - [v0.11.0](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.11.0.md) released Jan/15/2015
 - [v0.10.x](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.10.0.md) released Sep/25/2014
 - [v0.9.x](https://github.com/dashpay/dash/blob/master/doc/release-notes/dash/release-notes-0.9.0.md) released Mar/13/2014
+
+[set-of-changes]: https://github.com/dashpay/dash/compare/v22.0.0...dashpay:v22.1.0

@@ -9,9 +9,12 @@ reset-files.bash
 src/dash
 src/dashd
 src/dash-cli
+src/dash-gui
+src/dash-node
 src/dash-tx
+src/dash-wallet
+src/test/fuzz/fuzz
 src/test/test_dash
-src/test/test_dash_fuzzy
 src/qt/test/test_dash-qt
 src/qt/res/css/colors/*
 src/bench/bench_dash
@@ -33,13 +36,15 @@ build-aux/m4/ltversion.m4
 build-aux/missing
 build-aux/compile
 build-aux/test-driver
+config.cache
 config.log
 config.status
 configure
 libtool
-src/config/dash-config.h
-src/config/dash-config.h.in
+src/config/bitcoin-config.h
+src/config/bitcoin-config.h.in
 src/config/stamp-h1
+src/obj
 share/setup.nsi
 share/qt/Info.plist
 
@@ -56,7 +61,7 @@ libconftest.dylib*
 .dirstamp
 .libs
 .*.swp
-*.*~*
+*~
 *.bak
 *.rej
 *.orig
@@ -66,16 +71,18 @@ libconftest.dylib*
 *.a
 *.pb.cc
 *.pb.h
+*.dat
 
 *.log
 *.trs
-*.dmg
+*.zip
 
 *.json.h
 *.raw.h
 
 # Only ignore unexpected patches
 *.patch
+!contrib/guix/patches/*.patch
 !depends/patches/**/*.patch
 
 #libtool object files
@@ -85,10 +92,12 @@ libconftest.dylib*
 # Compilation and Qt preprocessor part
 *.qm
 Makefile
+!depends/Makefile
 dash-qt
 Dash-Qt.app
-background.tiff*
-!/depends/Makefile
+
+# Qt Creator
+Makefile.am.user
 
 # Unit-tests
 Makefile.test
@@ -102,13 +111,19 @@ qrc_*.cpp
 build
 *.dSYM
 
+# Previous releases
+releases
+
 #lcov
 *.gcno
 *.gcda
 /*.info
 test_dash.coverage/
 total.coverage/
+fuzz.coverage/
 coverage_percent.txt
+/cov_tool_wrapper.sh
+qa-assets/
 
 #build tests
 linux-coverage-build
@@ -116,6 +131,7 @@ linux-build
 win32-build
 test/config.ini
 test/cache/*
+test/.mypy_cache/
 
 !src/leveldb*/Makefile
 
@@ -140,3 +156,16 @@ make
 # CLion
 .idea
 cmake-build-debug
+
+# clang-check
+*.plist
+
+dist/
+
+/guix-build-*
+
+# cppcheck cache-directory
+test/lint/.cppcheck/*
+
+# flake8 cache location
+.cache/*

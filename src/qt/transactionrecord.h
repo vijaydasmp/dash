@@ -1,11 +1,11 @@
-// Copyright (c) 2011-2014 The Bitcoin Core developers
+// Copyright (c) 2011-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_QT_TRANSACTIONRECORD_H
 #define BITCOIN_QT_TRANSACTIONRECORD_H
 
-#include <amount.h>
+#include <consensus/amount.h>
 #include <uint256.h>
 #include <key_io.h>
 
@@ -26,7 +26,7 @@ class TransactionStatus
 public:
     TransactionStatus():
         countsForBalance(false), lockedByInstantSend(false), lockedByChainLocks(false), sortKey(""),
-        matures_in(0), status(Unconfirmed), depth(0), open_for(0), cur_num_blocks(-1),
+        matures_in(0), status(Unconfirmed), depth(0), open_for(0),
         cachedChainLockHeight(-1), needsUpdate(false)
     { }
 
@@ -67,8 +67,8 @@ public:
                       finalization */
     /**@}*/
 
-    /** Current number of blocks (to know whether cached status is still valid) */
-    int cur_num_blocks;
+    /** Current block hash (to know whether cached status is still valid) */
+    uint256 m_cur_block_hash{};
 
     //** Know when to update transaction for chainlocks **/
     int cachedChainLockHeight;
@@ -82,6 +82,7 @@ public:
 class TransactionRecord
 {
 public:
+    // Update COMMON_TYPES in TransactionFilterProxyWhen when adding a new type
     enum Type
     {
         Other,
@@ -96,7 +97,8 @@ public:
         CoinJoinCollateralPayment,
         CoinJoinMakeCollaterals,
         CoinJoinCreateDenominations,
-        CoinJoinSend
+        CoinJoinSend,
+        PlatformTransfer,
     };
 
     /** Number of confirmation recommended for accepting a transaction */
@@ -161,11 +163,11 @@ public:
 
     /** Update status from core wallet tx.
      */
-    void updateStatus(const interfaces::WalletTxStatus& wtx, int numBlocks, int64_t adjustedTime, int chainLockHeight);
+    void updateStatus(const interfaces::WalletTxStatus& wtx, const uint256& block_hash, int numBlocks, int chainLockHeight, int64_t block_time);
 
     /** Return whether a status update is needed.
      */
-    bool statusUpdateNeeded(int numBlocks, int chainLockHeight) const;
+    bool statusUpdateNeeded(const uint256& block_hash, int chainLockHeight) const;
 
     /** Update label from address book.
      */
