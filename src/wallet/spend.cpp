@@ -544,12 +544,13 @@ static bool IsCurrentForAntiFeeSniping(interfaces::Chain& chain, const uint256& 
 }
 
 /**
- * Return a height-based locktime for new transactions (uses the height of the
+ * Set a height-based locktime for new transactions (uses the height of the
  * current chain tip unless we are not synced with the current chain
  */
-static uint32_t GetLocktimeForNewTransaction(interfaces::Chain& chain, const uint256& block_hash, int block_height)
+static void DiscourageFeeSniping(CMutableTransaction& tx, interfaces::Chain& chain, const uint256& block_hash, int block_height)
 {
-    uint32_t locktime;
+    // All inputs must be added by now
+    assert(!tx.vin.empty());
     // Discourage fee sniping.
     //
     // For a large miner the value of the transactions in the best block and
@@ -571,22 +572,34 @@ static uint32_t GetLocktimeForNewTransaction(interfaces::Chain& chain, const uin
     // now we ensure code won't be written that makes assumptions about
     // nLockTime that preclude a fix later.
     if (IsCurrentForAntiFeeSniping(chain, block_hash)) {
-        locktime = block_height;
+        tx.nLockTime = block_height;
 
         // Secondly occasionally randomly pick a nLockTime even further back, so
         // that transactions that are delayed after signing for whatever reason,
         // e.g. high-latency mix networks and some CoinJoin implementations, have
         // better privacy.
-        if (GetRandInt(10) == 0)
-            locktime = std::max(0, (int)locktime - GetRandInt(100));
+        if (GetRandInt(10) == 0) {
+            tx.nLockTime = std::max(0, int(tx.nLockTime) - GetRandInt(100));
+        }
     } else {
         // If our chain is lagging behind, we can't discourage fee sniping nor help
         // the privacy of high-latency transactions. To avoid leaking a potentially
         // unique "nLockTime fingerprint", set nLockTime to a constant.
-        locktime = 0;
+        tx.nLockTime = 0;
     }
-    assert(locktime < LOCKTIME_THRESHOLD);
-    return locktime;
+    // Sanity check all values
+    assert(tx.nLockTime < LOCKTIME_THRESHOLD); // Type must be block height
+    assert(tx.nLockTime <= uint64_t(block_height));
+    for (const auto& in : tx.vin) {
+        // Can not be FINAL for locktime to work
+        assert(in.nSequence != CTxIn::SEQUENCE_FINAL);
+        // May be MAX NONFINAL to disable both BIP68 and BIP125
+        if (in.nSequence == CTxIn::MAX_SEQUENCE_NONFINAL) continue;
+        // May be MAX BIP125 to disable BIP68 and enable BIP125
+        if (in.nSequence == MAX_BIP125_RBF_SEQUENCE) continue;
+        // The wallet does not support any other sequence-use right now.
+        assert(false);
+    }
 }
 
 bool CWallet::CreateTransactionInternal(
@@ -629,7 +642,6 @@ bool CWallet::CreateTransactionInternal(
     {
         std::set<CInputCoin> setCoins;
         LOCK(cs_wallet);
-        txNew.nLockTime = GetLocktimeForNewTransaction(chain(), GetLastBlockHash(), GetLastBlockHeight());
         {
             std::vector<COutput> vAvailableCoins;
             AvailableCoins(vAvailableCoins, &coin_control, 1, MAX_MONEY, MAX_MONEY, 0);
