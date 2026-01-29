@@ -245,12 +245,16 @@ class PSBTTest(BitcoinTestFramework):
         signedtx = self.nodes[0].signrawtransactionwithwallet(rawtx['hex'])
         assert_raises_rpc_error(-22, "Inputs must not have scriptSigs", self.nodes[0].converttopsbt, hexstring=signedtx['hex'])
         assert_raises_rpc_error(-22, "Inputs must not have scriptSigs", self.nodes[0].converttopsbt, hexstring=signedtx['hex'], permitsigdata=False)
+        # Make sure that a non-psbt with signatures cannot be converted
+        signedtx = self.nodes[0].signrawtransactionwithwallet(rawtx['hex'])
+        assert_raises_rpc_error(-22, "Inputs must not have scriptSigs and scriptWitnesses",
+                                self.nodes[0].converttopsbt, hexstring=signedtx['hex'])  # permitsigdata=False by default
+        assert_raises_rpc_error(-22, "Inputs must not have scriptSigs and scriptWitnesses",
+                                self.nodes[0].converttopsbt, hexstring=signedtx['hex'], permitsigdata=False)
+        assert_raises_rpc_error(-22, "Inputs must not have scriptSigs and scriptWitnesses",
+                                self.nodes[0].converttopsbt, hexstring=signedtx['hex'], permitsigdata=False, iswitness=True)
         # Unless we allow it to convert and strip signatures
-        self.nodes[0].converttopsbt(signedtx['hex'], True)
-
-        # Explicitly allow converting non-empty txs
-        new_psbt = self.nodes[0].converttopsbt(rawtx['hex'])
-        self.nodes[0].decodepsbt(new_psbt)
+        self.nodes[0].converttopsbt(hexstring=signedtx['hex'], permitsigdata=True)
 
         # Create outputs to nodes 1 and 2
         node1_addr = self.nodes[1].getnewaddress()
