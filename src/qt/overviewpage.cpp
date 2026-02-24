@@ -13,6 +13,7 @@
 #include <qt/optionsmodel.h>
 #include <qt/transactionfilterproxy.h>
 #include <qt/transactionoverviewwidget.h>
+#include <qt/transactionrecord.h>
 #include <qt/transactiontablemodel.h>
 #include <qt/utilitydialog.h>
 #include <qt/walletmodel.h>
@@ -71,7 +72,7 @@ public:
 
         // Draw first line (with slightly bigger font than the second line will get)
         // Content: Date/Time, Optional IS indicator, Amount
-        painter->setFont(GUIUtil::getFont({GUIUtil::g_font_registry.GetWeightNormal(), GUIUtil::g_font_registry.GetScaledFontSize(initialFontSize * 1.17), false}));
+        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initialFontSize, /*bold=*/false, /*multiplier=*/1.17));
         // Date/Time
         colorForeground = qvariant_cast<QColor>(indexDate.data(Qt::ForegroundRole));
         QString strDate = indexDate.data(Qt::DisplayRole).toString();
@@ -92,7 +93,7 @@ public:
 
         // Draw second line (with the initial font)
         // Content: Address/label, Optional Watchonly indicator
-        painter->setFont(GUIUtil::getFont({GUIUtil::g_font_registry.GetWeightNormal(), GUIUtil::g_font_registry.GetScaledFontSize(initialFontSize), false}));
+        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initialFontSize, /*bold=*/false));
         // Address/Label
         colorForeground = qvariant_cast<QColor>(indexAddress.data(Qt::ForegroundRole));
         QString address = indexAddress.data(Qt::DisplayRole).toString();
@@ -149,16 +150,16 @@ OverviewPage::OverviewPage(QWidget* parent) :
     GUIUtil::setFont({ui->label_4,
                       ui->label_5,
                       ui->labelCoinJoinHeader
-                     }, {GUIUtil::g_font_registry.GetWeightBold(), 16});
+                     }, {GUIUtil::FontWeight::Bold, 16});
 
-    GUIUtil::setFont({ui->labelTotalText}, {GUIUtil::g_font_registry.GetWeightBold(), 14});
+    GUIUtil::setFont({ui->labelTotalText}, {GUIUtil::FontWeight::Bold, 14});
 
     GUIUtil::setFont({ui->labelBalanceText,
                       ui->labelPendingText,
                       ui->labelImmatureText,
                       ui->labelWatchonly,
                       ui->labelSpendable
-                     }, {GUIUtil::g_font_registry.GetWeightBold()});
+                     }, {GUIUtil::FontWeight::Bold});
 
     GUIUtil::updateFonts();
 
@@ -330,7 +331,7 @@ void OverviewPage::setWalletModel(WalletModel *model)
         connect(model->getOptionsModel(), &OptionsModel::coinJoinRoundsChanged, this, &OverviewPage::updateCoinJoinProgress);
         connect(model->getOptionsModel(), &OptionsModel::coinJoinAmountChanged, this, &OverviewPage::updateCoinJoinProgress);
         connect(model->getOptionsModel(), &OptionsModel::AdvancedCJUIChanged, this, &OverviewPage::updateAdvancedCJUI);
-        connect(model->getOptionsModel(), &OptionsModel::coinJoinEnabledChanged, [this]() {
+        connect(model->getOptionsModel(), &OptionsModel::showCoinJoinChanged, [this]() {
             coinJoinStatus(true);
         });
 
@@ -379,7 +380,7 @@ void OverviewPage::setMonospacedFont(const QFont& f)
     GUIUtil::setFont({
         ui->labelTotal,
         ui->labelWatchTotal,
-    }, {f.family(), GUIUtil::g_font_registry.GetWeightBold(), 14});
+    }, {f.family(), GUIUtil::FontWeight::Bold, 14});
 
     GUIUtil::setFont({
         ui->labelAmountRounds,
@@ -391,7 +392,7 @@ void OverviewPage::setMonospacedFont(const QFont& f)
         ui->labelWatchAvailable,
         ui->labelWatchPending,
         ui->labelWatchImmature,
-    }, {f.family(), GUIUtil::g_font_registry.GetWeightBold()});
+    }, {f.family(), GUIUtil::FontWeight::Bold});
 
     GUIUtil::updateFonts();
 }
@@ -755,6 +756,8 @@ void OverviewPage::SetupTransactionList(int nNumItems)
         filter->setDynamicSortFilter(true);
         filter->setSortRole(Qt::EditRole);
         filter->setShowInactive(false);
+        // Exclude dust receive transactions from overview
+        filter->setTypeFilter(TransactionFilterProxy::ALL_TYPES & ~TransactionFilterProxy::TYPE(TransactionRecord::DustReceive));
         filter->sort(TransactionTableModel::Date, Qt::DescendingOrder);
         ui->listTransactions->setModel(filter.get());
     }

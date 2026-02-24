@@ -28,10 +28,15 @@ src/masternode/*.cpp
 src/masternode/*.h
 src/messagesigner.*
 src/netfulfilledman.*
+src/qt/descriptiondialog.*
 src/qt/governancelist.*
 src/qt/guiutil_font.*
 src/qt/masternodelist.*
-src/qt/proposalwizard.*
+src/qt/masternodemodel.*
+src/qt/mnemonicverificationdialog.*
+src/qt/proposalcreate.*
+src/qt/proposalmodel.*
+src/qt/proposalresume.*
 src/rpc/coinjoin.cpp
 src/rpc/evo.cpp
 src/rpc/evo_util.*

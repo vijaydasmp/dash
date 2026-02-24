@@ -7,6 +7,7 @@
 
 #include <consensus/amount.h>          // For CAmount
 #include <fs.h>
+#include <governance/common.h>
 #include <interfaces/chain.h>          // For ChainClient
 #include <pubkey.h>                    // For CKeyID and CScriptID (definitions needed in CTxDestination instantiation)
 #include <script/standard.h>           // For CTxDestination
@@ -27,6 +28,7 @@
 #include <vector>
 
 class CFeeRate;
+class CGovernanceVote;
 class CKey;
 class CRPCCommand;
 enum class FeeReason;
@@ -350,10 +352,16 @@ public:
     using CanGetAddressesChangedFn = std::function<void()>;
     virtual std::unique_ptr<Handler> handleCanGetAddressesChanged(CanGetAddressesChangedFn fn) = 0;
 
+    //! Get governance objects stored in the wallet.
+    virtual std::vector<Governance::Object> getGovernanceObjects() = 0;
+
     //! Prepare a governance proposal (burns fee).
     virtual bool prepareProposal(const uint256& govobj_hash, CAmount fee, int32_t revision, int64_t created_time,
                                  const std::string& data_hex, const COutPoint& outpoint,
                                  std::string& out_fee_txid, std::string& error) = 0;
+
+    //! Sign a governance vote with the given voting key.
+    virtual bool signGovernanceVote(const CKeyID& keyID, CGovernanceVote& vote) = 0;
 
     //! Return pointer to internal wallet class, useful for testing.
     virtual wallet::CWallet* wallet() { return nullptr; }

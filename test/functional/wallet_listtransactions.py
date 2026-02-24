@@ -17,6 +17,9 @@ from test_framework.util import (
 
 
 class ListTransactionsTest(BitcoinTestFramework):
+    def add_options(self, parser):
+        self.add_wallet_options(parser)
+
     def set_test_params(self):
         self.num_nodes = 3
         # This test isn't testing txn relay/timing, so set whitelist on the
@@ -104,6 +107,7 @@ class ListTransactionsTest(BitcoinTestFramework):
 
         self.run_externally_generated_address_test()
         self.run_invalid_parameters_test()
+        self.test_op_return()
 
     def run_externally_generated_address_test(self):
         """Test behavior when receiving address is not in the address book."""
@@ -165,6 +169,17 @@ class ListTransactionsTest(BitcoinTestFramework):
         self.nodes[0].listtransactions(label="*")
         assert_raises_rpc_error(-8, "Negative count", self.nodes[0].listtransactions, count=-1)
         assert_raises_rpc_error(-8, "Negative from", self.nodes[0].listtransactions, skip=-1)
+
+    def test_op_return(self):
+        """Test if OP_RETURN outputs will be displayed correctly."""
+        raw_tx = self.nodes[0].createrawtransaction([], [{'data': 'aa'}])
+        funded_tx = self.nodes[0].fundrawtransaction(raw_tx)
+        signed_tx = self.nodes[0].signrawtransactionwithwallet(funded_tx['hex'])
+        tx_id = self.nodes[0].sendrawtransaction(signed_tx['hex'])
+
+        op_ret_tx = [tx for tx in self.nodes[0].listtransactions() if tx['txid'] == tx_id][0]
+
+        assert 'address' not in op_ret_tx
 
 
 if __name__ == '__main__':

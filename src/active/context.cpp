@@ -25,22 +25,21 @@
 
 ActiveContext::ActiveContext(CBLSWorker& bls_worker, ChainstateManager& chainman, CConnman& connman,
                              CDeterministicMNManager& dmnman, CGovernanceManager& govman, CMasternodeMetaMan& mn_metaman,
-                             CMNHFManager& mnhfman, CSporkManager& sporkman, const chainlock::Chainlocks& chainlocks,
-                             CTxMemPool& mempool, chainlock::ChainlockHandler& clhandler,
-                             llmq::CInstantSendManager& isman, llmq::CQuorumBlockProcessor& qblockman,
-                             llmq::CQuorumManager& qman, llmq::CQuorumSnapshotManager& qsnapman,
-                             llmq::CSigningManager& sigman, PeerManager& peerman, const CMasternodeSync& mn_sync,
-                             const CBLSSecretKey& operator_sk, const llmq::QvvecSyncModeMap& sync_map,
-                             const util::DbWrapperParams& db_params, bool quorums_recovery, bool quorums_watch) :
+                             CSporkManager& sporkman, const chainlock::Chainlocks& chainlocks, CTxMemPool& mempool,
+                             chainlock::ChainlockHandler& clhandler, llmq::CInstantSendManager& isman,
+                             llmq::CQuorumBlockProcessor& qblockman, llmq::CQuorumManager& qman,
+                             llmq::CQuorumSnapshotManager& qsnapman, llmq::CSigningManager& sigman,
+                             const CMasternodeSync& mn_sync, const CBLSSecretKey& operator_sk,
+                             const llmq::QvvecSyncModeMap& sync_map, const util::DbWrapperParams& db_params,
+                             bool quorums_recovery, bool quorums_watch) :
     m_isman{isman},
     m_qman{qman},
     nodeman{std::make_unique<CActiveMasternodeManager>(connman, dmnman, operator_sk)},
     dkgdbgman{std::make_unique<llmq::CDKGDebugManager>()},
     qdkgsman{std::make_unique<llmq::CDKGSessionManager>(dmnman, qsnapman, chainman, sporkman, db_params, quorums_watch)},
-    shareman{std::make_unique<llmq::CSigSharesManager>(connman, chainman.ActiveChainstate(), sigman, peerman, *nodeman,
-                                                       qman, sporkman)},
+    shareman{std::make_unique<llmq::CSigSharesManager>(connman, chainman, sigman, *nodeman, qman, sporkman)},
     gov_signer{std::make_unique<GovernanceSigner>(connman, dmnman, govman, *nodeman, chainman, mn_sync)},
-    ehf_sighandler{std::make_unique<llmq::CEHFSignalsHandler>(chainman, mnhfman, sigman, *shareman, qman)},
+    ehf_sighandler{std::make_unique<llmq::CEHFSignalsHandler>(chainman, sigman, *shareman, qman)},
     qman_handler{std::make_unique<llmq::QuorumParticipant>(bls_worker, connman, dmnman, qman, qsnapman, *nodeman, chainman,
                                                            mn_sync, sporkman, sync_map, quorums_recovery, quorums_watch)},
     cl_signer{std::make_unique<chainlock::ChainLockSigner>(chainman.ActiveChainstate(), chainlocks, clhandler, isman,
@@ -64,20 +63,13 @@ ActiveContext::~ActiveContext()
     m_isman.DisconnectSigner();
 }
 
-void ActiveContext::Interrupt()
-{
-    shareman->InterruptWorkerThread();
-}
-
 void ActiveContext::Start(CConnman& connman, PeerManager& peerman)
 {
     qman_handler->Start();
     qdkgsman->StartThreads(connman, peerman);
-    shareman->Start();
     cl_signer->Start();
     cl_signer->RegisterRecoveryInterface();
     is_signer->RegisterRecoveryInterface();
-    shareman->RegisterRecoveryInterface();
 
     RegisterValidationInterface(cl_signer.get());
 }
@@ -86,11 +78,9 @@ void ActiveContext::Stop()
 {
     UnregisterValidationInterface(cl_signer.get());
 
-    shareman->UnregisterRecoveryInterface();
     is_signer->UnregisterRecoveryInterface();
     cl_signer->UnregisterRecoveryInterface();
     cl_signer->Stop();
-    shareman->Stop();
     qdkgsman->StopThreads();
     qman_handler->Stop();
 }
@@ -117,9 +107,4 @@ void ActiveContext::UpdatedBlockTip(const CBlockIndex* pindexNew, const CBlockIn
     gov_signer->UpdatedBlockTip(pindexNew);
     qdkgsman->UpdatedBlockTip(pindexNew, fInitialDownload);
     qman_handler->UpdatedBlockTip(pindexNew, fInitialDownload);
-}
-
-void ActiveContext::NotifyRecoveredSig(const std::shared_ptr<const llmq::CRecoveredSig>& sig, bool proactive_relay)
-{
-    shareman->NotifyRecoveredSig(sig, proactive_relay);
 }

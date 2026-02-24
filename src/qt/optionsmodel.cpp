@@ -344,6 +344,18 @@ bool OptionsModel::Init(bilingual_str& error)
         settings.setValue("fKeepChangeAddress", false);
     fKeepChangeAddress = settings.value("fKeepChangeAddress", false).toBool();
 
+    if (!settings.contains("fShowMasternodesTab"))
+        settings.setValue("fShowMasternodesTab", false);
+    m_enable_masternodes = settings.value("fShowMasternodesTab", false).toBool();
+
+    if (!settings.contains("show_governance_clock"))
+        settings.setValue("show_governance_clock", false);
+    m_show_governance_clock = settings.value("show_governance_clock", false).toBool();
+
+    if (!settings.contains("fShowGovernanceTab"))
+        settings.setValue("fShowGovernanceTab", false);
+    m_enable_governance = settings.value("fShowGovernanceTab", false).toBool();
+
     if (!settings.contains("digits"))
         settings.setValue("digits", "2");
 
@@ -357,6 +369,15 @@ bool OptionsModel::Init(bilingual_str& error)
 
     if (!settings.contains("fLowKeysWarning"))
         settings.setValue("fLowKeysWarning", true);
+
+    // Dust protection
+    if (!settings.contains("fDustProtection"))
+        settings.setValue("fDustProtection", false);
+    fDustProtection = settings.value("fDustProtection", false).toBool();
+
+    if (!settings.contains("nDustProtectionThreshold"))
+        settings.setValue("nDustProtectionThreshold", (qlonglong)DEFAULT_DUST_PROTECTION_THRESHOLD);
+    nDustProtectionThreshold = settings.value("nDustProtectionThreshold", (qlonglong)DEFAULT_DUST_PROTECTION_THRESHOLD).toLongLong();
 #endif // ENABLE_WALLET
 
     // These are shared with the core or have a command-line parameter
@@ -652,9 +673,11 @@ QVariant OptionsModel::getOption(OptionID option, const std::string& suffix) con
     case SubFeeFromAmount:
         return m_sub_fee_from_amount;
     case ShowMasternodesTab:
-        return settings.value("fShowMasternodesTab");
+        return m_enable_masternodes;
+    case ShowGovernanceClock:
+        return m_show_governance_clock;
     case ShowGovernanceTab:
-        return settings.value("fShowGovernanceTab");
+        return m_enable_governance;
     case CoinJoinEnabled:
         return SettingToBool(setting(), /*fDefault=*/true);
     case ShowAdvancedCJUI:
@@ -705,6 +728,10 @@ QVariant OptionsModel::getOption(OptionID option, const std::string& suffix) con
         return settings.value("enable_psbt_controls");
     case KeepChangeAddress:
         return fKeepChangeAddress;
+    case DustProtection:
+        return fDustProtection;
+    case DustProtectionThreshold:
+        return qlonglong(nDustProtectionThreshold);
 #endif // ENABLE_WALLET
     case Prune:
         return PruneEnabled(setting());
@@ -838,25 +865,35 @@ bool OptionsModel::setOption(OptionID option, const QVariant& value, const std::
         }
         break;
     case ShowMasternodesTab:
-        if (settings.value("fShowMasternodesTab") != value) {
-            settings.setValue("fShowMasternodesTab", value);
-            setRestartRequired(true);
+        if (changed()) {
+            m_enable_masternodes = value.toBool();
+            settings.setValue("fShowMasternodesTab", m_enable_masternodes);
+            Q_EMIT showMasternodesChanged();
         }
         break;
     case SubFeeFromAmount:
         m_sub_fee_from_amount = value.toBool();
         settings.setValue("SubFeeFromAmount", m_sub_fee_from_amount);
         break;
+    case ShowGovernanceClock:
+        if (changed()) {
+            m_show_governance_clock = value.toBool();
+            settings.setValue("show_governance_clock", m_show_governance_clock);
+            Q_EMIT showGovernanceClockChanged();
+        }
+        break;
     case ShowGovernanceTab:
-        if (settings.value("fShowGovernanceTab") != value) {
-            settings.setValue("fShowGovernanceTab", value);
-            setRestartRequired(true);
+        if (changed()) {
+            m_enable_governance = value.toBool();
+            settings.setValue("fShowGovernanceTab", m_enable_governance);
+            Q_EMIT showGovernanceChanged();
         }
         break;
     case CoinJoinEnabled:
         if (changed()) {
+            node().coinJoinOptions().setEnabled(value.toBool());
             update(value.toBool());
-            Q_EMIT coinJoinEnabledChanged();
+            Q_EMIT showCoinJoinChanged();
         }
         break;
     case ShowAdvancedCJUI:
@@ -987,6 +1024,16 @@ bool OptionsModel::setOption(OptionID option, const QVariant& value, const std::
         settings.setValue("fKeepChangeAddress", fKeepChangeAddress);
         Q_EMIT keepChangeAddressChanged(fKeepChangeAddress);
         break;
+    case DustProtection:
+        fDustProtection = value.toBool();
+        settings.setValue("fDustProtection", fDustProtection);
+        Q_EMIT dustProtectionChanged();
+        break;
+    case DustProtectionThreshold:
+        nDustProtectionThreshold = value.toLongLong();
+        settings.setValue("nDustProtectionThreshold", qlonglong(nDustProtectionThreshold));
+        Q_EMIT dustProtectionChanged();
+        break;
 #endif // ENABLE_WALLET
     case Prune:
         if (changed()) {
@@ -1043,11 +1090,6 @@ void OptionsModel::setDisplayUnit(const QVariant& new_unit)
     QSettings settings;
     settings.setValue("DisplayDashUnit", QVariant::fromValue(m_display_bitcoin_unit));
     Q_EMIT displayUnitChanged(m_display_bitcoin_unit);
-}
-
-void OptionsModel::emitCoinJoinEnabledChanged()
-{
-    Q_EMIT coinJoinEnabledChanged();
 }
 
 void OptionsModel::setRestartRequired(bool fRequired)
