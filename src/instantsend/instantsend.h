@@ -49,9 +49,13 @@ struct PendingISLockFromPeer {
     InstantSendLockPtr islock;
 };
 
+struct PendingISLockEntry : PendingISLockFromPeer {
+    uint256 islock_hash;
+};
+
 struct PendingState {
     bool m_pending_work{false};
-    std::vector<std::pair<uint256, PendingISLockFromPeer>> m_pending_is;
+    std::vector<PendingISLockEntry> m_pending_is;
 };
 } // namespace instantsend
 
@@ -181,6 +185,14 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!cs_pendingLocks);
 
     size_t GetInstantSendLockCount() const;
+
+    struct Counts {
+        size_t m_verified{0};
+        size_t m_unverified{0};
+        size_t m_awaiting_tx{0};
+        size_t m_unprotected_tx{0};
+    };
+    Counts GetCounts() const EXCLUSIVE_LOCKS_REQUIRED(!cs_pendingLocks, !cs_nonLocked);
 
     void CacheBlockHeight(const CBlockIndex* const block_index) const EXCLUSIVE_LOCKS_REQUIRED(!cs_height_cache);
     std::optional<int> GetBlockHeight(const uint256& hash) const override EXCLUSIVE_LOCKS_REQUIRED(!cs_height_cache);

@@ -101,13 +101,13 @@ instantsend::PendingState CInstantSendManager::FetchPendingLocks()
     std::vector<uint256> removed;
     removed.reserve(std::min(maxCount, pendingInstantSendLocks.size()));
 
-    for (auto& [islockHash, nodeid_islptr_pair] : pendingInstantSendLocks) {
+    for (auto& [islockHash, pending] : pendingInstantSendLocks) {
         // Check if we've reached max count
         if (ret.m_pending_is.size() >= maxCount) {
             ret.m_pending_work = true;
             break;
         }
-        ret.m_pending_is.emplace_back(islockHash, std::move(nodeid_islptr_pair));
+        ret.m_pending_is.push_back(instantsend::PendingISLockEntry{std::move(pending), islockHash});
         removed.emplace_back(islockHash);
     }
 
@@ -144,7 +144,7 @@ std::variant<uint256, CTransactionRef, std::monostate> CInstantSendManager::Proc
     }
 
     uint256 hashBlock{};
-    const auto tx = GetTransaction(nullptr, &mempool, islock->txid, Params().GetConsensus(), hashBlock);
+    auto tx = GetTransaction(nullptr, &mempool, islock->txid, Params().GetConsensus(), hashBlock);
     const bool found_transaction{tx != nullptr};
     // we ignore failure here as we must be able to propagate the lock even if we don't have the TX locally
     std::optional<int> minedHeight = GetBlockHeight(hashBlock);
@@ -719,6 +719,22 @@ instantsend::InstantSendLockPtr CInstantSendManager::GetConflictingLock(const CT
 size_t CInstantSendManager::GetInstantSendLockCount() const
 {
     return db.GetInstantSendLockCount();
+}
+
+CInstantSendManager::Counts CInstantSendManager::GetCounts() const
+{
+    Counts ret;
+    ret.m_verified = db.GetInstantSendLockCount();
+    {
+        LOCK(cs_pendingLocks);
+        ret.m_unverified = pendingInstantSendLocks.size();
+        ret.m_awaiting_tx = pendingNoTxInstantSendLocks.size();
+    }
+    {
+        LOCK(cs_nonLocked);
+        ret.m_unprotected_tx = nonLockedTxs.size();
+    }
+    return ret;
 }
 
 void CInstantSendManager::CacheBlockHeightInternal(const CBlockIndex* const block_index) const

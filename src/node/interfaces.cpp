@@ -6,11 +6,14 @@
 
 #include <addrdb.h>
 #include <banman.h>
+#include <blockfilter.h>
 #include <chain.h>
 #include <chainlock/chainlock.h>
 #include <chainparams.h>
 #include <coinjoin/common.h>
 #include <deploymentstatus.h>
+#include <evo/chainhelper.h>
+#include <evo/creditpool.h>
 #include <evo/deterministicmns.h>
 #include <governance/classes.h>
 #include <governance/exceptions.h>
@@ -18,13 +21,18 @@
 #include <governance/governance.h>
 #include <governance/object.h>
 #include <governance/vote.h>
+#include <index/blockfilterindex.h>
 #include <init.h>
 #include <interfaces/chain.h>
 #include <interfaces/coinjoin.h>
 #include <interfaces/handler.h>
 #include <interfaces/wallet.h>
 #include <instantsend/instantsend.h>
+#include <llmq/commitment.h>
 #include <llmq/context.h>
+#include <llmq/options.h>
+#include <llmq/quorums.h>
+#include <llmq/quorumsman.h>
 #include <mapport.h>
 #include <masternode/sync.h>
 #include <net.h>
@@ -135,49 +143,36 @@ public:
     }
     ~MnListImpl() = default;
 
+    Counts getCounts() const override
+    {
+        const auto counts{m_list.GetCounts()};
+        return {
+            .m_total_evo = counts.m_total_evo,
+            .m_total_mn = counts.m_total_mn,
+            .m_total_weighted = counts.m_total_weighted,
+            .m_valid_evo = counts.m_valid_evo,
+            .m_valid_mn = counts.m_valid_mn,
+            .m_valid_weighted = counts.m_valid_weighted,
+        };
+    }
     int32_t getHeight() const override { return m_list.GetHeight(); }
-    size_t getAllEvoCount() const override { return m_list.GetAllEvoCount(); }
-    size_t getAllMNsCount() const override { return m_list.GetAllMNsCount(); }
-    size_t getValidEvoCount() const override { return m_list.GetValidEvoCount(); }
-    size_t getValidMNsCount() const override { return m_list.GetValidMNsCount(); }
-    size_t getValidWeightedMNsCount() const override { return m_list.GetValidWeightedMNsCount(); }
     uint256 getBlockHash() const override { return m_list.GetBlockHash(); }
 
-    void forEachMN(bool only_valid, std::function<void(const MnEntry&)> cb) const override
+    void forEachMN(bool only_valid, std::function<void(const MnEntryCPtr&)> cb) const override
     {
         m_list.ForEachMNShared(only_valid, [&cb](const auto& dmn) {
-            cb(MnEntryImpl{dmn});
+            cb(std::make_shared<const MnEntryImpl>(dmn));
         });
-    }
-    MnEntryCPtr getMN(const uint256& hash) const override
-    {
-        const auto dmn{m_list.GetMN(hash)};
-        return dmn ? std::make_unique<const MnEntryImpl>(dmn) : nullptr;
-    }
-    MnEntryCPtr getMNByService(const CService& service) const override
-    {
-        const auto dmn{m_list.GetMNByService(service)};
-        return dmn ? std::make_unique<const MnEntryImpl>(dmn) : nullptr;
-    }
-    MnEntryCPtr getValidMN(const uint256& hash) const override
-    {
-        const auto dmn{m_list.GetValidMN(hash)};
-        return dmn ? std::make_unique<const MnEntryImpl>(dmn) : nullptr;
     }
     std::vector<MnEntryCPtr> getProjectedMNPayees(const CBlockIndex* pindex) const override
     {
         std::vector<MnEntryCPtr> ret;
         for (const auto& payee : m_list.GetProjectedMNPayees(pindex)) {
-            ret.emplace_back(std::make_unique<const MnEntryImpl>(payee));
+            ret.emplace_back(std::make_shared<const MnEntryImpl>(payee));
         }
         return ret;
     }
 
-    void copyContextTo(MnList& mn_list) const override
-    {
-        if (!m_context) return;
-        mn_list.setContext(m_context);
-    }
     void setContext(NodeContext* context) override
     {
         m_context = context;
@@ -200,13 +195,15 @@ private:
 public:
     std::pair<MnListPtr, const CBlockIndex*> getListAtChainTip() override
     {
-        const CBlockIndex *tip = WITH_LOCK(::cs_main, return chainman().ActiveChain().Tip());
-        MnListImpl mnList{CDeterministicMNList{}};
-        if (tip != nullptr && context().dmnman != nullptr) {
-            mnList = context().dmnman->GetListForBlock(tip);
+        const auto *tip = WITH_LOCK(::cs_main, return chainman().ActiveChain().Tip());
+        if (tip && context().dmnman) {
+            MnListImpl mnList = context().dmnman->GetListForBlock(tip);
+            if (!mnList.getBlockHash().IsNull()) {
+                mnList.setContext(m_context);
+                return {std::make_shared<MnListImpl>(mnList), tip};
+            }
         }
-        mnList.setContext(m_context);
-        return {std::make_shared<MnListImpl>(mnList), tip};
+        return {nullptr, nullptr};
     }
     void setContext(NodeContext* context) override
     {
@@ -223,24 +220,48 @@ private:
     NodeContext& context() { return *Assert(m_context); }
 
 public:
-    void getAllNewerThan(std::vector<CGovernanceObject> &objs, int64_t nMoreThanTime) override
+    void getAllNewerThan(std::vector<CGovernanceObject> &objs, int64_t nMoreThanTime,
+                         bool include_postponed) override
     {
         if (context().govman != nullptr) {
-            context().govman->GetAllNewerThan(objs, nMoreThanTime);
+            context().govman->GetAllNewerThan(objs, nMoreThanTime, include_postponed);
         }
     }
-    int32_t getObjAbsYesCount(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) override
+    Votes getObjVotes(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) override
+    {
+        Votes ret;
+        if (context().govman != nullptr && context().dmnman != nullptr) {
+            const auto& tip_mn_list{context().dmnman->GetListAtChainTip()};
+            if (auto govobj{context().govman->FindGovernanceObject(obj.GetHash())}) {
+                ret.m_abs = govobj->GetAbstainCount(tip_mn_list, vote_signal);
+                ret.m_no = govobj->GetNoCount(tip_mn_list, vote_signal);
+                ret.m_yes = govobj->GetYesCount(tip_mn_list, vote_signal);
+            } else {
+                ret.m_abs = obj.GetAbstainCount(tip_mn_list, vote_signal);
+                ret.m_no = obj.GetNoCount(tip_mn_list, vote_signal);
+                ret.m_yes = obj.GetYesCount(tip_mn_list, vote_signal);
+            }
+        }
+        return ret;
+    }
+    UniqueVoters getObjUniqueVoters(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) override
     {
         if (context().govman != nullptr && context().dmnman != nullptr) {
-            return obj.GetAbsoluteYesCount(context().dmnman->GetListAtChainTip(), vote_signal);
+            const auto& tip_mn_list{context().dmnman->GetListAtChainTip()};
+            if (auto govobj{context().govman->FindGovernanceObject(obj.GetHash())}) {
+                const auto count = govobj->GetUniqueVoterCount(tip_mn_list, vote_signal);
+                return {.m_regular = count.m_regular, .m_evo = count.m_evo};
+            } else {
+                const auto count = obj.GetUniqueVoterCount(tip_mn_list, vote_signal);
+                return {.m_regular = count.m_regular, .m_evo = count.m_evo};
+            }
         }
-        return 0;
+        return {0, 0};
     }
-    bool getObjLocalValidity(const CGovernanceObject& obj, std::string& error, bool check_collateral) override
+    bool existsObj(const uint256& hash) override
     {
-        if (context().govman != nullptr && context().chainman != nullptr && context().dmnman != nullptr) {
-            LOCK(cs_main);
-            return obj.IsValidLocally(context().dmnman->GetListAtChainTip(), *(context().chainman), error, check_collateral);
+        if (context().govman != nullptr) {
+            return context().govman->HaveObjectForHash(hash);
         }
         return false;
     }
@@ -267,30 +288,66 @@ public:
     GovernanceInfo getGovernanceInfo() override
     {
         GovernanceInfo info;
-        const NodeContext& ctx = context();
         const Consensus::Params& consensusParams = Params().GetConsensus();
-
-        if (ctx.chainman) {
-            const CBlockIndex* tip = WITH_LOCK(::cs_main, return ctx.chainman->ActiveChain().Tip());
-            int last = 0;
-            int next = 0;
-            const int height = tip ? tip->nHeight : 0;
-            CSuperblock::GetNearestSuperblocksHeights(height, last, next);
-            info.lastsuperblock = last;
-            info.nextsuperblock = next;
+        if (context().chainman) {
+            LOCK(::cs_main);
+            CSuperblock::GetNearestSuperblocksHeights(context().chainman->ActiveHeight(), info.lastsuperblock, info.nextsuperblock);
+            info.governancebudget = CSuperblock::GetPaymentsLimit(context().chainman->ActiveChain(), info.nextsuperblock);
+            if (context().dmnman) {
+                info.fundingthreshold = static_cast<int>(context().dmnman->GetListAtChainTip().GetCounts().m_valid_weighted / 10);
+            }
         }
         info.proposalfee = GOVERNANCE_PROPOSAL_FEE_TX;
         info.superblockcycle = consensusParams.nSuperblockCycle;
         info.superblockmaturitywindow = consensusParams.nSuperblockMaturityWindow;
+        info.targetSpacing = consensusParams.nPowTargetSpacing;
         info.relayRequiredConfs = GOVERNANCE_MIN_RELAY_FEE_CONFIRMATIONS;
         info.requiredConfs = GOVERNANCE_FEE_CONFIRMATIONS;
-        if (ctx.dmnman) {
-            info.fundingthreshold = ctx.dmnman->GetListAtChainTip().GetValidWeightedMNsCount() / 10;
-        }
-        if (ctx.chainman) {
-            info.governancebudget = CSuperblock::GetPaymentsLimit(ctx.chainman->ActiveChain(), info.nextsuperblock);
-        }
         return info;
+    }
+    std::optional<int32_t> getProposalFundedHeight(const uint256& proposal_hash) override
+    {
+        if (context().govman != nullptr && context().chainman != nullptr) {
+            const int32_t nTipHeight = context().chainman->ActiveHeight();
+            for (const auto& trigger : context().govman->GetActiveTriggers()) {
+                if (!trigger || trigger->GetBlockHeight() > nTipHeight) continue;
+                for (const auto& hash : trigger->GetProposalHashes()) {
+                    if (hash == proposal_hash) {
+                        return trigger->GetBlockHeight();
+                    }
+                }
+            }
+        }
+        return std::nullopt;
+    }
+    FundableResult getFundableProposalHashes() override
+    {
+        FundableResult result;
+        if (context().govman != nullptr && context().chainman != nullptr && context().dmnman != nullptr) {
+            const auto tip_mn_list{context().dmnman->GetListAtChainTip()};
+            if (const auto proposals{context().govman->GetApprovedProposals(tip_mn_list)}; !proposals.empty()) {
+                int32_t last_sb{0}, next_sb{0};
+                CSuperblock::GetNearestSuperblocksHeights(context().chainman->ActiveHeight(), last_sb, next_sb);
+                const CAmount budget{CSuperblock::GetPaymentsLimit(context().chainman->ActiveChain(), next_sb)};
+                for (const auto& proposal : proposals) {
+                    UniValue json = proposal->GetJSONObject();
+                    CAmount payment_amount{0};
+                    try {
+                        payment_amount = ParsePaymentAmount(json["payment_amount"].getValStr());
+                    } catch (...) {
+                        continue;
+                    }
+                    if (result.allocated + payment_amount > budget) {
+                        // Budget is saturated, cannot fulfill proposal
+                        continue;
+                    }
+                    result.allocated += payment_amount;
+                    result.hashes.insert(proposal->GetHash());
+                }
+                return result;
+            }
+        }
+        return result;
     }
     std::optional<CGovernanceObject> createProposal(int32_t revision, int64_t created_time,
                         const std::string& data_hex, std::string& error) override
@@ -364,12 +421,100 @@ private:
     NodeContext& context() { return *Assert(m_context); }
 
 public:
-    size_t getInstantSentLockCount() override
+    CreditPoolCounts getCreditPoolCounts() override
     {
-        if (context().llmq_ctx->isman != nullptr) {
-            return context().llmq_ctx->isman->GetInstantSendLockCount();
+        CreditPoolCounts ret{};
+        if (!context().chainman) {
+            return ret;
         }
-        return 0;
+        const auto* pindex{WITH_LOCK(::cs_main, return context().chainman->ActiveChain().Tip())};
+        if (!pindex || !pindex->pprev) {
+            return ret;
+        }
+        auto& chain_helper{context().chainman->ActiveChainstate().ChainHelper()};
+        const auto pool{chain_helper.GetCreditPool(pindex)};
+        ret.m_locked = pool.locked;
+        ret.m_limit = pool.currentLimit;
+        ret.m_diff = pool.locked - chain_helper.GetCreditPool(pindex->pprev).locked;
+        return ret;
+    }
+    ChainLockInfo getBestChainLock() override
+    {
+        if (!context().chainlocks) {
+            return {};
+        }
+        const auto [clsig, pindex] = context().chainlocks->GetBestChainlockWithPindex();
+        if (!pindex) {
+            return {};
+        }
+        return {
+            .m_height = clsig.getHeight(),
+            .m_block_time = pindex->GetBlockTime(),
+            .m_hash = clsig.getBlockHash(),
+        };
+    }
+    InstantSendCounts getInstantSendCounts() override
+    {
+        if (!context().llmq_ctx || !context().llmq_ctx->isman) {
+            return {};
+        }
+        const auto counts{context().llmq_ctx->isman->GetCounts()};
+        return {
+            .m_verified = counts.m_verified,
+            .m_unverified = counts.m_unverified,
+            .m_awaiting_tx = counts.m_awaiting_tx,
+            .m_unprotected_tx = counts.m_unprotected_tx,
+        };
+    }
+    size_t getPendingAssetUnlocks() override
+    {
+        if (!context().mempool) {
+            return 0;
+        }
+        LOCK(context().mempool->cs);
+        return static_cast<size_t>(ranges::count_if(context().mempool->mapTx, [](const auto& entry) {
+            return entry.GetTx().IsPlatformTransfer();
+        }));
+    }
+    std::vector<QuorumInfo> getQuorumStats() override
+    {
+        std::vector<QuorumInfo> stats{};
+        if (!context().llmq_ctx || !context().llmq_ctx->qman || !context().chainman) {
+            return stats;
+        }
+        const auto* pindex{WITH_LOCK(::cs_main, return context().chainman->ActiveChain().Tip())};
+        if (!pindex) {
+            return stats;
+        }
+        for (const auto& type : llmq::GetEnabledQuorumTypes(*context().chainman, pindex)) {
+            const auto llmq_params{Params().GetLLMQ(type)};
+            if (!llmq_params.has_value()) {
+                continue;
+            }
+            const auto quorums{context().llmq_ctx->qman->ScanQuorums(type, pindex, llmq_params->signingActiveQuorumCount)};
+            double health{0.0};
+            for (const auto& q : quorums) {
+                size_t numMembers = q->members.size();
+                size_t numValidMembers = q->qc->CountValidMembers();
+                health += (numMembers > 0) ? (double(numValidMembers) / double(numMembers)) : 0.0;
+            }
+            health = quorums.empty() ? 0.0 : (health / quorums.size());
+            const int32_t newest_height{(!quorums.empty() && quorums[0]->m_quorum_base_block_index)
+                ? quorums[0]->m_quorum_base_block_index->nHeight : 0};
+            const int32_t expiry_height{(newest_height > 0)
+                ? newest_height + llmq_params->signingActiveQuorumCount * llmq_params->dkgInterval
+                : 0};
+            stats.emplace_back(QuorumInfo{
+                .m_name = std::string(llmq_params->name),
+                .m_count = quorums.size(),
+                .m_health = health,
+                .m_rotates = llmq_params->useRotation,
+                .m_data_retention_blocks = llmq_params->max_store_depth(),
+                .m_newest_height = newest_height,
+                .m_expiry_height = expiry_height,
+            });
+        }
+        return stats;
     }
     void setContext(NodeContext* context) override
     {
@@ -398,6 +543,13 @@ public:
     {
         if (context().mn_sync != nullptr) {
             return context().mn_sync->IsBlockchainSynced();
+        }
+        return false;
+    }
+    bool isGovernanceSynced() override
+    {
+        if (context().mn_sync != nullptr) {
+            return context().mn_sync->GetAssetID() > MASTERNODE_SYNC_GOVERNANCE;
         }
         return false;
     }
@@ -857,6 +1009,14 @@ public:
                     /* verification progress is unused when a header was received */ 0);
             }));
     }
+    std::unique_ptr<Handler> handleNotifyInstantSendChanged(NotifyInstantSendChangedFn fn) override
+    {
+        return MakeHandler(::uiInterface.NotifyInstantSendChanged_connect(fn));
+    }
+    std::unique_ptr<Handler> handleNotifyGovernanceChanged(NotifyGovernanceChangedFn fn) override
+    {
+        return MakeHandler(::uiInterface.NotifyGovernanceChanged_connect(fn));
+    }
     std::unique_ptr<Handler> handleNotifyMasternodeListChanged(NotifyMasternodeListChangedFn fn) override
     {
         return MakeHandler(
@@ -909,11 +1069,11 @@ public:
     virtual ~NotificationsProxy() = default;
     void TransactionAddedToMempool(const CTransactionRef& tx, int64_t nAcceptTime, uint64_t mempool_sequence) override
     {
-        m_notifications->transactionAddedToMempool(tx, nAcceptTime, mempool_sequence);
+        m_notifications->transactionAddedToMempool(tx, nAcceptTime);
     }
     void TransactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason, uint64_t mempool_sequence) override
     {
-        m_notifications->transactionRemovedFromMempool(tx, reason, mempool_sequence);
+        m_notifications->transactionRemovedFromMempool(tx, reason);
     }
     void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override
     {
@@ -1066,6 +1226,20 @@ public:
             return fork->nHeight;
         }
         return std::nullopt;
+    }
+    bool hasBlockFilterIndex(BlockFilterType filter_type) override
+    {
+        return GetBlockFilterIndex(filter_type) != nullptr;
+    }
+    std::optional<bool> blockFilterMatchesAny(BlockFilterType filter_type, const uint256& block_hash, const GCSFilter::ElementSet& filter_set) override
+    {
+        const BlockFilterIndex* block_filter_index{GetBlockFilterIndex(filter_type)};
+        if (!block_filter_index) return std::nullopt;
+
+        BlockFilter filter;
+        const CBlockIndex* index{WITH_LOCK(::cs_main, return chainman().m_blockman.LookupBlockIndex(block_hash))};
+        if (index == nullptr || !block_filter_index->LookupFilter(index, filter)) return std::nullopt;
+        return filter.GetFilter().MatchAny(filter_set);
     }
     bool isInstantSendLockedTx(const uint256& hash) override
     {
@@ -1303,7 +1477,7 @@ public:
         if (!m_node.mempool) return;
         LOCK2(::cs_main, m_node.mempool->cs);
         for (const CTxMemPoolEntry& entry : m_node.mempool->mapTx) {
-            notifications.transactionAddedToMempool(entry.GetSharedTx(), /* nAcceptTime = */ 0, /* mempool_sequence = */ 0);
+            notifications.transactionAddedToMempool(entry.GetSharedTx(), /*nAcceptTime=*/0);
         }
     }
     bool hasAssumedValidChain() override
@@ -1319,5 +1493,4 @@ public:
 namespace interfaces {
 std::unique_ptr<Node> MakeNode(node::NodeContext& context) { return std::make_unique<node::NodeImpl>(context); }
 std::unique_ptr<Chain> MakeChain(node::NodeContext& node) { return std::make_unique<node::ChainImpl>(node); }
-MnListPtr MakeMNList(const CDeterministicMNList& mn_list) { return std::make_shared<node::MnListImpl>(mn_list); }
 } // namespace interfaces

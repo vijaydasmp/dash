@@ -1,8 +1,8 @@
 AC_PREREQ([2.69])
 dnl Don't forget to push a corresponding tag when updating any of _CLIENT_VERSION_* numbers
 define(_CLIENT_VERSION_MAJOR, 23)
-define(_CLIENT_VERSION_MINOR, 0)
-define(_CLIENT_VERSION_BUILD, 2)
+define(_CLIENT_VERSION_MINOR, 1)
+define(_CLIENT_VERSION_BUILD, 0)
 define(_CLIENT_VERSION_IS_RELEASE, false)
 define(_COPYRIGHT_YEAR, 2026)
 define(_COPYRIGHT_HOLDERS,[The %s developers])
@@ -278,9 +278,9 @@ AC_ARG_ENABLE([debug],
 dnl Enable exception stacktraces
 AC_ARG_ENABLE([stacktraces],
     [AS_HELP_STRING([--enable-stacktraces],
-                    [gather and print exception stack traces (default is yes)])],
+                    [gather and print exception stack traces (default is auto, enabled if libbacktrace is available)])],
     [enable_stacktraces=$enableval],
-    [enable_stacktraces=yes])
+    [enable_stacktraces=auto])
 
 dnl Enable crash hooks
 AC_ARG_ENABLE([crash-hooks],
@@ -1267,6 +1267,11 @@ if test "$enable_stacktraces" != "no"; then
   ])
 fi
 
+dnl If auto-detection succeeded (no sub-check disabled it), promote auto to yes
+if test "$enable_stacktraces" = "auto"; then
+  enable_stacktraces=yes
+fi
+
 AM_CONDITIONAL([ENABLE_STACKTRACES], [test "$enable_stacktraces" = "yes"])
 if test "$enable_stacktraces" = "yes"; then
     AC_DEFINE(ENABLE_STACKTRACES, 1, [Define this symbol if stacktraces should be enabled])
@@ -1587,7 +1592,7 @@ if test "$use_natpmp" != "no"; then
   CPPFLAGS="$TEMP_CPPFLAGS"
 fi
 
-if test "$build_bitcoin_wallet$build_bitcoin_cli$build_bitcoin_tx$build_bitcoind$bitcoin_enable_qt$use_tests$use_bench$enable_fuzz_binary" = "nononononononono"; then
+if test "$build_bitcoin_wallet$build_bitcoin_cli$build_bitcoin_tx$build_bitcoin_util$build_bitcoind$bitcoin_enable_qt$use_tests$use_bench$enable_fuzz_binary" = "nonononononononono"; then
   use_boost=no
 else
   use_boost=yes

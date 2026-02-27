@@ -113,9 +113,11 @@ public:
         assert(!m_loaded || force);
         cachedWallet.clear();
         try {
+            bool dustProtection = parent->walletModel->getOptionsModel()->getDustProtection();
+            qint64 dustThreshold = parent->walletModel->getOptionsModel()->getDustProtectionThreshold();
             for (const auto& wtx : wallet.getWalletTxs()) {
                 if (TransactionRecord::showTransaction()) {
-                    cachedWallet.append(TransactionRecord::decomposeTransaction(parent->walletModel->node(), wallet, wtx));
+                    cachedWallet.append(TransactionRecord::decomposeTransaction(parent->walletModel->node(), wallet, wtx, dustProtection, dustThreshold));
                 }
             }
         } catch(const std::exception& e) {
@@ -174,8 +176,10 @@ public:
                     break;
                 }
                 // Added -- insert at the right position
+                bool dustProtection = parent->walletModel->getOptionsModel()->getDustProtection();
+                qint64 dustThreshold = parent->walletModel->getOptionsModel()->getDustProtectionThreshold();
                 QList<TransactionRecord> toInsert =
-                        TransactionRecord::decomposeTransaction(parent->walletModel->node(), wallet, wtx);
+                        TransactionRecord::decomposeTransaction(parent->walletModel->node(), wallet, wtx, dustProtection, dustThreshold);
                 if(!toInsert.isEmpty()) /* only if something to insert */
                 {
                     parent->beginInsertRows(QModelIndex(), lowerIndex, lowerIndex+toInsert.size()-1);
@@ -276,6 +280,8 @@ TransactionTableModel::TransactionTableModel(WalletModel *parent):
     priv->refreshWallet(walletModel->wallet());
 
     connect(walletModel->getOptionsModel(), &OptionsModel::displayUnitChanged, this, &TransactionTableModel::updateDisplayUnit);
+    // Refresh wallet when dust protection settings change to re-evaluate transaction types
+    connect(walletModel->getOptionsModel(), &OptionsModel::dustProtectionChanged, this, [this]() { refreshWallet(true); });
 }
 
 TransactionTableModel::~TransactionTableModel()
@@ -427,6 +433,10 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
         return tr("Mined");
     case TransactionRecord::PlatformTransfer:
         return tr("Platform Transfer");
+    case TransactionRecord::DataTransaction:
+        return tr("Data Transaction");
+    case TransactionRecord::DustReceive:
+        return tr("Dust Receive");
 
     case TransactionRecord::CoinJoinMixing:
         return tr("%1 Mixing").arg(QString::fromStdString(gCoinJoinName));
@@ -471,6 +481,7 @@ QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, b
     case TransactionRecord::Generated:
     case TransactionRecord::CoinJoinSend:
     case TransactionRecord::PlatformTransfer:
+    case TransactionRecord::DustReceive:
         return formatAddressLabel(wtx->strAddress, wtx->label, tooltip) + watchAddress;
     case TransactionRecord::SendToOther:
         return QString::fromStdString(wtx->strAddress) + watchAddress;
@@ -480,6 +491,7 @@ QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, b
     case TransactionRecord::CoinJoinCollateralPayment:
     case TransactionRecord::CoinJoinMakeCollaterals:
     case TransactionRecord::CoinJoinCreateDenominations:
+    case TransactionRecord::DataTransaction:
     case TransactionRecord::Other:
         break; // use fail-over here
     } // no default case, so the compiler can warn about missing cases
@@ -497,6 +509,7 @@ QVariant TransactionTableModel::addressColor(const TransactionRecord *wtx) const
     case TransactionRecord::PlatformTransfer:
     case TransactionRecord::CoinJoinSend:
     case TransactionRecord::RecvWithCoinJoin:
+    case TransactionRecord::DustReceive:
         {
         if (wtx->label.isEmpty()) {
             return GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BAREADDRESS);
@@ -507,6 +520,7 @@ QVariant TransactionTableModel::addressColor(const TransactionRecord *wtx) const
     case TransactionRecord::CoinJoinMixing:
     case TransactionRecord::CoinJoinMakeCollaterals:
     case TransactionRecord::CoinJoinCollateralPayment:
+    case TransactionRecord::DataTransaction:
         return GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BAREADDRESS);
     case TransactionRecord::SendToOther:
     case TransactionRecord::RecvFromOther:
@@ -541,6 +555,7 @@ QVariant TransactionTableModel::amountColor(const TransactionRecord *rec) const
     case TransactionRecord::CoinJoinSend:
     case TransactionRecord::SendToAddress:
     case TransactionRecord::SendToOther:
+    case TransactionRecord::DataTransaction:
     case TransactionRecord::Other:
         return GUIUtil::getThemedQColor(GUIUtil::ThemedColor::RED);
     case TransactionRecord::SendToSelf:
@@ -548,6 +563,7 @@ QVariant TransactionTableModel::amountColor(const TransactionRecord *rec) const
     case TransactionRecord::CoinJoinCollateralPayment:
     case TransactionRecord::CoinJoinMakeCollaterals:
     case TransactionRecord::CoinJoinCreateDenominations:
+    case TransactionRecord::DustReceive:
         return GUIUtil::getThemedQColor(GUIUtil::ThemedColor::ORANGE);
     }
     return GUIUtil::getThemedQColor(GUIUtil::ThemedColor::DEFAULT);
@@ -735,6 +751,8 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
         return formatTxAmount(rec, false, BitcoinUnits::SeparatorStyle::NEVER);
     case StatusRole:
         return rec->status.status;
+    case OutputIndexRole:
+        return rec->idx;
     }
     return QVariant();
 }

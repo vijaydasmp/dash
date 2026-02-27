@@ -10,6 +10,7 @@
 #include <net_types.h>                 // For banmap_t
 #include <netaddress.h>                // For Network
 #include <netbase.h>                   // For ConnectionDirection
+#include <saltedhasher.h>              // For StaticSaltedHasher
 #include <support/allocators/secure.h> // For SecureString
 #include <uint256.h>
 #include <util/settings.h>             // For util::SettingsValue
@@ -23,6 +24,7 @@
 #include <stdint.h>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <vector>
 
 class BanMan;
@@ -86,7 +88,7 @@ public:
     virtual const uint256& getProTxHash() const = 0;
 };
 
-using MnEntryCPtr = std::unique_ptr<const MnEntry>;
+using MnEntryCPtr = std::shared_ptr<const MnEntry>;
 
 //! Interface for a list of masternode entries
 class MnList
@@ -97,27 +99,28 @@ public:
 
     MnList() = delete;
 
+    struct Counts {
+        size_t m_total_evo{0};
+        size_t m_total_mn{0};
+        size_t m_total_weighted{0};
+        size_t m_valid_evo{0};
+        size_t m_valid_mn{0};
+        size_t m_valid_weighted{0};
+
+        [[nodiscard]] size_t total() const { return m_total_mn + m_total_evo; }
+        [[nodiscard]] size_t enabled() const { return m_valid_mn + m_valid_evo; }
+    };
+    virtual Counts getCounts() const = 0;
     virtual int32_t getHeight() const = 0;
-    virtual size_t getAllEvoCount() const = 0;
-    virtual size_t getAllMNsCount() const = 0;
-    virtual size_t getValidEvoCount() const = 0;
-    virtual size_t getValidMNsCount() const = 0;
-    virtual size_t getValidWeightedMNsCount() const = 0;
     virtual uint256 getBlockHash() const = 0;
 
-    virtual void forEachMN(bool only_valid, std::function<void(const MnEntry&)> cb) const = 0;
-    virtual MnEntryCPtr getMN(const uint256& hash) const = 0;
-    virtual MnEntryCPtr getMNByService(const CService& service) const = 0;
-    virtual MnEntryCPtr getValidMN(const uint256& hash) const = 0;
+    virtual void forEachMN(bool only_valid, std::function<void(const MnEntryCPtr&)> cb) const = 0;
     virtual std::vector<MnEntryCPtr> getProjectedMNPayees(const CBlockIndex* pindex) const = 0;
 
-    virtual void copyContextTo(MnList& mn_list) const = 0;
     virtual void setContext(node::NodeContext* context) = 0;
 };
 
 using MnListPtr = std::shared_ptr<MnList>;
-
-MnListPtr MakeMNList(const CDeterministicMNList& mn_list);
 
 //! Interface for the src/evo part of a dash node (dashd process).
 class EVO
@@ -133,9 +136,19 @@ class GOV
 {
 public:
     virtual ~GOV() {}
-    virtual void getAllNewerThan(std::vector<CGovernanceObject> &objs, int64_t nMoreThanTime) = 0;
-    virtual int32_t getObjAbsYesCount(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) = 0;
-    virtual bool getObjLocalValidity(const CGovernanceObject& obj, std::string& error, bool check_collateral) = 0;
+    virtual void getAllNewerThan(std::vector<CGovernanceObject> &objs, int64_t nMoreThanTime, bool include_postponed = false) = 0;
+    struct Votes {
+        int32_t m_abs{0};
+        int32_t m_no{0};
+        int32_t m_yes{0};
+    };
+    virtual Votes getObjVotes(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) = 0;
+    struct UniqueVoters {
+        uint16_t m_regular{0};
+        uint16_t m_evo{0};
+    };
+    virtual UniqueVoters getObjUniqueVoters(const CGovernanceObject& obj, vote_signal_enum_t vote_signal) = 0;
+    virtual bool existsObj(const uint256& hash) = 0;
     virtual bool isEnabled() = 0;
     virtual bool processVoteAndRelay(const CGovernanceVote& vote, std::string& error) = 0;
     struct GovernanceInfo {
@@ -146,10 +159,17 @@ public:
         int nextsuperblock{0};
         int fundingthreshold{0};
         CAmount governancebudget{0};
+        int64_t targetSpacing{0};
         int relayRequiredConfs{1};
         int requiredConfs{6};
     };
     virtual GovernanceInfo getGovernanceInfo() = 0;
+    virtual std::optional<int32_t> getProposalFundedHeight(const uint256& proposal_hash) = 0;
+    struct FundableResult {
+        std::unordered_set<uint256, StaticSaltedHasher> hashes;
+        CAmount allocated{0};
+    };
+    virtual FundableResult getFundableProposalHashes() = 0;
     virtual std::optional<CGovernanceObject> createProposal(int32_t revision, int64_t created_time,
                                 const std::string& data_hex, std::string& error) = 0;
     virtual bool submitProposal(const uint256& parent, int32_t revision, int64_t created_time, const std::string& data_hex,
@@ -162,7 +182,36 @@ class LLMQ
 {
 public:
     virtual ~LLMQ() {}
-    virtual size_t getInstantSentLockCount() = 0;
+    struct ChainLockInfo {
+        int32_t m_height{0};
+        int64_t m_block_time{0};
+        uint256 m_hash{};
+    };
+    virtual ChainLockInfo getBestChainLock() = 0;
+    struct CreditPoolCounts {
+        CAmount m_diff{0};
+        CAmount m_limit{0};
+        CAmount m_locked{0};
+    };
+    virtual CreditPoolCounts getCreditPoolCounts() = 0;
+    struct InstantSendCounts {
+        size_t m_verified{0};
+        size_t m_unverified{0};
+        size_t m_awaiting_tx{0};
+        size_t m_unprotected_tx{0};
+    };
+    virtual InstantSendCounts getInstantSendCounts() = 0;
+    virtual size_t getPendingAssetUnlocks() = 0;
+    struct QuorumInfo {
+        std::string m_name;
+        size_t m_count{0};
+        double m_health{0.0};
+        bool m_rotates{false};
+        int32_t m_data_retention_blocks{0};
+        int32_t m_newest_height{0};
+        int32_t m_expiry_height{0};
+    };
+    virtual std::vector<QuorumInfo> getQuorumStats() = 0;
     virtual void setContext(node::NodeContext* context) {}
 };
 
@@ -174,6 +223,7 @@ class Sync
 public:
     virtual ~Sync() {}
     virtual bool isBlockchainSynced() = 0;
+    virtual bool isGovernanceSynced() = 0;
     virtual bool isSynced() = 0;
     virtual std::string getSyncStatus() =  0;
     virtual void setContext(node::NodeContext* context) {}
@@ -464,6 +514,14 @@ public:
     using NotifyHeaderTipFn =
         std::function<void(SynchronizationState, interfaces::BlockTip tip, double verification_progress)>;
     virtual std::unique_ptr<Handler> handleNotifyHeaderTip(NotifyHeaderTipFn fn) = 0;
+
+    //! Register handler for InstantSend data messages.
+    using NotifyInstantSendChangedFn = std::function<void()>;
+    virtual std::unique_ptr<Handler> handleNotifyInstantSendChanged(NotifyInstantSendChangedFn fn) = 0;
+
+    //! Register handler for governance data messages.
+    using NotifyGovernanceChangedFn = std::function<void()>;
+    virtual std::unique_ptr<Handler> handleNotifyGovernanceChanged(NotifyGovernanceChangedFn fn) = 0;
 
     //! Register handler for masternode list update messages.
     using NotifyMasternodeListChangedFn =

@@ -7,20 +7,20 @@
 #include <chainparams.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
-#include <index/txindex.h> // g_txindex
-#include <primitives/transaction.h>
-#include <validation.h>
-
+#include <evo/chainhelper.h>
 #include <evo/mnhftx.h>
+#include <index/txindex.h> // g_txindex
 #include <llmq/commitment.h>
 #include <llmq/quorumsman.h>
 #include <llmq/signing_shares.h>
+#include <primitives/transaction.h>
+#include <validation.h>
+#include <versionbits.h>
 
 namespace llmq {
-CEHFSignalsHandler::CEHFSignalsHandler(ChainstateManager& chainman, CMNHFManager& mnhfman, CSigningManager& sigman,
+CEHFSignalsHandler::CEHFSignalsHandler(ChainstateManager& chainman, CSigningManager& sigman,
                                        CSigSharesManager& shareman, const CQuorumManager& qman) :
     m_chainman(chainman),
-    mnhfman(mnhfman),
     sigman(sigman),
     shareman(shareman),
     qman(qman)
@@ -37,7 +37,7 @@ void CEHFSignalsHandler::UpdatedBlockTip(const CBlockIndex* const pindexNew)
 {
     if (!DeploymentActiveAfter(pindexNew, Params().GetConsensus(), Consensus::DEPLOYMENT_V20)) return;
 
-    const auto ehfSignals = mnhfman.GetSignalsStage(pindexNew);
+    const auto ehfSignals = m_chainman.ActiveChainstate().ChainHelper().ehf_manager->GetSignalsStage(pindexNew);
     for (const auto& deployment : Params().GetConsensus().vDeployments) {
         // Skip deployments that do not use dip0023
         if (!deployment.useEHF) continue;
@@ -92,8 +92,8 @@ MessageProcessingResult CEHFSignalsHandler::HandleNewRecoveredSig(const CRecover
         return {};
     }
 
-    MessageProcessingResult ret;
-    const auto ehfSignals = mnhfman.GetSignalsStage(WITH_LOCK(::cs_main, return m_chainman.ActiveTip()));
+    const auto ehfSignals = m_chainman.ActiveChainstate().ChainHelper().ehf_manager->GetSignalsStage(
+        WITH_LOCK(::cs_main, return m_chainman.ActiveTip()));
     MNHFTxPayload mnhfPayload;
     for (const auto& deployment : Params().GetConsensus().vDeployments) {
         // skip deployments that do not use dip0023 or that have already been mined
@@ -112,19 +112,20 @@ MessageProcessingResult CEHFSignalsHandler::HandleNewRecoveredSig(const CRecover
 
         CMutableTransaction tx = mnhfPayload.PrepareTx();
 
-        {
-            CTransactionRef tx_to_sent = MakeTransactionRef(std::move(tx));
-            LogPrintf("CEHFSignalsHandler::HandleNewRecoveredSig Special EHF TX is created hash=%s\n", tx_to_sent->GetHash().ToString());
-            LOCK(::cs_main);
-            const MempoolAcceptResult result = m_chainman.ProcessTransaction(tx_to_sent);
-            if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
-                ret.m_transactions.push_back(tx_to_sent->GetHash());
-            } else {
-                LogPrintf("CEHFSignalsHandler::HandleNewRecoveredSig -- AcceptToMemoryPool failed: %s\n", result.m_state.ToString());
-            }
+        CTransactionRef tx_to_sent = MakeTransactionRef(std::move(tx));
+        LogPrintf("CEHFSignalsHandler::HandleNewRecoveredSig Special EHF TX is created hash=%s\n",
+                  tx_to_sent->GetHash().ToString());
+        LOCK(::cs_main);
+        const MempoolAcceptResult result = m_chainman.ProcessTransaction(tx_to_sent);
+        if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
+            MessageProcessingResult ret;
+            ret.m_transactions.push_back(tx_to_sent->GetHash());
+            return ret;
         }
-        break;
+        LogPrintf("CEHFSignalsHandler::HandleNewRecoveredSig -- AcceptToMemoryPool failed: %s\n",
+                  result.m_state.ToString());
+        return {};
     }
-    return ret;
+    return {};
 }
 } // namespace llmq

@@ -13,6 +13,7 @@
 #include <qt/optionsmodel.h>
 #include <qt/transactionfilterproxy.h>
 #include <qt/transactionoverviewwidget.h>
+#include <qt/transactionrecord.h>
 #include <qt/transactiontablemodel.h>
 #include <qt/utilitydialog.h>
 #include <qt/walletmodel.h>
@@ -62,7 +63,7 @@ public:
         QRect rectBottomHalf(mainRect.left() + xspace, mainRect.top() + ypad + halfheight + 5, mainRect.width() - xspace, halfheight);
         QRect rectBounding;
         QColor colorForeground;
-        qreal initialFontSize = painter->font().pointSizeF();
+        constexpr auto initial_size{GUIUtil::FontRegistry::DEFAULT_FONT_SIZE};
 
         // Grab model indexes for desired data from TransactionTableModel
         QModelIndex indexDate = index.sibling(index.row(), TransactionTableModel::Date);
@@ -71,7 +72,7 @@ public:
 
         // Draw first line (with slightly bigger font than the second line will get)
         // Content: Date/Time, Optional IS indicator, Amount
-        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initialFontSize, /*bold=*/false, /*multiplier=*/1.17));
+        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initial_size, /*bold=*/false, /*multiplier=*/1.17));
         // Date/Time
         colorForeground = qvariant_cast<QColor>(indexDate.data(Qt::ForegroundRole));
         QString strDate = indexDate.data(Qt::DisplayRole).toString();
@@ -92,7 +93,7 @@ public:
 
         // Draw second line (with the initial font)
         // Content: Address/label, Optional Watchonly indicator
-        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initialFontSize, /*bold=*/false));
+        painter->setFont(GUIUtil::getScaledFont(/*baseSize=*/initial_size, /*bold=*/false));
         // Address/Label
         colorForeground = qvariant_cast<QColor>(indexAddress.data(Qt::ForegroundRole));
         QString address = indexAddress.data(Qt::DisplayRole).toString();

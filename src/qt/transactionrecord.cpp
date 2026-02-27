@@ -29,7 +29,8 @@ bool TransactionRecord::showTransaction()
 /*
  * Decompose CWallet transaction to model transaction records.
  */
-QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Node& node, interfaces::Wallet& wallet, const interfaces::WalletTx& wtx)
+QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Node& node, interfaces::Wallet& wallet, const interfaces::WalletTx& wtx,
+                                                                 bool dustProtectionEnabled, CAmount dustThreshold)
 {
     QList<TransactionRecord> parts;
     int64_t nTime = wtx.time;
@@ -39,6 +40,15 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Nod
     uint256 hash = wtx.tx->GetHash();
     std::map<std::string, std::string> mapValue = wtx.value_map;
     auto& coinJoinOptions = node.coinJoinOptions();
+
+    // Check if any inputs belong to this wallet (for dust detection)
+    bool isFromMe = false;
+    for (const isminetype mine : wtx.txin_is_mine) {
+        if (mine) {
+            isFromMe = true;
+            break;
+        }
+    }
 
     if (nNet > 0 || wtx.is_coinbase || wtx.is_platform_transfer)
     {
@@ -81,6 +91,25 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Nod
                     sub.type = TransactionRecord::PlatformTransfer;
                 }
 
+                // Check for dust attack: external receive with small amount
+                // Only override if not already a special type (coinbase, platform transfer)
+                if (dustProtectionEnabled && !isFromMe && !wtx.is_coinbase && !wtx.is_platform_transfer &&
+                    sub.credit > 0 && sub.credit <= dustThreshold &&
+                    (sub.type == TransactionRecord::RecvWithAddress || sub.type == TransactionRecord::RecvFromOther))
+                {
+                    sub.type = TransactionRecord::DustReceive;
+                }
+
+                parts.append(sub);
+            }
+            else if (!wtx.is_coinbase && IsDataScript(txout.scriptPubKey))
+            {
+                TransactionRecord sub(hash, nTime);
+                sub.credit = txout.nValue;
+                sub.idx = i;
+                sub.involvesWatchAddress = false;
+                sub.strAddress = "";
+                sub.type = TransactionRecord::DataTransaction;
                 parts.append(sub);
             }
         }
@@ -217,7 +246,13 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Nod
                     continue;
                 }
 
-                if (!std::get_if<CNoDestination>(&wtx.txout_address[nOut]))
+                if (IsDataScript(txout.scriptPubKey))
+                {
+                    sub.strAddress = "";
+                    sub.txDest = DecodeDestination(sub.strAddress);
+                    sub.type = TransactionRecord::DataTransaction;
+                }
+                else if (!std::get_if<CNoDestination>(&wtx.txout_address[nOut]))
                 {
                     // Sent to Dash Address
                     sub.type = TransactionRecord::SendToAddress;

@@ -6,8 +6,9 @@
 #define BITCOIN_QT_TRANSACTIONRECORD_H
 
 #include <consensus/amount.h>
-#include <uint256.h>
 #include <key_io.h>
+#include <script/script.h>
+#include <uint256.h>
 
 #include <QList>
 #include <QString>
@@ -69,7 +70,7 @@ struct TransactionStatus {
 class TransactionRecord
 {
 public:
-    // Update COMMON_TYPES in TransactionFilterProxyWhen when adding a new type
+    // Update EXCLUDED_TYPES in TransactionFilterProxy when adding a new type
     enum Type
     {
         Other,
@@ -86,10 +87,18 @@ public:
         CoinJoinCreateDenominations,
         CoinJoinSend,
         PlatformTransfer,
+        DustReceive,
+        DataTransaction,
     };
 
     /** Number of confirmation recommended for accepting a transaction */
     static const int RecommendedNumConfirmations = 6;
+
+    /** Check if script is an OP_RETURN data script */
+    static bool IsDataScript(const CScript& script)
+    {
+        return !script.empty() && script[0] == OP_RETURN;
+    }
 
     TransactionRecord():
             hash(), time(0), type(Other), debit(0), credit(0), idx(0)
@@ -116,7 +125,8 @@ public:
     /** Decompose CWallet transaction to model transaction records.
      */
     static bool showTransaction();
-    static QList<TransactionRecord> decomposeTransaction(interfaces::Node& node, interfaces::Wallet& wallet, const interfaces::WalletTx& wtx);
+    static QList<TransactionRecord> decomposeTransaction(interfaces::Node& node, interfaces::Wallet& wallet, const interfaces::WalletTx& wtx,
+                                                         bool dustProtectionEnabled = false, CAmount dustThreshold = 0);
 
     /** @name Immutable transaction attributes
       @{*/

@@ -70,6 +70,11 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     ui->pruneSize->setEnabled(false);
     connect(ui->prune, &QPushButton::toggled, ui->pruneSize, &QWidget::setEnabled);
 
+    /* Dust protection */
+    ui->dustProtectionThreshold->setEnabled(false);
+    ui->dustProtectionThresholdUnitLabel->setText(BitcoinUnits::name(BitcoinUnits::Unit::duffs));
+    connect(ui->dustProtection, &QCheckBox::toggled, ui->dustProtectionThreshold, &QWidget::setEnabled);
+
     /* Wallet */
     ui->coinJoinEnabled->setText(tr("Enable %1 features").arg(QString::fromStdString(gCoinJoinName)));
 
@@ -115,6 +120,9 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
         ui->btnCoinJoin->hide();
         ui->thirdPartyTxUrlsLabel->setVisible(false);
         ui->thirdPartyTxUrls->setVisible(false);
+        ui->showMasternodesTab->hide();
+        ui->showGovernanceTab->hide();
+        ui->showGovernanceCycleIcon->hide();
     } else {
         ui->btnCoinJoin->setText(QString::fromStdString(gCoinJoinName));
         pageButtons->addButton(ui->btnWallet, pageButtons->buttons().size());
@@ -258,6 +266,17 @@ void OptionsDialog::setModel(OptionsModel *_model)
         setMapper();
         mapper->toFirst();
 
+        // If governance is disabled at the node level, force-disable governance checkboxes.
+        if (m_client_model && !m_client_model->node().gov().isEnabled()) {
+            ui->showGovernanceTab->setChecked(false);
+            ui->showGovernanceTab->setEnabled(false);
+            ui->showGovernanceCycleIcon->setChecked(false);
+            ui->showGovernanceCycleIcon->setEnabled(false);
+        } else {
+            // Initialize governance clock checkbox state based on governance tab checkbox
+            ui->showGovernanceCycleIcon->setEnabled(ui->showGovernanceTab->isChecked());
+        }
+
         appearance->setModel(_model);
 
         updateDefaultProxyNets();
@@ -283,11 +302,17 @@ void OptionsDialog::setModel(OptionsModel *_model)
     connect(ui->digits, qOverload<>(&QValueComboBox::valueChanged), [this]{ showRestartWarning(); });
     connect(ui->lang, qOverload<>(&QValueComboBox::valueChanged), [this]{ showRestartWarning(); });
     connect(ui->thirdPartyTxUrls, &QLineEdit::textChanged, [this]{ showRestartWarning(); });
-
+    /* Display, Dash-specific */
     connect(ui->coinJoinEnabled, &QCheckBox::clicked, [this](bool fChecked) {
         model->setOption(OptionsModel::CoinJoinEnabled, fChecked);
         updateCoinJoinVisibility();
         updateWidth();
+    });
+    connect(ui->showGovernanceTab, &QCheckBox::clicked, [this](bool fChecked) {
+        ui->showGovernanceCycleIcon->setEnabled(fChecked);
+        if (!fChecked) {
+            ui->showGovernanceCycleIcon->setChecked(false);
+        }
     });
 
     updateCoinJoinVisibility();
@@ -334,8 +359,8 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->subFeeFromAmount, OptionsModel::SubFeeFromAmount);
     mapper->addMapping(ui->m_enable_psbt_controls, OptionsModel::EnablePSBTControls);
     mapper->addMapping(ui->keepChangeAddress, OptionsModel::KeepChangeAddress);
-    mapper->addMapping(ui->showMasternodesTab, OptionsModel::ShowMasternodesTab);
-    mapper->addMapping(ui->showGovernanceTab, OptionsModel::ShowGovernanceTab);
+    mapper->addMapping(ui->dustProtection, OptionsModel::DustProtection);
+    mapper->addMapping(ui->dustProtectionThreshold, OptionsModel::DustProtectionThreshold);
     mapper->addMapping(ui->showAdvancedCJUI, OptionsModel::ShowAdvancedCJUI);
     mapper->addMapping(ui->showCoinJoinPopups, OptionsModel::ShowCoinJoinPopups);
     mapper->addMapping(ui->lowKeysWarning, OptionsModel::LowKeysWarning);
@@ -362,6 +387,9 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->proxyPortTor, OptionsModel::ProxyPortTor);
 
     /* Display */
+    mapper->addMapping(ui->showMasternodesTab, OptionsModel::ShowMasternodesTab);
+    mapper->addMapping(ui->showGovernanceCycleIcon, OptionsModel::ShowGovernanceClock);
+    mapper->addMapping(ui->showGovernanceTab, OptionsModel::ShowGovernanceTab);
     mapper->addMapping(ui->digits, OptionsModel::Digits);
     mapper->addMapping(ui->lang, OptionsModel::Language);
     mapper->addMapping(ui->unit, OptionsModel::DisplayUnit);
