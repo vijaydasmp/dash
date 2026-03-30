@@ -6,6 +6,7 @@
 import random
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.messages import (
     COIN,
     MAX_MONEY,
@@ -54,6 +55,12 @@ class CoinJoinTest(BitcoinTestFramework):
         self.test_setcoinjoinrounds(w1)
         self.test_coinjoinsalt(w1)
         w1.unloadwallet()
+
+        node.createwallet(wallet_name='w3')
+        w3 = node.get_wallet_rpc('w3')
+        self.generatetoaddress(node, COINBASE_MATURITY + 1, w3.getnewaddress())
+        self.test_use_cj_option(w3)
+        w3.unloadwallet()
 
         if not self.options.descriptors:
             node.createwallet(wallet_name='w_keypool', blank=False, disable_private_keys=False)
@@ -117,6 +124,32 @@ class CoinJoinTest(BitcoinTestFramework):
             assert_equal(node.getcoinjoininfo()['running'], True)
         node.newkeypool()
         assert_equal(node.getcoinjoininfo()['running'], False)
+
+    def test_use_cj_option(self, node):
+        self.log.info('"use_cj" option should spend fully mixed coins only')
+        addr = node.getnewaddress()
+        utxo = node.listunspent()[0]
+        input_ref = {'txid': utxo['txid'], 'vout': utxo['vout']}
+
+        # Automatic coin selection should find no fully mixed coins in this wallet
+        assert_raises_rpc_error(-4, 'Unable to locate enough mixed funds for this transaction.',
+                                node.send, outputs={addr: 1}, options={'use_cj': True})
+        assert_raises_rpc_error(-6, 'Total value of UTXO pool too low to pay for transaction.',
+                                node.sendall, recipients=[addr], options={'use_cj': True})
+
+        # Preset non-mixed inputs should be rejected instead of silently spent
+        not_mixed_error = f"Input not available. UTXO ({utxo['txid']}:{utxo['vout']}) is not fully mixed."
+        raw_tx = node.createrawtransaction([input_ref], {addr: 1})
+        assert_raises_rpc_error(-8, not_mixed_error, node.fundrawtransaction, raw_tx, {'use_cj': True})
+        assert_raises_rpc_error(-8, not_mixed_error, node.walletcreatefundedpsbt,
+                                [input_ref], {addr: 1}, 0, {'use_cj': True})
+        assert_raises_rpc_error(-8, not_mixed_error, node.send,
+                                outputs={addr: 1}, options={'inputs': [input_ref], 'use_cj': True})
+        assert_raises_rpc_error(-8, not_mixed_error, node.sendall,
+                                recipients=[addr], options={'inputs': [input_ref], 'use_cj': True})
+
+        # The same input is spendable once "use_cj" is not requested
+        assert_equal(node.sendall(recipients=[addr], options={'inputs': [input_ref]})['complete'], True)
 
     def test_setcoinjoinamount(self, node):
         self.log.info('"setcoinjoinamount" should update mixing target')
