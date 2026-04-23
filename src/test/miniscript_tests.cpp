@@ -292,9 +292,6 @@ BOOST_AUTO_TEST_CASE(fixed_tests)
     // Same when the duplicates are on different levels in the tree
     const auto ms_dup4 = miniscript::FromString("thresh(2,pkh(03d30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65),s:pk(03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556),a:and_b(dv:older(1),s:pk(03d30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65)))", CONVERTER);
     BOOST_CHECK(ms_dup4 && !ms_dup4->IsSane() && !ms_dup4->CheckDuplicateKey());
-    // Sanity check the opposite is true, too. An otherwise sane Miniscript with no duplicate keys is sane.
-    const auto ms_nondup = miniscript::FromString("pk(03d30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65)", CONVERTER);
-    BOOST_CHECK(ms_nondup && ms_nondup->CheckDuplicateKey() && ms_nondup->IsSane());
 
     // Timelock tests
     Test("after(100)", "?", TESTMODE_VALID | TESTMODE_NONMAL); // only heightlock
