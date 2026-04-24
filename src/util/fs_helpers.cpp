@@ -14,7 +14,6 @@
 #include <tinyformat.h>
 #include <util/fs.h>
 #include <util/getuniquepath.h>
-#include <util/system.h>
 
 #include <cerrno>
 #include <filesystem>
@@ -69,7 +68,8 @@ bool LockDirectory(const fs::path& directory, const fs::path& lockfile_name, boo
     if (file) fclose(file);
     auto lock = std::make_unique<fsbridge::FileLock>(pathLockFile);
     if (!lock->TryLock()) {
-        return error("Error while attempting to lock directory %s: %s", fs::PathToString(directory), lock->GetReason());
+        LogPrintf("ERROR: Error while attempting to lock directory %s: %s\n", fs::PathToString(directory), lock->GetReason());
+        return false;
     }
     if (!probe_only) {
         // Lock successful and we're not just probing, put it into the map
