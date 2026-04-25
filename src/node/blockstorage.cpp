@@ -786,7 +786,8 @@ std::optional<uint256> ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, 
     }
 
     // Check the header
-    if (!CheckProofOfWork(block.GetHash(), block.nBits, consensusParams)) {
+    const uint256 hash{block.GetHash()};
+    if (!CheckProofOfWork(hash, block.nBits, consensusParams)) {
         LogError("ReadBlockFromDisk: Errors in block header at %s\n", pos.ToString());
         return std::nullopt;
     }
