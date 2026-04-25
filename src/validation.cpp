@@ -4755,7 +4755,7 @@ bool CVerifyDB::VerifyDB(
             if (!ReadBlockFromDisk(block, pindex, consensus_params)) {
                 LogError("VerifyDB(): *** ReadBlockFromDisk failed at %d, hash=%s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
                 return false;
-            }  
+            }
             if (!chainstate.ConnectBlock(block, state, pindex, coins)) {
                 LogError("VerifyDB(): *** found unconnectable block at %d, hash=%s (%s)\n", pindex->nHeight, pindex->GetBlockHash().ToString(), state.ToString());
                 return false;
