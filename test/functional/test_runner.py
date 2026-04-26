@@ -407,8 +407,6 @@ BASE_SCRIPTS = [
     'rpc_mempool_entry_fee_fields_deprecation.py',
     'rpc_mempool_info.py',
     'rpc_help.py',
-    'p2p_handshake.py',
-    'p2p_handshake.py --v2transport',
     'feature_dirsymlinks.py',
     'feature_help.py',
     # Don't append tests at the end to avoid merge conflicts
