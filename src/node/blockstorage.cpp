@@ -766,7 +766,7 @@ bool BlockManager::WriteUndoDataForBlock(const CBlockUndo& blockundo, BlockValid
     return true;
 }
 
-bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::Params& consensusParams)
+std::optional<uint256> ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::Params& consensusParams)
 {
     block.SetNull();
 
@@ -774,7 +774,7 @@ bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::P
     CAutoFile filein(OpenBlockFile(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull()) {
         LogError("ReadBlockFromDisk: OpenBlockFile failed for %s\n", pos.ToString());
-        return false;
+        return std::nullopt;
     }
 
     // Read block
@@ -782,24 +782,25 @@ bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::P
         filein >> block;
     } catch (const std::exception& e) {
         LogError("%s: Deserialize or I/O error - %s at %s\n", __func__, e.what(), pos.ToString());
-        return false;
+        return std::nullopt;
     }
 
     // Check the header
     const uint256 hash{block.GetHash()};
     if (!CheckProofOfWork(hash, block.nBits, consensusParams)) {
         LogError("ReadBlockFromDisk: Errors in block header at %s\n", pos.ToString());
-        return false;
+        return std::nullopt;
     }
 
-    return true;
+    return hash;
 }
 
 bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams)
 {
     const FlatFilePos block_pos{WITH_LOCK(cs_main, return pindex->GetBlockPos())};
 
-    if (!ReadBlockFromDisk(block, block_pos, consensusParams)) {
+    const auto hash{ReadBlockFromDisk(block, block_pos, consensusParams)};
+    if (!hash) {
         return false;
     }
     if (block.GetHash() != pindex->GetBlockHash()) {
