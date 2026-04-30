@@ -5828,6 +5828,15 @@ bool IsBIP30Unspendable(const CBlockIndex& block_index)
     return false;
 }
 
+[[nodiscard]] uint16_t DeploymentToProtxVersion(gsl::not_null<const CBlockIndex*> pindexPrev,
+                                                const ChainstateManager& chainman, std::optional<bool> is_basic_override)
+{
+    return ProTxVersion::GetMax(
+        is_basic_override ? *is_basic_override
+                          : DeploymentActiveAfter(pindexPrev, chainman.GetConsensus(), Consensus::DEPLOYMENT_V19),
+        DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_V24));
+}
+
 bool ChainstateManager::DetectSnapshotChainstate(CTxMemPool* mempool)
 {
     assert(!m_snapshot_chainstate);
