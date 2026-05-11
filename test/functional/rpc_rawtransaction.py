@@ -341,11 +341,11 @@ class RawTransactionsTest(BitcoinTestFramework):
         addr2Obj = self.nodes[2].getaddressinfo(addr2)
 
         # Tests for createmultisig and addmultisigaddress
-        assert_raises_rpc_error(-5, "Invalid public key", self.nodes[0].createmultisig, 1, ["01020304"])
+        assert_raises_rpc_error(-5, 'Pubkey "01020304" must have a length of either 33 or 65 bytes', self.nodes[0].createmultisig, 1, ["01020304"])
         # createmultisig can only take public keys
         self.nodes[0].createmultisig(2, [addr1Obj['pubkey'], addr2Obj['pubkey']])
         # addmultisigaddress can take both pubkeys and addresses so long as they are in the wallet, which is tested here
-        assert_raises_rpc_error(-5, "Invalid public key", self.nodes[0].createmultisig, 2, [addr1Obj['pubkey'], addr1])
+        assert_raises_rpc_error(-5, f'Pubkey "{addr1}" must be a hex string', self.nodes[0].createmultisig, 2, [addr1Obj['pubkey'], addr1])
 
         mSigObj = self.nodes[2].addmultisigaddress(2, [addr1Obj['pubkey'], addr1])['address']
 
@@ -436,6 +436,8 @@ class RawTransactionsTest(BitcoinTestFramework):
         rawTxPartialSigned2 = self.nodes[2].signrawtransactionwithwallet(rawTx2, inputs)
         self.log.debug(rawTxPartialSigned2)
         assert_equal(rawTxPartialSigned2['complete'], False)  # node2 only has one key, can't comp. sign the tx
+        assert_raises_rpc_error(-22, "TX decode failed", self.nodes[0].combinerawtransaction, [rawTxPartialSigned1['hex'], rawTxPartialSigned2['hex'] + "00"])
+        assert_raises_rpc_error(-22, "Missing transactions", self.nodes[0].combinerawtransaction, [])
         rawTxComb = self.nodes[2].combinerawtransaction([rawTxPartialSigned1['hex'], rawTxPartialSigned2['hex']])
         self.log.debug(rawTxComb)
         self.nodes[2].sendrawtransaction(rawTxComb)
@@ -443,6 +445,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.sync_all()
         self.generate(self.nodes[0], 1)
         assert_equal(self.nodes[0].getbalance(), bal + Decimal('500.00000000') + Decimal('2.19000000')) # block reward + tx
+        assert_raises_rpc_error(-25, "Input not found or already spent", self.nodes[0].combinerawtransaction, [rawTxPartialSigned1['hex'], rawTxPartialSigned2['hex']])
 
 
 if __name__ == '__main__':
