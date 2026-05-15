@@ -15,8 +15,10 @@ For a description of arguments recognized by test scripts, see
 import argparse
 from collections import deque
 import configparser
+import csv
 import datetime
 import os
+import pathlib
 import time
 import shutil
 import signal
@@ -28,6 +30,13 @@ import logging
 import unittest
 
 os.environ["REQUIRE_WALLET_TYPE_SET"] = "1"
+
+# Minimum amount of space to run the tests.
+MIN_FREE_SPACE = 1.1 * 1024 * 1024 * 1024
+# Additional space to run an extra job.
+ADDITIONAL_SPACE_PER_JOB = 100 * 1024 * 1024
+# Minimum amount of space required for --nocleanup
+MIN_NO_CLEANUP_SPACE = 12 * 1024 * 1024 * 1024
 
 # Formatting. Default colors to empty strings.
 DEFAULT, BOLD, GREEN, RED = ("", ""), ("", ""), ("", ""), ("", "")
@@ -448,6 +457,9 @@ def main():
     parser.add_argument('--failfast', '-F', action='store_true', help='stop execution after the first test failure')
     parser.add_argument('--filter', help='filter scripts to run by regular expression')
     parser.add_argument('--skipunit', '-u', action='store_true', help='skip unit tests for the test framework')
+    parser.add_argument('--resultsfile', '-r', help='store test results (as CSV) to the provided file')
+    parser.add_argument("--nocleanup", dest="nocleanup", default=False, action="store_true",
+                        help="Leave bitcoinds and test.* datadir on exit or error")
 
 
     args, unknown_args = parser.parse_known_args()
@@ -479,6 +491,13 @@ def main():
     os.makedirs(tmpdir)
 
     logging.debug("Temporary test directory at %s" % tmpdir)
+
+    results_filepath = None
+    if args.resultsfile:
+        results_filepath = pathlib.Path(args.resultsfile)
+        # Stop early if the parent directory doesn't exist
+        assert results_filepath.parent.exists(), "Results file parent directory does not exist"
+        logging.debug("Test results will be written to " + str(results_filepath))
 
     enable_bitcoind = config["components"].getboolean("ENABLE_BITCOIND")
 
@@ -542,6 +561,13 @@ def main():
         subprocess.check_call([sys.executable, os.path.join(config["environment"]["SRCDIR"], 'test', 'functional', test_list[0].split()[0]), '-h'])
         sys.exit(0)
 
+    # Warn if there is not enough space on tmpdir to run the tests with --nocleanup
+    if args.nocleanup:
+        if shutil.disk_usage(tmpdir).free < MIN_NO_CLEANUP_SPACE:
+            print(f"{BOLD[1]}WARNING!{BOLD[0]} There may be insufficient free space in {tmpdir} to run the functional test suite with --nocleanup. "
+                  f"A minimum of {MIN_NO_CLEANUP_SPACE // (1024 * 1024 * 1024)} GB of free space is required.")
+        passon_args.append("--nocleanup")
+
     check_script_list(src_dir=config["environment"]["SRCDIR"], fail_on_warn=args.ci)
     check_script_prefixes()
 
@@ -561,9 +587,10 @@ def main():
         failfast=args.failfast,
         use_term_control=args.ansi,
         skipunit=args.skipunit,
+        results_filepath=results_filepath,
     )
 
-def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, attempts=1, enable_coverage=False, args=None, combined_logs_len=0, failfast=False, use_term_control, skipunit=False):
+def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, attempts=1, enable_coverage=False, args=None, combined_logs_len=0, failfast=False, use_term_control, skipunit=False, results_filepath=None):
     args = args or []
 
     # Warn if dashd is already running
@@ -580,6 +607,11 @@ def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, attempts=1, enab
     if os.path.isdir(cache_dir):
         print("%sWARNING!%s There is a cache directory here: %s. If tests fail unexpectedly, try deleting the cache directory." % (BOLD[1], BOLD[0], cache_dir))
 
+    # Warn if there is not enough space on the testing dir
+    min_space = MIN_FREE_SPACE + (jobs - 1) * ADDITIONAL_SPACE_PER_JOB
+    if shutil.disk_usage(tmpdir).free < min_space:
+        print(f"{BOLD[1]}WARNING!{BOLD[0]} There may be insufficient free space in {tmpdir} to run the Bitcoin functional test suite. "
+              f"Running the test suite with fewer than {min_space // (1024 * 1024)} MB of free space might cause tests to fail.")
 
     tests_dir = src_dir + '/test/functional/'
     # This allows `test_runner.py` to work from an out-of-source build directory using a symlink,
@@ -659,7 +691,15 @@ def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, attempts=1, enab
                     logging.debug("Early exiting after test failure")
                     break
 
-    print_results(test_results, max_len_name, (int(time.time() - start_time)))
+                if "[Errno 28] No space left on device" in stdout:
+                    sys.exit(f"Early exiting after test failure due to insuffient free space in {tmpdir}\n"
+                             f"Test execution data left in {tmpdir}.\n"
+                             f"Additional storage is needed to execute testing.")
+
+    runtime = int(time.time() - start_time)
+    print_results(test_results, max_len_name, runtime)
+    if results_filepath:
+        write_results(test_results, results_filepath, runtime)
 
     if coverage:
         coverage_passed = coverage.report_rpc_coverage()
@@ -705,6 +745,17 @@ def print_results(test_results, max_len_name, runtime):
         results += RED[0]
     results += "Runtime: %s s\n" % (runtime)
     print(results)
+
+
+def write_results(test_results, filepath, total_runtime):
+    with open(filepath, mode="w", encoding="utf8") as results_file:
+        results_writer = csv.writer(results_file)
+        results_writer.writerow(['test', 'status', 'duration(seconds)'])
+        all_passed = True
+        for test_result in test_results:
+            all_passed = all_passed and test_result.was_successful
+            results_writer.writerow([test_result.name, test_result.status, str(test_result.time)])
+        results_writer.writerow(['ALL', ("Passed" if all_passed else "Failed"), str(total_runtime)])
 
 class TestHandler:
     """
