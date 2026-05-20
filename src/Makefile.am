@@ -173,22 +173,21 @@ BITCOIN_CORE_H = \
   bech32.h \
   bip324.h \
   blockencodings.h \
-  common/bloom.h \
+  blockfilter.h \
   cachemap.h \
   cachemultimap.h \
-  blockfilter.h \
   chain.h \
   chainlock/chainlock.h \
-  chainlock/handler.h \
   chainlock/clsig.h \
+  chainlock/handler.h \
   chainlock/signing.h \
   chainparams.h \
   chainparamsbase.h \
   chainparamsseeds.h \
   checkqueue.h \
   clientversion.h \
-  coinjoin/coinjoin.h \
   coinjoin/client.h \
+  coinjoin/coinjoin.h \
   coinjoin/common.h \
   coinjoin/options.h \
   coinjoin/server.h \
@@ -204,24 +203,25 @@ BITCOIN_CORE_H = \
   compat/cpuid.h \
   compat/endian.h \
   compressor.h \
-  context.h \
   consensus/consensus.h \
   consensus/tx_check.h \
   consensus/tx_verify.h \
+  context.h \
   core_io.h \
   core_memusage.h \
-  cuckoocache.h \
   ctpl_stl.h \
+  cuckoocache.h \
   cxxtimer.hpp \
   dbwrapper.h \
   deploymentinfo.h \
   deploymentstatus.h \
+  dsnotificationinterface.h \
   evo/assetlocktx.h \
-  evo/dmn_types.h \
   evo/cbtx.h \
   evo/chainhelper.h \
   evo/creditpool.h \
   evo/deterministicmns.h \
+  evo/dmn_types.h \
   evo/dmnstate.h \
   evo/evodb.h \
   evo/mnauth.h \
@@ -235,7 +235,9 @@ BITCOIN_CORE_H = \
   evo/specialtxman.h \
   evo/types.h \
   external_signer.h \
-  dsnotificationinterface.h \
+  flat-database.h \
+  flatfile.h \
+  fs.h \
   governance/common.h \
   governance/governance.h \
   governance/net_governance.h \
@@ -246,9 +248,6 @@ BITCOIN_CORE_H = \
   governance/votedb.h \
   gsl/assert.h \
   gsl/pointers.h \
-  flat-database.h \
-  flatfile.h \
-  fs.h \
   httprpc.h \
   httpserver.h \
   i2p.h \
@@ -267,6 +266,11 @@ BITCOIN_CORE_H = \
   indirectmap.h \
   init.h \
   init/common.h \
+  instantsend/db.h \
+  instantsend/instantsend.h \
+  instantsend/lock.h \
+  instantsend/net_instantsend.h \
+  instantsend/signing.h \
   interfaces/chain.h \
   interfaces/coinjoin.h \
   interfaces/echo.h \
@@ -275,11 +279,6 @@ BITCOIN_CORE_H = \
   interfaces/ipc.h \
   interfaces/node.h \
   interfaces/wallet.h \
-  instantsend/db.h \
-  instantsend/instantsend.h \
-  instantsend/lock.h \
-  instantsend/net_instantsend.h \
-  instantsend/signing.h \
   kernel/blockmanager_opts.h \
   kernel/chainstatemanager_opts.h \
   kernel/coinstats.h \
@@ -336,13 +335,13 @@ BITCOIN_CORE_H = \
   node/connection_types.h \
   node/context.h \
   node/eviction.h \
+  node/interface_ui.h \
   node/miner.h \
   node/minisketchwrapper.h \
   node/psbt.h \
   node/sync_manager.h \
   node/transaction.h \
   node/txreconciliation.h \
-  node/interface_ui.h \
   node/utxo_snapshot.h \
   noui.h \
   outputtype.h \
@@ -382,9 +381,9 @@ BITCOIN_CORE_H = \
   source_location.h \
   spork.h \
   stacktraces.h \
-  streams.h \
   stats/client.h \
   stats/rawsender.h \
+  streams.h \
   support/allocators/mt_pooled_secure.h \
   support/allocators/pool.h \
   support/allocators/pooled_secure.h \
@@ -402,6 +401,7 @@ BITCOIN_CORE_H = \
   txorphanage.h \
   undo.h \
   unordered_lru_cache.h \
+  util/asmap.h \
   util/bip32.h \
   util/bytevectorhash.h \
   util/check.h \
@@ -410,33 +410,32 @@ BITCOIN_CORE_H = \
   util/error.h \
   util/fastrange.h \
   util/fees.h \
-  util/golombrice.h \
-  util/hasher.h \
-  util/hash_type.h \
-  util/helpers.h \
-  util/asmap.h \
   util/getuniquepath.h \
+  util/golombrice.h \
+  util/hash_type.h \
+  util/hasher.h \
+  util/helpers.h \
   util/macros.h \
   util/message.h \
   util/moneystr.h \
   util/overflow.h \
   util/overloaded.h \
+  util/ranges_set.h \
   util/readwritefile.h \
   util/result.h \
   util/serfloat.h \
   util/settings.h \
-  util/std23.h \
-  util/ranges_set.h \
   util/sock.h \
-  util/string.h \
   util/spanparsing.h \
+  util/std23.h \
+  util/string.h \
   util/subprocess.hpp \
   util/syserror.h \
   util/system.h \
-  util/time.h \
   util/thread.h \
   util/threadinterrupt.h \
   util/threadnames.h \
+  util/time.h \
   util/tokenpipe.h \
   util/trace.h \
   util/translation.h \
@@ -518,8 +517,8 @@ libbitcoin_node_a_SOURCES = \
   dsnotificationinterface.cpp \
   evo/assetlocktx.cpp \
   evo/cbtx.cpp \
-  evo/creditpool.cpp \
   evo/chainhelper.cpp \
+  evo/creditpool.cpp \
   evo/deterministicmns.cpp \
   evo/dmnstate.cpp \
   evo/evodb.cpp \
@@ -584,9 +583,9 @@ libbitcoin_node_a_SOURCES = \
   masternode/sync.cpp \
   masternode/utils.cpp \
   net.cpp \
+  net_processing.cpp \
   netfulfilledman.cpp \
   netgroup.cpp \
-  net_processing.cpp \
   node/blockstorage.cpp \
   node/caches.cpp \
   node/chainstate.cpp \
@@ -594,6 +593,7 @@ libbitcoin_node_a_SOURCES = \
   node/connection_types.cpp \
   node/context.cpp \
   node/eviction.cpp \
+  node/interface_ui.cpp \
   node/interfaces.cpp \
   node/miner.cpp \
   node/minisketchwrapper.cpp \
@@ -601,7 +601,6 @@ libbitcoin_node_a_SOURCES = \
   node/sync_manager.cpp \
   node/transaction.cpp \
   node/txreconciliation.cpp \
-  node/interface_ui.cpp \
   noui.cpp \
   policy/fees.cpp \
   policy/packages.cpp \
@@ -613,12 +612,12 @@ libbitcoin_node_a_SOURCES = \
   rpc/coinjoin.cpp \
   rpc/evo.cpp \
   rpc/fees.cpp \
+  rpc/governance.cpp \
   rpc/masternode.cpp \
   rpc/mempool.cpp \
-  rpc/governance.cpp \
   rpc/mining.cpp \
-  rpc/node.cpp \
   rpc/net.cpp \
+  rpc/node.cpp \
   rpc/output_script.cpp \
   rpc/quorums.cpp \
   rpc/rawtransaction.cpp \
@@ -671,8 +670,9 @@ libbitcoin_wallet_a_SOURCES = \
   coinjoin/interfaces.cpp \
   coinjoin/util.cpp \
   wallet/bip39.cpp \
-  wallet/coinjoin.cpp \
   wallet/coincontrol.cpp \
+  wallet/coinjoin.cpp \
+  wallet/coinselection.cpp \
   wallet/context.cpp \
   wallet/crypter.cpp \
   wallet/db.cpp \
@@ -687,8 +687,8 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/rpc/backup.cpp \
   wallet/rpc/coins.cpp \
   wallet/rpc/encrypt.cpp \
-  wallet/rpc/spend.cpp \
   wallet/rpc/signmessage.cpp \
+  wallet/rpc/spend.cpp \
   wallet/rpc/transactions.cpp \
   wallet/rpc/util.cpp \
   wallet/rpc/wallet.cpp \
@@ -698,7 +698,6 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
   wallet/walletutil.cpp \
-  wallet/coinselection.cpp \
   $(BITCOIN_CORE_H)
 
 if USE_SQLITE
@@ -730,10 +729,10 @@ crypto_libbitcoin_crypto_base_la_LDFLAGS = $(AM_LDFLAGS) -static
 crypto_libbitcoin_crypto_base_la_SOURCES = \
   crypto/aes.cpp \
   crypto/aes.h \
-  crypto/chacha20.h \
   crypto/chacha20.cpp \
-  crypto/chacha20poly1305.h \
+  crypto/chacha20.h \
   crypto/chacha20poly1305.cpp \
+  crypto/chacha20poly1305.h \
   crypto/common.h \
   crypto/hkdf_sha256_32.cpp \
   crypto/hkdf_sha256_32.h \
@@ -741,12 +740,12 @@ crypto_libbitcoin_crypto_base_la_SOURCES = \
   crypto/hmac_sha256.h \
   crypto/hmac_sha512.cpp \
   crypto/hmac_sha512.h \
-  crypto/muhash.h \
   crypto/muhash.cpp \
-  crypto/poly1305.h \
-  crypto/poly1305.cpp \
+  crypto/muhash.h \
   crypto/pkcs5_pbkdf2_hmac_sha512.cpp \
   crypto/pkcs5_pbkdf2_hmac_sha512.h \
+  crypto/poly1305.cpp \
+  crypto/poly1305.h \
   crypto/ripemd160.cpp \
   crypto/ripemd160.h \
   crypto/sha1.cpp \
@@ -948,10 +947,10 @@ libbitcoin_common_a_SOURCES = \
   key_io.cpp \
   llmq/core_write.cpp \
   merkleblock.cpp \
+  net_permissions.cpp \
   net_types.cpp \
   netaddress.cpp \
   netbase.cpp \
-  net_permissions.cpp \
   outputtype.cpp \
   policy/feerate.cpp \
   policy/policy.cpp \
@@ -987,11 +986,10 @@ libbitcoin_util_a_SOURCES = \
   bls/bls_ies.h \
   bls/bls_worker.cpp \
   bls/bls_worker.h \
-  coinjoin/common.cpp \
-  coinjoin/options.cpp \
-  support/lockedpool.cpp \
   chainparamsbase.cpp \
   clientversion.cpp \
+  coinjoin/common.cpp \
+  coinjoin/options.cpp \
   fs.cpp \
   interfaces/echo.cpp \
   interfaces/handler.cpp \
@@ -1002,6 +1000,7 @@ libbitcoin_util_a_SOURCES = \
   randomenv.cpp \
   stacktraces.cpp \
   support/cleanse.cpp \
+  support/lockedpool.cpp \
   sync.cpp \
   util/asmap.cpp \
   util/bip32.cpp \
@@ -1010,24 +1009,24 @@ libbitcoin_util_a_SOURCES = \
   util/edge.cpp \
   util/error.cpp \
   util/fees.cpp \
-  util/hasher.cpp \
   util/getuniquepath.cpp \
-  util/sock.cpp \
-  util/syserror.cpp \
-  util/system.cpp \
+  util/hasher.cpp \
   util/message.cpp \
   util/moneystr.cpp \
-  util/readwritefile.cpp \
-  util/settings.cpp \
   util/ranges_set.cpp \
+  util/readwritefile.cpp \
+  util/serfloat.cpp \
+  util/settings.cpp \
+  util/sock.cpp \
   util/spanparsing.cpp \
   util/strencodings.cpp \
-  util/time.cpp \
-  util/serfloat.cpp \
   util/string.cpp \
+  util/syserror.cpp \
+  util/system.cpp \
   util/thread.cpp \
   util/threadinterrupt.cpp \
   util/threadnames.cpp \
+  util/time.cpp \
   util/tokenpipe.cpp \
   util/wpipe.cpp \
   $(BITCOIN_CORE_H)
@@ -1222,30 +1221,30 @@ libdashkernel_la_SOURCES = \
   bls/bls.cpp \
   bls/bls_worker.cpp \
   chain.cpp \
-  chainparamsbase.cpp \
+  chainlock/chainlock.cpp \
+  chainlock/clsig.cpp \
   chainparams.cpp \
+  chainparamsbase.cpp \
   clientversion.cpp \
   coins.cpp \
+  common/bloom.cpp \
   compressor.cpp \
-  chainlock/clsig.cpp \
-  chainlock/chainlock.cpp \
   consensus/merkle.cpp \
   consensus/tx_check.cpp \
   consensus/tx_verify.cpp \
-  common/bloom.cpp \
   core_read.cpp \
   dbwrapper.cpp \
   deploymentinfo.cpp \
   deploymentstatus.cpp \
   evo/assetlocktx.cpp \
   evo/cbtx.cpp \
-  evo/creditpool.cpp \
   evo/chainhelper.cpp \
+  evo/creditpool.cpp \
   evo/deterministicmns.cpp \
   evo/dmnstate.cpp \
   evo/evodb.cpp \
-  evo/netinfo.cpp \
   evo/mnhftx.cpp \
+  evo/netinfo.cpp \
   evo/providertx.cpp \
   evo/providertx_util.cpp \
   evo/simplifiedmns.cpp \
@@ -1269,9 +1268,10 @@ libdashkernel_la_SOURCES = \
   index/coinstatsindex.cpp \
   index/spentindex.cpp \
   index/txindex.cpp \
+  init/common.cpp \
   instantsend/db.cpp \
   instantsend/instantsend.cpp \
-  init/common.cpp \
+  kernel/coinstats.cpp \
   key.cpp \
   key_io.cpp \
   llmq/blockprocessor.cpp \
@@ -1289,27 +1289,26 @@ libdashkernel_la_SOURCES = \
   llmq/snapshot.cpp \
   llmq/utils.cpp \
   logging.cpp \
+  masternode/meta.cpp \
+  masternode/payments.cpp \
+  masternode/sync.cpp \
+  merkleblock.cpp \
+  messagesigner.cpp \
   netaddress.cpp \
   netbase.cpp \
   node/blockstorage.cpp \
   node/chainstate.cpp \
-  node/transaction.cpp \
-  kernel/coinstats.cpp \
-  masternode/meta.cpp \
-  masternode/payments.cpp \
-  masternode/sync.cpp \
-  messagesigner.cpp \
-  merkleblock.cpp \
   node/interface_ui.cpp \
+  node/transaction.cpp \
   policy/feerate.cpp \
   policy/fees.cpp \
   policy/packages.cpp \
   policy/policy.cpp \
   policy/settings.cpp \
   pow.cpp \
-  protocol.cpp \
   primitives/block.cpp \
   primitives/transaction.cpp \
+  protocol.cpp \
   pubkey.cpp \
   random.cpp \
   randomenv.cpp \
@@ -1320,8 +1319,8 @@ libdashkernel_la_SOURCES = \
   script/script_error.cpp \
   script/sigcache.cpp \
   script/standard.cpp \
-  spork.cpp \
   shutdown.cpp \
+  spork.cpp \
   support/cleanse.cpp \
   support/lockedpool.cpp \
   sync.cpp \
@@ -1339,8 +1338,8 @@ libdashkernel_la_SOURCES = \
   util/serfloat.cpp \
   util/settings.cpp \
   util/sock.cpp \
-  util/string.cpp \
   util/strencodings.cpp \
+  util/string.cpp \
   util/syserror.cpp \
   util/system.cpp \
   util/thread.cpp \
