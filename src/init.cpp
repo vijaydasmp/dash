@@ -19,7 +19,6 @@
 #include <context.h>
 #include <consensus/amount.h>
 #include <deploymentstatus.h>
-#include <fs.h>
 #include <hash.h>
 #include <httpserver.h>
 #include <httprpc.h>
@@ -67,6 +66,8 @@
 #include <txmempool.h>
 #include <util/asmap.h>
 #include <util/error.h>
+#include <util/fs.h>
+#include <util/fs_helpers.h>
 #include <util/moneystr.h>
 #include <util/strencodings.h>
 #include <util/string.h>
@@ -948,68 +949,68 @@ void InitParameterInteraction(ArgsManager& args)
     // even when -connect or -proxy is specified
     if (args.IsArgSet("-bind")) {
         if (args.SoftSetBoolArg("-listen", true))
-            LogPrintf("%s: parameter interaction: -bind set -> setting -listen=1\n", __func__);
+            LogInfo("parameter interaction: -bind set -> setting -listen=1\n");
     }
     if (args.IsArgSet("-whitebind")) {
         if (args.SoftSetBoolArg("-listen", true))
-            LogPrintf("%s: parameter interaction: -whitebind set -> setting -listen=1\n", __func__);
+            LogInfo("parameter interaction: -whitebind set -> setting -listen=1\n");
     }
 
     if (args.IsArgSet("-connect") || args.GetIntArg("-maxconnections", DEFAULT_MAX_PEER_CONNECTIONS) <= 0) {
         // when only connecting to trusted nodes, do not seed via DNS, or listen by default
         if (args.SoftSetBoolArg("-dnsseed", false))
-            LogPrintf("%s: parameter interaction: -connect or -maxconnections=0 set -> setting -dnsseed=0\n", __func__);
+            LogInfo("parameter interaction: -connect or -maxconnections=0 set -> setting -dnsseed=0\n");
         if (args.SoftSetBoolArg("-listen", false))
-            LogPrintf("%s: parameter interaction: -connect or -maxconnections=0 set -> setting -listen=0\n", __func__);
+            LogInfo("parameter interaction: -connect or -maxconnections=0 set -> setting -listen=0\n");
     }
 
     std::string proxy_arg = args.GetArg("-proxy", "");
     if (proxy_arg != "" && proxy_arg != "0") {
         // to protect privacy, do not listen by default if a default proxy server is specified
         if (args.SoftSetBoolArg("-listen", false))
-            LogPrintf("%s: parameter interaction: -proxy set -> setting -listen=0\n", __func__);
+            LogInfo("parameter interaction: -proxy set -> setting -listen=0\n");
         // to protect privacy, do not map ports when a proxy is set. The user may still specify -listen=1
         // to listen locally, so don't rely on this happening through -listen below.
         if (args.SoftSetBoolArg("-upnp", false))
-            LogPrintf("%s: parameter interaction: -proxy set -> setting -upnp=0\n", __func__);
+            LogInfo("parameter interaction: -proxy set -> setting -upnp=0\n");
         if (args.SoftSetBoolArg("-natpmp", false))
-            LogPrintf("%s: parameter interaction: -proxy set -> setting -natpmp=0\n", __func__);
+            LogInfo("parameter interaction: -proxy set -> setting -natpmp=0\n");
         // to protect privacy, do not discover addresses by default
         if (args.SoftSetBoolArg("-discover", false))
-            LogPrintf("%s: parameter interaction: -proxy set -> setting -discover=0\n", __func__);
+            LogInfo("parameter interaction: -proxy set -> setting -discover=0\n");
     }
 
     if (!args.GetBoolArg("-listen", DEFAULT_LISTEN)) {
         // do not map ports or try to retrieve public IP when not listening (pointless)
         if (args.SoftSetBoolArg("-upnp", false))
-            LogPrintf("%s: parameter interaction: -listen=0 -> setting -upnp=0\n", __func__);
+            LogInfo("parameter interaction: -listen=0 -> setting -upnp=0\n");
         if (args.SoftSetBoolArg("-natpmp", false))
-            LogPrintf("%s: parameter interaction: -listen=0 -> setting -natpmp=0\n", __func__);
+            LogInfo("parameter interaction: -listen=0 -> setting -natpmp=0\n");
         if (args.SoftSetBoolArg("-discover", false))
-            LogPrintf("%s: parameter interaction: -listen=0 -> setting -discover=0\n", __func__);
+            LogInfo("parameter interaction: -listen=0 -> setting -discover=0\n");
         if (args.SoftSetBoolArg("-listenonion", false))
-            LogPrintf("%s: parameter interaction: -listen=0 -> setting -listenonion=0\n", __func__);
+            LogInfo("parameter interaction: -listen=0 -> setting -listenonion=0\n");
         if (args.SoftSetBoolArg("-i2pacceptincoming", false)) {
-            LogPrintf("%s: parameter interaction: -listen=0 -> setting -i2pacceptincoming=0\n", __func__);
+            LogInfo("parameter interaction: -listen=0 -> setting -i2pacceptincoming=0\n");
         }
     }
 
     if (args.IsArgSet("-externalip")) {
         // if an explicit public IP is specified, do not try to find others
         if (args.SoftSetBoolArg("-discover", false))
-            LogPrintf("%s: parameter interaction: -externalip set -> setting -discover=0\n", __func__);
+            LogInfo("parameter interaction: -externalip set -> setting -discover=0\n");
     }
 
     // disable whitelistrelay in blocksonly mode
     if (args.GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY)) {
         if (args.SoftSetBoolArg("-whitelistrelay", false))
-            LogPrintf("%s: parameter interaction: -blocksonly=1 -> setting -whitelistrelay=0\n", __func__);
+            LogInfo("parameter interaction: -blocksonly=1 -> setting -whitelistrelay=0\n");
     }
 
     // Forcing relay from whitelisted hosts implies we will accept relays from them in the first place.
     if (args.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY)) {
         if (args.SoftSetBoolArg("-whitelistrelay", true))
-            LogPrintf("%s: parameter interaction: -whitelistforcerelay=1 -> setting -whitelistrelay=1\n", __func__);
+            LogInfo("parameter interaction: -whitelistforcerelay=1 -> setting -whitelistrelay=1\n");
     }
 
     if (args.IsArgSet("-onlynet")) {
@@ -1019,17 +1020,17 @@ void InitParameterInteraction(ArgsManager& args)
             return n == NET_IPV4 || n == NET_IPV6;
         });
         if (!clearnet_reachable && args.SoftSetBoolArg("-dnsseed", false)) {
-            LogPrintf("%s: parameter interaction: -onlynet excludes IPv4 and IPv6 -> setting -dnsseed=0\n", __func__);
+            LogInfo("parameter interaction: -onlynet excludes IPv4 and IPv6 -> setting -dnsseed=0\n");
         }
     }
 
     int64_t nPruneArg = args.GetIntArg("-prune", 0);
     if (nPruneArg > 0) {
         if (args.SoftSetBoolArg("-disablegovernance", true)) {
-            LogPrintf("%s: parameter interaction: -prune=%d -> setting -disablegovernance=true\n", __func__, nPruneArg);
+            LogInfo("parameter interaction: -prune=%d -> setting -disablegovernance=true\n", nPruneArg);
         }
         if (args.SoftSetBoolArg("-txindex", false)) {
-            LogPrintf("%s: parameter interaction: -prune=%d -> setting -txindex=false\n", __func__, nPruneArg);
+            LogInfo("parameter interaction: -prune=%d -> setting -txindex=false\n", nPruneArg);
         }
     }
 
@@ -1042,19 +1043,19 @@ void InitParameterInteraction(ArgsManager& args)
 
     if (fAdditionalIndexes && args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL) < 4) {
         args.ForceSetArg("-checklevel", "4");
-        LogPrintf("%s: parameter interaction: additional indexes -> setting -checklevel=4\n", __func__);
+        LogInfo("parameter interaction: additional indexes -> setting -checklevel=4\n");
     }
 
     if (args.IsArgSet("-masternodeblsprivkey")) {
         if (args.SoftSetBoolArg("-disablewallet", true)) {
-            LogPrintf("%s: parameter interaction: -masternodeblsprivkey set -> setting -disablewallet=1\n", __func__);
+            LogInfo("parameter interaction: -masternodeblsprivkey set -> setting -disablewallet=1\n");
         }
         // Enable block filters for masternodes to improve network services
         if (args.SoftSetBoolArg("-peerblockfilters", true)) {
-            LogPrintf("%s: parameter interaction: -masternodeblsprivkey set -> setting -peerblockfilters=1\n", __func__);
+            LogInfo("parameter interaction: -masternodeblsprivkey set -> setting -peerblockfilters=1\n");
         }
         if (args.SoftSetArg("-blockfilterindex", "basic")) {
-            LogPrintf("%s: parameter interaction: -masternodeblsprivkey set -> setting -blockfilterindex=basic\n", __func__);
+            LogInfo("parameter interaction: -masternodeblsprivkey set -> setting -blockfilterindex=basic\n");
         }
     }
 }
@@ -1086,7 +1087,7 @@ std::set<BlockFilterType> g_enabled_filter_types;
 {
     // Rather than throwing std::bad-alloc if allocation fails, terminate
     // immediately to (try to) avoid chain corruption.
-    // Since LogPrintf may itself allocate memory, set the handler directly
+    // Since logging may itself allocate memory, set the handler directly
     // to terminate first.
     std::set_new_handler(std::terminate);
     LogPrintf("Error: Out of memory. Terminating.\n");
@@ -2653,6 +2654,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     CService onion_service_target;
     if (!connOptions.onion_binds.empty()) {
         onion_service_target = connOptions.onion_binds.front();
+    } else if (!connOptions.vBinds.empty()) {
+        onion_service_target = connOptions.vBinds.front();
     } else {
         onion_service_target = DefaultOnionServiceTarget();
         connOptions.onion_binds.push_back(onion_service_target);

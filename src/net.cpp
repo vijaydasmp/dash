@@ -19,7 +19,6 @@
 #include <consensus/consensus.h>
 #include <crypto/sha256.h>
 #include <node/eviction.h>
-#include <fs.h>
 #include <i2p.h>
 #include <key.h>
 #include <memusage.h>
@@ -30,6 +29,7 @@
 #include <protocol.h>
 #include <random.h>
 #include <scheduler.h>
+#include <util/fs.h>
 #include <util/sock.h>
 #include <util/strencodings.h>
 #include <util/system.h>
@@ -570,7 +570,7 @@ void CNode::SetAddrLocal(const CService& addrLocalIn) {
     AssertLockNotHeld(m_addr_local_mutex);
     LOCK(m_addr_local_mutex);
     if (addrLocal.IsValid()) {
-        error("Addr local already set for node: %i. Refusing to change from %s to %s", id, addrLocal.ToStringAddrPort(), addrLocalIn.ToStringAddrPort());
+        LogError("Addr local already set for node: %i. Refusing to change from %s to %s\n", id, addrLocal.ToStringAddrPort(), addrLocalIn.ToStringAddrPort());
     } else {
         addrLocal = addrLocalIn;
     }
@@ -3942,24 +3942,36 @@ bool CConnman::Bind(const CService& addr_, unsigned int flags, NetPermissionFlag
 
 bool CConnman::InitBinds(const Options& options)
 {
-    bool fBound = false;
     for (const auto& addrBind : options.vBinds) {
-        fBound |= Bind(addrBind, BF_REPORT_ERROR, NetPermissionFlags::None);
+        if (!Bind(addrBind, BF_REPORT_ERROR, NetPermissionFlags::None)) {
+            return false;
+        }
     }
     for (const auto& addrBind : options.vWhiteBinds) {
-        fBound |= Bind(addrBind.m_service, BF_REPORT_ERROR, addrBind.m_flags);
+        if (!Bind(addrBind.m_service, BF_REPORT_ERROR, addrBind.m_flags)) {
+            return false;
+        }
     }
     for (const auto& addr_bind : options.onion_binds) {
-        fBound |= Bind(addr_bind, BF_DONT_ADVERTISE, NetPermissionFlags::None);
+        if (!Bind(addr_bind, BF_REPORT_ERROR | BF_DONT_ADVERTISE, NetPermissionFlags::None)) {
+            return false;
+        }
     }
     if (options.bind_on_any) {
+        // Don't consider errors to bind on IPv6 "::" fatal because the host OS
+        // may not have IPv6 support and the user did not explicitly ask us to
+        // bind on that.
+        const CService ipv6_any{in6_addr(IN6ADDR_ANY_INIT), GetListenPort()}; // ::
+        Bind(ipv6_any, BF_NONE, NetPermissionFlags::None);
+
         struct in_addr inaddr_any;
         inaddr_any.s_addr = htonl(INADDR_ANY);
-        struct in6_addr inaddr6_any = IN6ADDR_ANY_INIT;
-        fBound |= Bind(CService(inaddr6_any, GetListenPort()), BF_NONE, NetPermissionFlags::None);
-        fBound |= Bind(CService(inaddr_any, GetListenPort()), !fBound ? BF_REPORT_ERROR : BF_NONE, NetPermissionFlags::None);
+        const CService ipv4_any{inaddr_any, GetListenPort()}; // 0.0.0.0
+        if (!Bind(ipv4_any, BF_REPORT_ERROR, NetPermissionFlags::None)) {
+            return false;
+        }
     }
-    return fBound;
+    return true;
 }
 
 bool CConnman::Start(CDeterministicMNManager& dmnman, CMasternodeMetaMan& mn_metaman, CMasternodeSync& mn_sync,

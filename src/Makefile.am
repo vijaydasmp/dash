@@ -9,9 +9,9 @@ print-%: FORCE
 
 DIST_SUBDIRS = secp256k1
 
-AM_LDFLAGS = $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(GPROF_LDFLAGS) $(SANITIZER_LDFLAGS) $(CORE_LDFLAGS) $(BACKTRACE_LDFLAGS)
+AM_LDFLAGS = $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(SANITIZER_LDFLAGS) $(CORE_LDFLAGS) $(BACKTRACE_LDFLAGS)
 AM_CFLAGS = $(DEBUG_CFLAGS) $(BACKTRACE_FLAGS)
-AM_CXXFLAGS = $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(WARN_CXXFLAGS) $(NOWARN_CXXFLAGS) $(ERROR_CXXFLAGS) $(GPROF_CXXFLAGS) $(SANITIZER_CXXFLAGS) $(CORE_CXXFLAGS) $(BACKTRACE_FLAGS)
+AM_CXXFLAGS = $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(WARN_CXXFLAGS) $(NOWARN_CXXFLAGS) $(ERROR_CXXFLAGS) $(SANITIZER_CXXFLAGS) $(CORE_CXXFLAGS) $(BACKTRACE_FLAGS)
 AM_OBJCXXFLAGS = $(AM_CXXFLAGS)
 AM_CPPFLAGS = $(DEBUG_CPPFLAGS) $(HARDENED_CPPFLAGS) $(CORE_CPPFLAGS)
 AM_LIBTOOLFLAGS = --preserve-dup-deps
@@ -244,7 +244,6 @@ BITCOIN_CORE_H = \
   gsl/pointers.h \
   flat-database.h \
   flatfile.h \
-  fs.h \
   httprpc.h \
   httpserver.h \
   i2p.h \
@@ -398,6 +397,8 @@ BITCOIN_CORE_H = \
   util/error.h \
   util/fastrange.h \
   util/fees.h \
+  util/fs.h \
+  util/fs_helpers.h \
   util/golombrice.h \
   util/hasher.h \
   util/hash_type.h \
@@ -978,7 +979,6 @@ libbitcoin_util_a_SOURCES = \
   support/lockedpool.cpp \
   chainparamsbase.cpp \
   clientversion.cpp \
-  fs.cpp \
   interfaces/echo.cpp \
   interfaces/handler.cpp \
   interfaces/init.cpp \
@@ -996,6 +996,8 @@ libbitcoin_util_a_SOURCES = \
   util/edge.cpp \
   util/error.cpp \
   util/fees.cpp \
+  util/fs.cpp \
+  util/fs_helpers.cpp \
   util/hasher.cpp \
   util/getuniquepath.cpp \
   util/sock.cpp \

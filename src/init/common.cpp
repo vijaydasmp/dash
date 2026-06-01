@@ -10,15 +10,16 @@
 #include <clientversion.h>
 #include <crypto/sha256.h>
 #include <crypto/x11/dispatch.h>
-#include <fs.h>
 #include <key.h>
 #include <logging.h>
 #include <node/interface_ui.h>
 #include <random.h>
 #include <tinyformat.h>
-#include <util/time.h>
+#include <util/fs.h>
+#include <util/fs_helpers.h>
 #include <util/string.h>
 #include <util/system.h>
+#include <util/time.h>
 #include <util/translation.h>
 
 #include <algorithm>
