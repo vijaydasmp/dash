@@ -69,7 +69,6 @@
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 #include <flat-database.h>
-#include <governance/governance.h>
 #include <llmq/context.h>
 #include <llmq/signing.h>
 #include <masternode/meta.h>
@@ -352,8 +351,6 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
                                            options);
     assert(status == node::ChainstateLoadStatus::SUCCESS);
 
-    m_node.govman = std::make_unique<CGovernanceManager>(*m_node.mn_metaman, *m_node.chainman, *m_node.chain_helper->superblocks, *m_node.dmnman, *m_node.mn_sync);
-
     std::tie(status, error) = VerifyLoadedChainstate(
         chainman,
         *Assert(m_node.evodb.get()),
@@ -431,11 +428,6 @@ TestingSetup::~TestingSetup()
         m_node.connman->Stop();
     }
 
-    // govman holds a reference to chain_helper->superblocks, so it must be reset
-    // before DashChainstateSetupClose() destroys chain_helper (matches PrepareShutdown
-    // ordering in init.cpp).
-    m_node.govman.reset();
-
     // DashChainstateSetup() is called by LoadChainstate() internally but
     // winding them down is our responsibility
     DashChainstateSetupClose(m_node);
@@ -465,14 +457,6 @@ TestChainSetup::TestChainSetup(
 
     // Generate a num_blocks length chain:
     this->mineBlocks(num_blocks);
-
-    // Initialize transaction index *after* chain has been constructed
-    g_txindex = std::make_unique<TxIndex>(1 << 20, true);
-    assert(!g_txindex->BlockUntilSyncedToCurrentChain());
-    if (!g_txindex->Start(m_node.chainman->ActiveChainstate())) {
-        throw std::runtime_error("TxIndex::Start() failed.");
-    }
-    IndexWaitSynced(*g_txindex);
 
     CCheckpointData checkpoints{
         {
@@ -645,11 +629,7 @@ TestChainSetup::~TestChainSetup()
     // Allow tx index to catch up with the block index cause otherwise
     // we might be destroying it while scheduler still has some work for it
     // e.g. via BlockConnected signal
-    IndexWaitSynced(*g_txindex);
-    g_txindex->Interrupt();
-    g_txindex->Stop();
     SyncWithValidationInterfaceQueue();
-    g_txindex.reset();
 }
 
 std::vector<CTransactionRef> TestChainSetup::PopulateMempool(FastRandomContext& det_rand, size_t num_transactions, bool submit)
