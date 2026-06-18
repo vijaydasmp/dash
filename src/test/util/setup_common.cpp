@@ -88,8 +88,6 @@
 
 using node::BlockAssembler;
 using node::CalculateCacheSizes;
-using node::DashChainstateSetup;
-using node::DashChainstateSetupClose;
 using node::LoadChainstate;
 using node::NodeContext;
 using node::VerifyLoadedChainstate;
@@ -139,23 +137,6 @@ std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
     return PeerManager::make(connman, *node.addrman, banman, *node.dstxman, *node.chainman, *node.mempool, *node.mn_metaman,
                              *node.mn_sync, *node.sporkman, *node.chainlocks, *node.clhandler, /*nodeman=*/nullptr, node.dmnman, node.cj_walletman,
                              node.llmq_ctx, ignore_incoming_txs);
-}
-
-void DashChainstateSetup(ChainstateManager& chainman,
-                         NodeContext& node,
-                         bool llmq_dbs_in_memory,
-                         bool llmq_dbs_wipe)
-{
-    DashChainstateSetup(chainman, *Assert(node.mn_metaman.get()),
-                        *Assert(node.sporkman.get()), *Assert(node.chainlocks), *Assert(node.mn_sync), node.chain_helper, node.dmnman, *node.evodb,
-                        node.llmq_ctx, Assert(node.mempool.get()), node.args->GetDataDirNet(), llmq_dbs_in_memory, llmq_dbs_wipe,
-                        llmq::DEFAULT_BLSCHECK_THREADS, llmq::DEFAULT_WORKER_COUNT, llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE);
-}
-
-void DashChainstateSetupClose(NodeContext& node)
-{
-    DashChainstateSetupClose(node.chain_helper, node.dmnman, node.llmq_ctx,
-                             Assert(node.mempool.get()));
 }
 
 struct NetworkSetup
@@ -427,9 +408,12 @@ TestingSetup::~TestingSetup()
         m_node.connman->Stop();
     }
 
-    // DashChainstateSetup() is called by LoadChainstate() internally but
-    // winding them down is our responsibility
-    DashChainstateSetupClose(m_node);
+    m_node.chain_helper.reset();
+    m_node.llmq_ctx.reset();
+    if (m_node.mempool) {
+        m_node.mempool->DisconnectManagers();
+    }
+    m_node.dmnman.reset();
 }
 
 TestChain100Setup::TestChain100Setup(

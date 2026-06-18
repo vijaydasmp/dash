@@ -282,7 +282,9 @@ epilogue:
         }
     }
     GetMainSignals().UnregisterBackgroundSignalScheduler();
-    // Tear down Dash kernel objects before kernel::~Context().
-    node::DashChainstateSetupClose(chain_helper, dmnman, llmq_ctx, /*mempool=*/nullptr);
+    // Dash kernel objects before kernel::~Context().
+    chain_helper.reset();
+    llmq_ctx.reset();
+    dmnman.reset();
     evodb.reset();
 }

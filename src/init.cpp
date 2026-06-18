@@ -158,7 +158,6 @@ using kernel::DumpMempool;
 
 using node::CacheSizes;
 using node::CalculateCacheSizes;
-using node::DashChainstateSetupClose;
 using node::DEFAULT_PERSIST_MEMPOOL;
 using node::DEFAULT_PRINTPRIORITY;
 using node::DEFAULT_STOPAFTERBLOCKIMPORT;
@@ -430,8 +429,12 @@ void PrepareShutdown(NodeContext& node)
                 chainstate->ResetCoinsViews();
             }
         }
-        DashChainstateSetupClose(node.chain_helper, node.dmnman, node.llmq_ctx,
-                                 Assert(node.mempool.get()));
+        node.chain_helper.reset();
+        node.llmq_ctx.reset();
+        if (node.mempool) {
+            node.mempool->DisconnectManagers();
+        }
+        node.dmnman.reset();
         node.evodb.reset();
     }
     for (const auto& client : node.chain_clients) {

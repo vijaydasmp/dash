@@ -58,6 +58,9 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
     chainman.m_total_coinstip_cache = cache_sizes.coins;
     chainman.m_total_coinsdb_cache = cache_sizes.coins_db;
 
+    dmnman.reset();
+    dmnman = std::make_unique<CDeterministicMNManager>(*evodb, mn_metaman);
+
     // Load the fully validated chainstate.
     chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
 
@@ -70,10 +73,20 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
     pblocktree.reset();
     pblocktree.reset(new CBlockTreeDB(cache_sizes.block_tree_db, options.block_tree_db_in_memory, options.reindex));
 
-    DashChainstateSetup(chainman, mn_metaman, sporkman, chainlocks, mn_sync, chain_helper,
-                        dmnman, *evodb, llmq_ctx, options.mempool, data_dir, options.dash_dbs_in_memory,
-                        /*llmq_dbs_wipe=*/options.reindex || options.reindex_chainstate, options.bls_threads, options.worker_count,
-                        options.max_recsigs_age);
+    // Initialize llmq_ctx and connection to mempool
+    llmq_ctx.reset();
+    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, *evodb, sporkman, chainman,
+                                             util::DbWrapperParams{.path = data_dir, .memory = dash_dbs_in_memory, .wipe = fReset || fReindexChainState},
+                                             bls_threads, worker_count, max_recsigs_age);
+    if (mempool) {
+        mempool->ConnectManagers(dmnman.get(), llmq_ctx->isman.get());
+    }
+
+    // Initialize chain_helpper
+    chain_helper.reset();
+    chain_helper = std::make_unique<CChainstateHelper>(*evodb, *dmnman, mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
+                                                       *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), chainlocks,
+                                                       *(llmq_ctx->qman));
 
     if (options.reindex) {
         pblocktree->WriteReindexing(true);
@@ -188,54 +201,6 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
     chainman.MaybeRebalanceCaches();
 
     return {ChainstateLoadStatus::SUCCESS, {}};
-}
-
-void DashChainstateSetup(ChainstateManager& chainman,
-                         CMasternodeMetaMan& mn_metaman,
-                         CSporkManager& sporkman,
-                         chainlock::Chainlocks& chainlocks,
-                         const CMasternodeSync& mn_sync,
-                         std::unique_ptr<CChainstateHelper>& chain_helper,
-                         std::unique_ptr<CDeterministicMNManager>& dmnman,
-                         CEvoDB& evodb,
-                         std::unique_ptr<LLMQContext>& llmq_ctx,
-                         CTxMemPool* mempool,
-                         const fs::path& data_dir,
-                         bool llmq_dbs_in_memory,
-                         bool llmq_dbs_wipe,
-                         int8_t bls_threads,
-                         int16_t worker_count,
-                         int64_t max_recsigs_age)
-{
-    // Same logic as pblocktree
-    dmnman.reset();
-    dmnman = std::make_unique<CDeterministicMNManager>(evodb, mn_metaman);
-
-    llmq_ctx.reset();
-    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, evodb, sporkman, chainman,
-                                             util::DbWrapperParams{.path = data_dir, .memory = llmq_dbs_in_memory, .wipe = llmq_dbs_wipe},
-                                             bls_threads, worker_count, max_recsigs_age);
-    if (mempool) {
-        mempool->ConnectManagers(dmnman.get(), llmq_ctx->isman.get());
-    }
-    chain_helper.reset();
-    chain_helper = std::make_unique<CChainstateHelper>(evodb, *dmnman, mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
-                                                       *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), chainlocks,
-                                                       *(llmq_ctx->qman));
-}
-
-void DashChainstateSetupClose(std::unique_ptr<CChainstateHelper>& chain_helper,
-                              std::unique_ptr<CDeterministicMNManager>& dmnman,
-                              std::unique_ptr<LLMQContext>& llmq_ctx,
-                              CTxMemPool* mempool)
-
-{
-    chain_helper.reset();
-    llmq_ctx.reset();
-    if (mempool) {
-        mempool->DisconnectManagers();
-    }
-    dmnman.reset();
 }
 
 ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB& evodb,

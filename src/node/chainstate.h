@@ -84,28 +84,6 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
                                                      const CacheSizes& cache_sizes,
                                                      const ChainstateLoadOptions& options);
 
-/** Initialize Dash-specific components during chainstate initialization */
-void DashChainstateSetup(ChainstateManager& chainman,
-                         CMasternodeMetaMan& mn_metaman,
-                         CSporkManager& sporkman,
-                         chainlock::Chainlocks& chainlocks,
-                         const CMasternodeSync& mn_sync,
-                         std::unique_ptr<CChainstateHelper>& chain_helper,
-                         std::unique_ptr<CDeterministicMNManager>& dmnman,
-                         CEvoDB& evodb,
-                         std::unique_ptr<LLMQContext>& llmq_ctx,
-                         CTxMemPool* mempool,
-                         const fs::path& data_dir,
-                         bool llmq_dbs_in_memory,
-                         bool llmq_dbs_wipe,
-                         int8_t bls_threads,
-                         int16_t worker_count,
-                         int64_t max_recsigs_age);
-
-void DashChainstateSetupClose(std::unique_ptr<CChainstateHelper>& chain_helper,
-                              std::unique_ptr<CDeterministicMNManager>& dmnman,
-                              std::unique_ptr<LLMQContext>& llmq_ctx,
-                              CTxMemPool* mempool);
 
 ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB& evodb,
                                             const ChainstateLoadOptions& options);
