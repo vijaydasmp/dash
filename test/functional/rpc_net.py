@@ -470,7 +470,8 @@ class NetTest(DashTestFramework):
                     assert 0 <= int(position) < ADDRMAN_BUCKET_SIZE
 
                     entry = getrawaddrman[table_name][bucket_position]
-                    expected_entry = list(filter(lambda e: e["address"] == entry["address"], table_info["entries"]))[0]
+                    expected_entry = next((e for e in table_info["entries"] if e["address"] == entry["address"]), None)
+                    assert expected_entry is not None, f"Unexpected address {entry['address']} in {table_name}"
                     check_addr_information(entry, expected_entry)
 
         # we expect one addrman new and tried table entry, which were added in a previous test
