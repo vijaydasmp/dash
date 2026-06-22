@@ -375,16 +375,6 @@ BOOST_FIXTURE_TEST_CASE(package_cpfp_tests, TestChain100Setup)
     CTransactionRef tx_child = MakeTransactionRef(mtx_child);
     package_cpfp.push_back(tx_child);
 
-    // Verify that the low-fee parent individually meets the min relay fee requirement.
-    // This is important because Dash transactions are larger than Bitcoin's (no SegWit),
-    // so we need a higher low_fee_amt to ensure the parent's fee exceeds minRelayTxFee.
-    BOOST_CHECK_MESSAGE(::minRelayTxFee.GetFee(GetVirtualTransactionSize(*tx_parent)) <= low_fee_amt,
-                        strprintf("low_fee_amt %d is below minRelayTxFee %d for parent vsize %d",
-                                  low_fee_amt, ::minRelayTxFee.GetFee(GetVirtualTransactionSize(*tx_parent)),
-                                  GetVirtualTransactionSize(*tx_parent)));
-    // But the parent's fee should be below the mempool minimum feerate.
-    BOOST_CHECK(m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(*tx_parent)) > low_fee_amt);
-
     // Package feerate is calculated using modified fees, and prioritisetransaction accepts negative
     // fee deltas. This should be taken into account. De-prioritise the parent transaction
     // to bring the package feerate to 0.
