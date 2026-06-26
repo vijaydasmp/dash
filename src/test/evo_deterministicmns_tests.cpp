@@ -603,7 +603,7 @@ void FuncProUpRegTxV4OnLegacyRejected(TestChainSetup& setup)
     proTx.proTxHash = proTxHash;
     proTx.pubKeyOperator.Set(operator_key.GetPublicKey(), bls::bls_legacy_scheme.load());
     proTx.keyIDVoting = owner_key.GetPubKey().GetID();
-    proTx.payouts = {{GenerateRandomAddress(), CMasternodePayoutShare::MAX_REWARD}};
+    proTx.payouts = {{GenerateRandomAddress(), MasternodePayoutShare::MAX_REWARD}};
 
     CMutableTransaction tx;
     tx.nVersion = 3;
@@ -663,7 +663,7 @@ void FuncProUpRegTxV2CannotBypassV4PayoutCollateralReuse(TestChainSetup& setup)
     pro_reg.keyIDOwner = owner_key.GetPubKey().GetID();
     pro_reg.pubKeyOperator.Set(operator_key.GetPublicKey(), bls::bls_legacy_scheme.load());
     pro_reg.keyIDVoting = owner_key.GetPubKey().GetID();
-    pro_reg.payouts = {{script_payout, CMasternodePayoutShare::MAX_REWARD}};
+    pro_reg.payouts = {{script_payout, MasternodePayoutShare::MAX_REWARD}};
     pro_reg.collateralOutpoint = GetCollateralOutpoint(tx_collateral);
 
     CMutableTransaction tx_reg;
