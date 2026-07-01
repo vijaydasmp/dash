@@ -3657,6 +3657,17 @@ void PeerManagerImpl::ProcessCompactBlockTxns(CNode& pfrom, Peer& peer, const Bl
         }
 
         PartiallyDownloadedBlock& partialBlock = *range_flight.first->second.second->partialBlock;
+
+        if (partialBlock.header.IsNull()) {
+            // It is possible for the header to be empty if a previous call to FillBlock wiped the header, but left
+            // the PartiallyDownloadedBlock pointer around (i.e. did not call RemoveBlockRequest). Don't attempt to
+            // reconstruct again.
+            RemoveBlockRequest(block_transactions.blockhash, pfrom.GetId());
+            Misbehaving(peer, 100, "previous compact block reconstruction attempt failed");
+            LogPrint(BCLog::NET, "Peer %d sent compact block transactions multiple times\n", pfrom.GetId());
+            return;
+        }
+
         ReadStatus status = partialBlock.FillBlock(*pblock, block_transactions.txn);
         if (status == READ_STATUS_INVALID) {
             RemoveBlockRequest(block_transactions.blockhash, pfrom.GetId()); // Reset in-flight state in case Misbehaving does not result in a disconnect
@@ -3665,6 +3676,9 @@ void PeerManagerImpl::ProcessCompactBlockTxns(CNode& pfrom, Peer& peer, const Bl
         } else if (status == READ_STATUS_FAILED) {
             if (first_in_flight) {
                 // Might have collided, fall back to getdata now :(
+                // We keep the failed partialBlock to disallow processing another compact block announcement from the same
+                // peer for the same block. We let the full block download below continue under the same m_downloading_since
+                // timer.
                 std::vector<CInv> invs;
                 invs.push_back(CInv(MSG_BLOCK, block_transactions.blockhash));
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, invs));
