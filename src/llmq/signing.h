@@ -179,6 +179,9 @@ private:
     mutable Mutex cs_pending;
     // Incoming and not verified yet
     std::unordered_map<NodeId, std::list<std::shared_ptr<const CRecoveredSig>>> pendingRecoveredSigs GUARDED_BY(cs_pending);
+    // Running total of entries across all of pendingRecoveredSigs, kept in sync with it so the
+    // MAX_PENDING_RECSIGS_TOTAL check doesn't need to rescan the map on every incoming message.
+    size_t pendingRecoveredSigsCount GUARDED_BY(cs_pending){0};
     Uint256HashMap<std::shared_ptr<const CRecoveredSig>> pendingReconstructedRecoveredSigs GUARDED_BY(cs_pending);
 
     FastRandomContext rnd GUARDED_BY(cs_pending);
