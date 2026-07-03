@@ -77,6 +77,11 @@ class ProTxVersionTest(DashTestFramework):
         extra_legacy_mn: MasternodeInfo = self.dynamically_add_masternode()
         assert extra_legacy_mn is not None
 
+        # A second legacy-scheme masternode kept alive (never revoked) until v24 activates, so that
+        # the update_registrar migration path (legacy state -> basic scheme) can be exercised below.
+        migrate_legacy_mn: MasternodeInfo = self.dynamically_add_masternode()
+        assert migrate_legacy_mn is not None
+
         mn_list_before = self.nodes[0].masternodelist()
         pubkeyoperator_list_before = set([mn_list_before[e]["pubkeyoperator"] for e in mn_list_before])
 
@@ -133,9 +138,9 @@ class ProTxVersionTest(DashTestFramework):
 
         self.wait_for_chainlocked_block_all_nodes(self.nodes[0].getbestblockhash())
 
-        self.test_protx_v24_versioning(new_mn)
+        self.test_protx_v24_versioning(new_mn, migrate_legacy_mn)
 
-    def test_protx_v24_versioning(self, mn: MasternodeInfo):
+    def test_protx_v24_versioning(self, mn: MasternodeInfo, legacy_mn: MasternodeInfo):
         assert not softfork_active(self.nodes[0], 'v24')
         self.activate_by_name('v24', slow_mode=False)
         self.log.info("Activated v24 at height:" + str(self.nodes[0].getblockcount()))
@@ -155,6 +160,28 @@ class ProTxVersionTest(DashTestFramework):
         tip = self.generate(node, 1)[0]
         assert_equal(node.getrawtransaction(protx_result, 1, tip)['proUpRegTx']['version'], 3)
         assert_equal(node.protx('info', mn.proTxHash)['state']['version'], 3)
+
+        self.log.info("Migration v1 [legacy] protx masternode to v3 by update-registar")
+        assert_equal(node.protx('info', legacy_mn.proTxHash)['state']['version'], 1)
+        node.sendtoaddress(legacy_mn.fundsAddr, 1)
+        self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
+        self.generate(node, 1)
+        # Switch to a fresh basic-scheme operator key and the non-legacy update_registrar RPC
+        legacy_mn.legacy = False
+        new_operator = node.bls('generate') # basic (non-legacy) scheme
+        legacy_mn.pubKeyOperator = new_operator['public']
+        legacy_mn.keyOperator = new_operator['secret']
+        migrate_result = legacy_mn.update_registrar(node, submit=True, fundsAddr=legacy_mn.fundsAddr)
+        self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
+        tip = self.generate(node, 1, sync_fun=self.no_op)[0]
+        assert_equal(node.getrawtransaction(migrate_result, 1, tip)['proUpRegTx']['version'], 3)
+        assert_equal(node.protx('info', legacy_mn.proTxHash)['state']['version'], 3)
+        # Changing the operator key PoSe-bans the masternode, which results in disconnects. Wait for
+        # them to happen and then reconnect its node back to let sync_all finish correctly.
+        assert legacy_mn.nodeIdx is not None
+        self.wait_until(lambda: self.nodes[legacy_mn.nodeIdx].getconnectioncount() == 0)
+        self.connect_nodes(legacy_mn.nodeIdx, 0)
+        self.sync_all()
 
         self.test_revoke_protx(mn.nodeIdx, mn)
 
