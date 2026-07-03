@@ -565,7 +565,7 @@ void FuncProUpRegTxVersionHandlingBeforeV24(TestChainSetup& setup)
     BOOST_CHECK(dmn->pdmnState->pubKeyOperator.Get() == operator_key_legacy.GetPublicKey());
 };
 
-void FuncProUpRegTxV3OnLegacyRejected(TestChainSetup& setup)
+void FuncProUpRegTxV3OnLegacyValid(TestChainSetup& setup)
 {
     auto& chainman = *Assert(setup.m_node.chainman.get());
     auto& dmnman = *Assert(setup.m_node.dmnman);
@@ -618,10 +618,10 @@ void FuncProUpRegTxV3OnLegacyRejected(TestChainSetup& setup)
     TxValidationState val_state;
     {
         LOCK(cs_main);
-        BOOST_CHECK(!CheckProUpRegTx(CTransaction(tx), chainman.ActiveChain().Tip(), dmnman,
-                                     chainman.ActiveChainstate().CoinsTip(), chainman, val_state, /*check_sigs=*/true));
+        BOOST_CHECK(CheckProUpRegTx(CTransaction(tx), chainman.ActiveChain().Tip(), dmnman,
+                                    chainman.ActiveChainstate().CoinsTip(), chainman, val_state, /*check_sigs=*/true));
     }
-    BOOST_CHECK_EQUAL(val_state.GetRejectReason(), "bad-protx-version-upgrade");
+    BOOST_CHECK(val_state.IsValid());
 };
 
 void FuncProUpRegTxV2CannotBypassV3PayoutCollateralReuse(TestChainSetup& setup)
@@ -1533,7 +1533,7 @@ BOOST_AUTO_TEST_CASE(proupreg_version_handling_before_v24)
 BOOST_AUTO_TEST_CASE(proupreg_v3_on_legacy_rejected)
 {
     TestChainV24SignalBeforeV19Setup setup;
-    FuncProUpRegTxV3OnLegacyRejected(setup);
+    FuncProUpRegTxV3OnLegacyValid(setup);
 }
 
 BOOST_AUTO_TEST_CASE(proupreg_v2_cannot_bypass_v3_payout_collateral_reuse)

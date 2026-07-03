@@ -1105,12 +1105,6 @@ static UniValue protx_update_service_common_wrapper(const JSONRPCRequest& reques
 
     ptx.nVersion = DeploymentToProtxVersion(WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()), chainman);
 
-    // Legacy masternodes must upgrade to BasicBLS before using higher versions.
-    // Clamp to BasicBLS to avoid "bad-protx-version-upgrade" validation failure.
-    if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS && ptx.nVersion > ProTxVersion::BasicBLS) {
-        ptx.nVersion = ProTxVersion::BasicBLS;
-    }
-
     ptx.netInfo = NetInfoInterface::MakeNetInfo(ptx.nVersion);
 
     ProcessNetInfoCore(ptx, request.params[1], /*optional=*/false);
@@ -1239,9 +1233,6 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
     if (!dmn) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("masternode %s not found", ptx.proTxHash.ToString()));
     }
-    if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS && ptx.nVersion > ProTxVersion::BasicBLS) {
-        ptx.nVersion = ProTxVersion::BasicBLS;
-    }
 
     ptx.keyIDVoting = dmn->pdmnState->keyIDVoting;
     ptx.scriptPayout = dmn->pdmnState->scriptPayout;
@@ -1366,12 +1357,6 @@ static RPCHelpMan protx_revoke()
     }
 
     ptx.nVersion = DeploymentToProtxVersion(WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()), chainman);
-
-    // Legacy masternodes must upgrade to BasicBLS before using higher versions.
-    // Clamp to BasicBLS to avoid "bad-protx-version-upgrade" validation failure.
-    if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS && ptx.nVersion > ProTxVersion::BasicBLS) {
-        ptx.nVersion = ProTxVersion::BasicBLS;
-    }
 
     CBLSSecretKey keyOperator = ParseBLSSecretKey(request.params[1].get_str(), "operatorKey");
 
