@@ -522,8 +522,15 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
             }
             auto newState = std::make_shared<CDeterministicMNState>(*dmn->pdmnState);
             const uint16_t old_version{static_cast<uint16_t>(newState->nVersion)};
+            // ResetOperatorFields() drops nVersion back to LegacyBLS. Post-v24 the state version must be
+            // preserved (never silently downgraded), so pick the target the same max-based way the registrar
+            // path does and restore it below. Pre-v24 keep the historical reset-to-legacy behaviour.
+            uint16_t target_version{ProTxVersion::LegacyBLS};
+            if (is_v24_deployed) {
+                target_version = std::max<uint16_t>(old_version, opt_proTx->nVersion);
+            }
             newState->ResetOperatorFields();
-            if (old_version >= ProTxVersion::ExtAddr && !SetStateVersion(*newState, old_version, dmn->nType, state)) {
+            if (target_version >= ProTxVersion::BasicBLS && !SetStateVersion(*newState, target_version, dmn->nType, state)) {
                 return false;
             }
             newState->BanIfNotBanned(nHeight);
