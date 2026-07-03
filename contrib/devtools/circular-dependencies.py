@@ -103,9 +103,13 @@ if __name__=="__main__":
                 sorted_keys = sorted(deps.keys())
 
             # Use fork so workers inherit the populated `deps` global without
-            # having to pickle it for every task.
-            with multiprocessing.get_context("fork").Pool(8) as pool:
-                cycles = pool.map(handle_module2, sorted_keys)
+            # having to pickle it for every task. fork is unavailable on
+            # Windows, so fall back to a serial map there.
+            if "fork" in multiprocessing.get_all_start_methods():
+                with multiprocessing.get_context("fork").Pool(8) as pool:
+                    cycles = pool.map(handle_module2, sorted_keys)
+            else:
+                cycles = list(map(handle_module2, sorted_keys))
 
             for cycle in cycles:
                 if cycle is not None and (shortest_cycles is None or len(cycle) < len(shortest_cycles)):
