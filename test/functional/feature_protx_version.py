@@ -129,6 +129,9 @@ class ProTxVersionTest(DashTestFramework):
         for i in range(6):
             new_mn: MasternodeInfo = self.dynamically_add_masternode(evo=False, rnd=(10 + i))
             assert new_mn is not None
+            if i == 0:
+                # Kept at its basic (v2) state and revoked after v24 to check the version is preserved
+                basic_mn = new_mn
 
         # mine more quorums and make sure everything still works
         prev_quorum = None
@@ -138,9 +141,9 @@ class ProTxVersionTest(DashTestFramework):
 
         self.wait_for_chainlocked_block_all_nodes(self.nodes[0].getbestblockhash())
 
-        self.test_protx_v24_versioning(new_mn, migrate_legacy_mn)
+        self.test_protx_v24_versioning(new_mn, migrate_legacy_mn, basic_mn)
 
-    def test_protx_v24_versioning(self, mn: MasternodeInfo, legacy_mn: MasternodeInfo):
+    def test_protx_v24_versioning(self, mn: MasternodeInfo, legacy_mn: MasternodeInfo, basic_mn: MasternodeInfo):
         assert not softfork_active(self.nodes[0], 'v24')
         self.activate_by_name('v24', slow_mode=False)
         self.log.info("Activated v24 at height:" + str(self.nodes[0].getblockcount()))
@@ -186,6 +189,19 @@ class ProTxVersionTest(DashTestFramework):
         self.test_revoke_protx(mn.nodeIdx, mn)
 
         self.log.info("Masternode list reloads from disk identically after the v3 updates")
+        list_before = self.nodes[1].masternodelist()
+        self.restart_node(1, extra_args=self.extra_args[1])
+        self.connect_nodes(0, 1)
+        self.connect_nodes(1, 2)
+        assert_equal(self.nodes[1].masternodelist(), list_before)
+
+        self.log.info("Revoking a still-v2 (BasicBLS) masternode after v24 preserves its state version "
+                      "instead of silently downgrading it to LegacyBLS via the operator-field reset")
+        assert_equal(node.protx('info', basic_mn.proTxHash)['state']['version'], 2)
+        self.test_revoke_protx(basic_mn.nodeIdx, basic_mn)
+        # The v3 ProUpRevTx is applied against a v2 state, so max(old, tx) keeps the version at 3, not 1
+        assert_equal(node.protx('info', basic_mn.proTxHash)['state']['version'], 3)
+
         list_before = self.nodes[1].masternodelist()
         self.restart_node(1, extra_args=self.extra_args[1])
         self.connect_nodes(0, 1)
