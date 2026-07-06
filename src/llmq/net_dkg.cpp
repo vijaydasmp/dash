@@ -89,7 +89,9 @@ bool CheckDKGMessageStructure(std::string_view msg_type, const CDataStream& vRec
             CDKGContribution qc;
             s >> qc;
             return qc.vvec != nullptr && qc.vvec->size() == threshold &&
-                   qc.contributions != nullptr && qc.contributions->blobs.size() <= size;
+                   qc.contributions != nullptr &&
+                   qc.contributions->blobs.size() >= static_cast<size_t>(params.minSize) &&
+                   qc.contributions->blobs.size() <= size;
         } else if (msg_type == NetMsgType::QCOMPLAINT) {
             CDKGComplaint qc;
             s >> qc;
