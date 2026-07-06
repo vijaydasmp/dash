@@ -132,6 +132,9 @@ class ProTxVersionTest(DashTestFramework):
             if i == 0:
                 # Kept at its basic (v2) state and revoked after v24 to check the version is preserved
                 basic_mn = new_mn
+            if i == 1:
+                # Kept at its basic (v2) state and update_service'd after v24 to check the payout is preserved
+                payout_mn = new_mn
 
         # mine more quorums and make sure everything still works
         prev_quorum = None
@@ -141,14 +144,28 @@ class ProTxVersionTest(DashTestFramework):
 
         self.wait_for_chainlocked_block_all_nodes(self.nodes[0].getbestblockhash())
 
-        self.test_protx_v24_versioning(new_mn, migrate_legacy_mn, basic_mn)
+        self.test_protx_v24_versioning(new_mn, migrate_legacy_mn, basic_mn, payout_mn)
 
-    def test_protx_v24_versioning(self, mn: MasternodeInfo, legacy_mn: MasternodeInfo, basic_mn: MasternodeInfo):
+    def test_protx_v24_versioning(self, mn: MasternodeInfo, legacy_mn: MasternodeInfo, basic_mn: MasternodeInfo, payout_mn: MasternodeInfo):
         assert not softfork_active(self.nodes[0], 'v24')
         self.activate_by_name('v24', slow_mode=False)
         self.log.info("Activated v24 at height:" + str(self.nodes[0].getblockcount()))
 
         node = self.nodes[0]
+
+        self.log.info("update_service bumping a basic (v2) masternode to v3 preserves its owner payout")
+        state = node.protx('info', payout_mn.proTxHash)['state']
+        assert_equal(state['version'], 2)
+        payout_before = state['payoutAddress']
+        node.sendtoaddress(payout_mn.fundsAddr, 1)
+        self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
+        self.generate(node, 1)
+        payout_mn.update_service(node, submit=True, addrs_core_p2p=[f'127.0.0.1:{payout_mn.nodePort}'])
+        self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
+        self.generate(node, 1)
+        state = node.protx('info', payout_mn.proTxHash)['state']
+        assert_equal(state['version'], 3)
+        assert_equal([p['address'] for p in state['payouts']], [payout_before])
         node.sendtoaddress(mn.fundsAddr, 1)
         self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
         self.generate(node, 1)
