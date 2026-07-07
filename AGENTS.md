@@ -20,7 +20,7 @@ is primarily written in C++20 (requiring at least Clang 16 or GCC 11.1). Dash Co
 - **Unit Tests**
   - `src/test/`, `src/wallet/test/` - C++20 unit tests (uses `Boost::Test`)
   - `src/qt/test/` - C++20 unit tests for GUI implementation (uses Qt 5)
-- **Functional Tests**: `test/functional/` - Python tests (minimum version in `.python-version`) dependent on `dashd` and `dash-node`
+- **Functional Tests**: `test/functional/` - Python tests (minimum version in `.python-version`) dependent on `dashd` and `dash-qt`
 
 ### Directories to Exclude
 
@@ -45,8 +45,12 @@ is primarily written in C++20 (requiring at least Clang 16 or GCC 11.1). Dash Co
 # Generate build system
 ./autogen.sh
 
+# Choose portable parallelism (leave one core free)
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
+JOBS="$(( JOBS > 1 ? JOBS - 1 : 1 ))"
+
 # Build dependencies for the current platform
-make -C depends -j"$(( $(nproc) - 1 ))" | tail 5
+make -C depends -j"$JOBS"
 
 # Configure with depends (use the path shown in depends build output)
 # Example paths: depends/x86_64-pc-linux-gnu, depends/aarch64-apple-darwin24.3.0
@@ -63,7 +67,7 @@ make -C depends -j"$(( $(nproc) - 1 ))" | tail 5
             --enable-werror
 
 # Build with parallel jobs (leaving one core free)
-make -j"$(( $(nproc) - 1 ))"
+make -j"$JOBS"
 ```
 
 ## Testing Commands
@@ -92,7 +96,8 @@ test/functional/wallet_hd.py
 test/functional/test_runner.py --extended
 
 # Parallel execution
-test/functional/test_runner.py -j$(nproc)
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
+test/functional/test_runner.py -j"$JOBS"
 
 # Debug options
 test/functional/test_runner.py --nocleanup --tracerpc -l DEBUG
@@ -213,7 +218,9 @@ make clean
 test/functional/test_runner.py --dashd=/path/to/dashd
 
 # Generate compile_commands.json for IDEs
-bear -- make -j"$(( $(nproc) - 1 ))"
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
+JOBS="$(( JOBS > 1 ? JOBS - 1 : 1 ))"
+bear -- make -j"$JOBS"
 ```
 
 ### Debugging
@@ -255,7 +262,7 @@ gh run view <RUN_ID> --json jobs --jq '.jobs[] | select(.conclusion == "failure"
 
 ## Important Notes
 
-- Use `make -j"$(( $(nproc) - 1 ))"` for parallel builds (leaves one core free)
+- Set `JOBS` with `getconf`/`sysctl` as shown above, then use `make -j"$JOBS"` for parallel builds
 - Always run linting before commits: `test/lint/all-lint.py`
 - For memory-constrained systems, use special CXXFLAGS during configure
 - Special transactions use payload extensions - see `src/evo/specialtx.h`
