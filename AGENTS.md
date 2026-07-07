@@ -1,63 +1,74 @@
-# Dash Core Development Guide
+# Dash Core Agent Guide
 
-## Overview
+This file is for automated coding agents working in Dash Core. Keep it
+practical: prefer local source, tests, and project history over guesses.
 
-Dash Core is the reference implementation for Dash, a cryptocurrency. It builds on top of Bitcoin Core, a codebase that
-is primarily written in C++20 (requiring at least Clang 16 or GCC 11.1). Dash Core uses the GNU Autotools build system.
+`AGENTS.md` and `CLAUDE.md` intentionally contain the same guidance. When one
+changes, update the other in the same commit.
 
-## Directory Structure
+## First Principles
 
-- **Implementation** `src/` - C++20 codebase
-  - `src/bench/` - Performance benchmarks (uses `nanobench`)
-  - `src/fuzz/` - Fuzzing harnesses
-  - `src/index/` - Optional indexes
-  - `src/interfaces/` - Interfaces for codebase isolation and inter-process communication
-  - `src/qt/` - Implementation of Dash Qt, the GUI (uses Qt 5)
-  - `src/rpc/` - JSON-RPC server and endpoints
-  - `src/util/` - Utility functions
-  - `src/wallet/` - Wallet implementation (uses Berkeley DB and SQLite)
-  - `src/zmq/` - ZeroMQ notification support for real-time event publishing
-- **Unit Tests**
-  - `src/test/`, `src/wallet/test/` - C++20 unit tests (uses `Boost::Test`)
-  - `src/qt/test/` - C++20 unit tests for GUI implementation (uses Qt 5)
-- **Functional Tests**: `test/functional/` - Python tests (minimum version in `.python-version`) dependent on `dashd` and `dash-qt`
+- Understand the code path before editing. Read callers, callees, tests, and
+  recent history for the touched files.
+- Keep changes narrow. Do not mix cleanup, formatting, refactors, and behavior
+  changes unless the task explicitly asks for it.
+- Preserve Dash-specific behavior when backporting or refactoring Bitcoin Core
+  code. Dash consensus, masternodes, LLMQs, ChainLocks, InstantSend, Platform
+  credit-pool logic, governance, and sporks often extend the upstream path.
+- Do not add symlinks. `contrib/devtools/github-merge.py` rejects symlinks in
+  the tree during merge.
+- Do not edit generated release artifacts, Guix/release files, vendored code, or
+  translations unless the task is specifically about those files.
 
-### Directories to Exclude
+## Repository Map
 
-**Under any circumstances**, do not make changes to:
-- `guix-build*` - Build system files
-- `releases` - Release artifacts
-- Vendored dependencies:
-  - `src/{crc32c,dashbls,gsl,immer,leveldb,minisketch,secp256k1,univalue}`
-  - `src/crypto/{ctaes,x11}`
+- `src/` - C++ implementation.
+- `src/bench/` - benchmarks.
+- `src/index/`, `src/interfaces/`, `src/node/`, `src/rpc/`, `src/wallet/` -
+  subsystem code inherited mostly from Bitcoin Core.
+- `src/llmq/`, `src/masternode/`, `src/evo/`, `src/governance/`,
+  `src/coinjoin/`, `src/instantsend/`, `src/spork*` - Dash-specific systems.
+- `src/test/`, `src/wallet/test/`, `src/qt/test/` - C++ unit tests.
+- `test/functional/` - Python functional tests for `dashd` and `dash-qt`.
+- `test/lint/` - static checks.
+- `depends/` - dependency build system.
+- `ci/`, `.github/` - CI entry points and GitHub workflows.
+- `doc/` - user and developer documentation.
+- `contrib/` - scripts and release/maintenance tooling.
 
-**Unless specifically prompted**, avoid:
-- `.github` - GitHub workflows and configs
-- `depends` - Dependency build system
-- `ci` - Continuous integration
-- `contrib` - Contributed scripts
-- `doc` - Documentation
+Vendored or subtree-style code should normally be left alone:
+
+- `src/{crc32c,dashbls,gsl,immer,leveldb,minisketch,secp256k1,univalue}`
+- `src/crypto/{ctaes,x11}`
+
+`test/util/data/non-backported.txt` lists Dash-specific files used by Dash
+style/lint checks such as clang-format-diff and cppcheck. Do not treat it as a
+list of skipped upstream backport hunks.
 
 ## Build Commands
 
-### Setup and Build
+Use portable parallelism in examples. Linux-only CPU-count helpers are not
+available on every supported developer host.
+
 ```bash
-# Generate build system
 ./autogen.sh
 
-# Choose portable parallelism (leave one core free)
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
 JOBS="$(( JOBS > 1 ? JOBS - 1 : 1 ))"
 
-# Build dependencies for the current platform
 make -C depends -j"$JOBS"
 
-# Configure with depends (use the path shown in depends build output)
-# Example paths: depends/x86_64-pc-linux-gnu, depends/aarch64-apple-darwin24.3.0
-./configure --prefix=$(pwd)/depends/[platform-triplet]
+# Use the depends prefix printed for your platform, for example
+# depends/x86_64-pc-linux-gnu or depends/aarch64-apple-darwin24.3.0.
+./configure --prefix="$(pwd)/depends/[platform-triplet]"
 
-# Developer configuration (recommended)
-./configure --prefix=$(pwd)/depends/[platform-triplet] \
+make -j"$JOBS"
+```
+
+Useful developer configure flags:
+
+```bash
+./configure --prefix="$(pwd)/depends/[platform-triplet]" \
             --disable-hardening \
             --enable-crash-hooks \
             --enable-debug \
@@ -65,208 +76,139 @@ make -C depends -j"$JOBS"
             --enable-stacktraces \
             --enable-suppress-external-warnings \
             --enable-werror
-
-# Build with parallel jobs (leaving one core free)
-make -j"$JOBS"
 ```
 
-## Testing Commands
+Generate `compile_commands.json`:
 
-### Unit Tests
 ```bash
-# Run all unit tests
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
+JOBS="$(( JOBS > 1 ? JOBS - 1 : 1 ))"
+bear -- make -j"$JOBS"
+```
+
+When adding, removing, or renaming C++ source files, update the build system in
+the same change. Most source/test files need `src/Makefile.am` or
+`src/Makefile.test.include` updates, and some backports also require matching
+CI/lint list changes.
+
+## Test Commands
+
+Choose tests based on the files touched. Do not claim broad validation if only a
+targeted test was run.
+
+```bash
+# All unit tests
 make check
 
-# Run specific test (e.g. getarg_tests)
+# One Boost test suite or case
 ./src/test/test_dash --run_test=getarg_tests
 
-# Debug unit tests
-gdb ./src/test/test_dash
-```
-
-### Functional Tests
-```bash
-# Run all functional tests
+# All functional tests
 test/functional/test_runner.py
 
-# Run specific test
-test/functional/wallet_hd.py
+# One functional test
+test/functional/test_runner.py wallet_hd.py
 
-# Extended test suite
-test/functional/test_runner.py --extended
-
-# Parallel execution
+# Parallel functional tests
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
 test/functional/test_runner.py -j"$JOBS"
 
-# Debug options
-test/functional/test_runner.py --nocleanup --tracerpc -l DEBUG
-```
-
-### Code Quality
-```bash
-# Run all linting
+# Lint
 test/lint/all-lint.py
-
-# Common individual checks
 test/lint/lint-python.py
 test/lint/lint-shell.py
 test/lint/lint-whitespace.py
 test/lint/lint-circular-dependencies.py
 ```
 
-## High-Level Architecture
+Functional-test prerequisites and usage details live in `test/README.md`.
+Several Dash-specific tests need the `dash_hash` Python package.
 
-Dash Core extends Bitcoin Core through composition, using a layered architecture:
+## Backport Work
 
-```
-Dash Core Components
-├── Bitcoin Core Foundation (Blockchain, consensus, networking)
-├── Masternodes (Infrastructure)
-│   ├── LLMQ (Quorum infrastructure)
-│   │   ├── InstantSend (Transaction locking)
-│   │   ├── ChainLocks (Block finality)
-│   │   ├── EHF Signals (Hard fork coordination)
-│   │   └── Platform/Evolution (Credit Pool, Asset Locks)
-│   ├── CoinJoin (Coin mixing)
-│   └── Governance Voting (Masternodes vote on proposals)
-├── Governance System (Proposal submission/management)
-└── Spork System (Feature control)
-```
+Dash Core regularly backports Bitcoin Core changes. Treat backports as
+source-history work, not only conflict resolution.
 
-### Key Architectural Components
+- Identify the exact upstream Bitcoin Core PR(s) and commit(s).
+- Keep upstream backport commits as close to 1:1 as practical. Put shared Dash
+  repair work on a staging/base branch instead of hiding it inside an unrelated
+  upstream backport commit.
+- Compare the upstream diff to the Dash diff file by file.
+- Check prerequisite PRs. If an upstream hunk depends on a helper, test, type,
+  or file introduced by an earlier Bitcoin PR, either backport the prerequisite
+  or document why the hunk is intentionally excluded.
+- Do not silently drop upstream tests. If a test depends on a missing
+  prerequisite, call that out in the PR description or add the prerequisite.
+- If a backport is partial, explain the omitted upstream commits, hunks, or
+  tests in the commit or PR text.
+- Verify the PR title/body matches the actual commits still reachable from the
+  branch. Stale "backports X" metadata has caused bad reviews.
+- Keep Dash adaptations explicit. When upstream code touches a path that Dash
+  has extended, inspect the Dash-specific logic before accepting the upstream
+  shape.
+- Resolve conflicts against Dash APIs, not only upstream structure. A backport
+  that textually resembles Bitcoin Core can still fail to compile or lose Dash
+  behavior if Dash-only overloads, helpers, or wallet paths are removed.
 
-#### Masternodes (`src/masternode/`, `src/evo/`)
-- **Deterministic Masternode Lists**: Consensus-critical registry using immutable data structures
-- **Active Masternode Manager**: Local masternode operations and BLS key handling
-- **Special Transactions**: ProRegTx, ProUpServTx, ProUpRegTx, ProUpRevTx for masternode lifecycle
+## Dash-Specific Review Hotspots
 
-#### Long-Living Masternode Quorums (`src/llmq/`)
-- **Quorum Types**: Multiple configurations (50/60, 400/60, 400/85) for different services
-- **Distributed Key Generation**: Cryptographically secure quorum formation
-- **Services**: ChainLocks (51% attack prevention), InstantSend, governance voting
+Be extra careful around:
 
-#### CoinJoin Privacy (`src/coinjoin/`)
-- **Mixing Architecture**: Masternode-coordinated mixing sessions
-- **Denomination**: Uniform outputs for privacy
-- **Session Management**: Multi-party transaction construction
+- consensus and script flags;
+- special transaction payload serialization;
+- deterministic masternode list updates;
+- LLMQ DKG, signing sessions, recovered signatures, and quorum rotation;
+- InstantSend and ChainLocks request/relay paths;
+- governance object and superblock payment logic;
+- EvoDB, credit-pool, asset-lock, and Platform integration code;
+- network-message serialization, checksums, and partial-send paths;
+- BLS scheme transitions across connect, disconnect, undo, and activation
+  boundaries;
+- future DKG/quorum prediction, which must evaluate quorum availability at the
+  relevant future work/cycle base instead of only the current tip;
+- time, mocktime, scheduler, and interrupt/shutdown behavior.
 
-#### Governance (`src/governance/`)
-- **Governance Objects**: Proposals, triggers, superblock management
-- **Treasury**: Automated payouts based on governance votes
-- **Voting**: On-chain proposal voting and tallying
+For these areas, prefer small tests that prove the invariant being changed.
 
-#### Evolution Database (`src/evo/evodb`)
-- **Specialized Storage**: Masternode snapshots, quorum state, governance objects
-- **Efficient Updates**: Differential updates for masternode lists
-- **Credit Pool Management**: Platform integration support
+## PR Hygiene
 
-#### Dash-Specific Databases
+- Use atomic commits. Each commit should build and make sense on its own.
+- PR titles follow Conventional Commits, including `backport:` for Bitcoin Core
+  backports.
+- Do not put `@` mentions in PR descriptions; they are copied into merge
+  commits and notify users repeatedly.
+- Explain what changed and why. For bug fixes, include the failure mode and why
+  the chosen fix is correct.
+- If CI fails for reasons unrelated to the PR, document the evidence instead of
+  pushing empty commits or unrelated changes.
+- For depends/cache failures, inspect both the cache-producing and
+  cache-consuming jobs. Rerunning only the failed consumer can preserve the same
+  missing-cache failure.
 
-- **CFlatDB**: A Dash-specific flat file database format used for persistent storage
-  - `MasternodeMetaStore`: Masternode metadata persistence
-  - `GovernanceStore`: Governance object storage
-  - `SporkStore`: Spork state persistence
-  - `NetFulfilledRequestStore`: Network request tracking
-- **CDBWrapper**: Bitcoin Core database wrapper extended for Dash-specific data
-  - `CDKGSessionManager`: LLMQ DKG session persistence
-  - `CEvoDb`: Specialized database for Evolution/deterministic masternode data
-  - `CInstantSendDb`: InstantSend lock persistence
-  - `CQuorumManager`: Quorum state storage
-  - `CRecoveredSigsDb`: LLMQ recovered signature storage
+## Local Debugging
 
-### Integration Patterns
-
-#### Initialization Flow
-1. **Basic Setup**: Core Bitcoin initialization
-2. **Parameter Interaction**: Dash-specific configuration validation
-3. **Interface Setup**: Dash manager instantiation in NodeContext
-4. **Main Initialization**: EvoDb, masternode system, LLMQ, governance startup
-
-#### Consensus Integration
-- **Block Validation Extensions**: Special transaction validation
-- **Mempool Extensions**: Enhanced transaction relay
-- **Chain State Extensions**: Masternode list and quorum state tracking
-- **Fork Prevention**: ChainLocks prevent reorganizations
-
-#### Key Design Patterns
-- **Manager Pattern**: Centralized managers for each subsystem
-- **Event-Driven Architecture**: ValidationInterface callbacks coordinate subsystems
-- **Immutable Data Structures**: Efficient masternode list management using Immer library
-- **Extension Over Modification**: Minimal changes to Bitcoin Core foundation
-
-### Critical Interfaces
-- **NodeContext**: Central dependency injection container
-- **LLMQContext**: LLMQ-specific context and state management
-- **ValidationInterface**: Event distribution for block/transaction processing
-- **ChainstateManager**: Enhanced with Dash-specific validation
-- **Chainstate Initialization**: Separated into `src/node/chainstate.*`
-- **Special Transaction Serialization**: Payload serialization routines (`src/evo/specialtx.h`)
-- **BLS Integration**: Cryptographic foundation for advanced features
-
-## Development Workflow
-
-### Common Tasks
 ```bash
-# Clean build
-make clean
-
-# Run dashd with debug logging
+# Run dashd with broad logging
 ./src/dashd -debug=all -printtoconsole
 
-# Run functional test with custom dashd
-test/functional/test_runner.py --dashd=/path/to/dashd
+# Run a functional test against a custom binary
+test/functional/test_runner.py --dashd=/path/to/dashd wallet_hd.py
 
-# Generate compile_commands.json for IDEs
-JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
-JOBS="$(( JOBS > 1 ? JOBS - 1 : 1 ))"
-bear -- make -j"$JOBS"
-```
+# Keep failed functional-test datadirs
+test/functional/test_runner.py --nocleanup --tracerpc -l DEBUG wallet_hd.py
 
-### Debugging
-```bash
-# Debug dashd
-gdb ./src/dashd
+# Debug a unit-test binary
+gdb ./src/test/test_dash
 
-# Profile performance
-test/functional/test_runner.py --perf
+# Profile a functional test
+test/functional/test_runner.py --perf wallet_hd.py
 perf report -i /path/to/datadir/test.perf.data --stdio | c++filt
-
-# Memory debugging
-valgrind --leak-check=full ./src/dashd
 ```
 
-### GitHub CI Debugging with `gh` CLI
+## When In Doubt
 
-```bash
-# Get detailed check info with JSON output
-gh pr checks <PR_NUMBER> --json name,state,link,description
-
-# Filter for failed or pending checks
-gh pr checks <PR_NUMBER> --json name,state,link --jq '.[] | select(.state == "FAILURE" or .state == "PENDING")'
-
-# View logs from a specific CI job
-gh api repos/dashpay/dash/actions/jobs/<JOB_ID>/logs
-
-# Filter failed jobs and steps from a run
-gh run view <RUN_ID> --json jobs --jq '.jobs[] | select(.conclusion == "failure") | {name, conclusion}'
-
-# Example: Get lint failure logs for PR 6691
-# gh api repos/dashpay/dash/actions/jobs/46274126203/logs
-```
-
-## Branch Structure
-
-- `master`: Stable releases
-- `develop`: Active development (built and tested regularly)
-
-## Important Notes
-
-- Set `JOBS` with `getconf`/`sysctl` as shown above, then use `make -j"$JOBS"` for parallel builds
-- Always run linting before commits: `test/lint/all-lint.py`
-- For memory-constrained systems, use special CXXFLAGS during configure
-- Special transactions use payload extensions - see `src/evo/specialtx.h`
-- Masternode lists use immutable data structures (Immer library) for thread safety
-- LLMQ quorums have different configurations for different purposes
-- Dash uses `unordered_lru_cache` for efficient caching with LRU eviction
-- The codebase extensively uses Dash-specific data structures for performance
+- Read `CONTRIBUTING.md`, `doc/developer-notes.md`, and nearby tests.
+- Search for similar code with `rg` before inventing a new pattern.
+- Prefer established project helpers over ad hoc parsing or shell tricks.
+- Leave a clear note in the PR when a choice is deliberate and could otherwise
+  look like an omission.
