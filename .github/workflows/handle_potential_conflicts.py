@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import json
 import os
 import sys
@@ -101,6 +102,27 @@ def github_delete(path: str) -> None:
     response.raise_for_status()
 
 
+def normalize_state_item(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    try:
+        number = int(item["number"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    files = item.get("files", [])
+    if not isinstance(files, list):
+        files = []
+
+    return {
+        "number": number,
+        "title": " ".join(str(item.get("title", "Unknown title")).split()),
+        "url": str(item.get("url") or f"https://github.com/{repo_name()}/pull/{number}"),
+        "files": [str(filename) for filename in files],
+    }
+
+
 def normalize_state(state: Any) -> dict[str, Any]:
     if not isinstance(state, dict):
         state = {}
@@ -113,9 +135,21 @@ def normalize_state(state: Any) -> dict[str, Any]:
     if not isinstance(inbound, dict):
         inbound = {}
 
+    normalized_outbound = []
+    for item in outbound:
+        normalized_item = normalize_state_item(item)
+        if normalized_item is not None:
+            normalized_outbound.append(normalized_item)
+
+    normalized_inbound = {}
+    for key, value in inbound.items():
+        normalized_item = normalize_state_item(value)
+        if normalized_item is not None:
+            normalized_inbound[str(key)] = normalized_item
+
     return {
-        "outbound": outbound,
-        "inbound": {str(key): value for key, value in inbound.items() if isinstance(value, dict)},
+        "outbound": normalized_outbound,
+        "inbound": normalized_inbound,
     }
 
 
@@ -150,12 +184,20 @@ def compact_title(title: str) -> str:
     return " ".join(str(title).split())
 
 
+def escape_markdown_link_text(text: str) -> str:
+    return str(text).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def format_code_span(text: str) -> str:
+    return f"<code>{html.escape(str(text), quote=False)}</code>"
+
+
 def format_files(files: list[str]) -> str:
     if not files:
         return ""
 
     visible_files = files[:MAX_FILE_DETAILS]
-    formatted = ", ".join(f"`{filename}`" for filename in visible_files)
+    formatted = ", ".join(format_code_span(filename) for filename in visible_files)
     remaining = len(files) - len(visible_files)
     if remaining > 0:
         formatted = f"{formatted}, and {remaining} more"
@@ -165,7 +207,7 @@ def format_files(files: list[str]) -> str:
 
 def format_pr_line(item: dict[str, Any]) -> str:
     number = int(item["number"])
-    title = compact_title(item.get("title", "Unknown title"))
+    title = escape_markdown_link_text(compact_title(item.get("title", "Unknown title")))
     url = item.get("url") or f"https://github.com/{repo_name()}/pull/{number}"
     files = [str(filename) for filename in item.get("files", [])]
     return f"- [#{number}: {title}]({url}){format_files(files)}"
@@ -356,7 +398,10 @@ def discover_conflict_candidates(our_pr_json: dict[str, Any]) -> list[dict[str, 
 
 
 def branches_can_merge(our_pr_label: str, conflict_pr_label: str) -> bool | None:
-    merge_check_url = f"https://github.com/{repo_name()}/branches/pre_mergeable/{our_pr_label}...{conflict_pr_label}"
+    merge_check_url = (
+        f"https://github.com/{repo_name()}/branches/pre_mergeable/"
+        f"{quote(our_pr_label, safe='')}...{quote(conflict_pr_label, safe='')}"
+    )
     headers = {"User-Agent": "dash-potential-conflicts"}
 
     try:

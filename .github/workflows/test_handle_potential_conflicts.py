@@ -105,6 +105,38 @@ not-json
         self.assertEqual(state, extracted)
         self.assertNotIn("title with --> marker-like text", body.split("-->")[0])
 
+    def test_rendered_comment_escapes_markdown_content(self):
+        body = handle_potential_conflicts.render_comment_body({
+            "outbound": [
+                {
+                    "number": 12,
+                    "title": "fix [link] title",
+                    "url": "https://github.com/dashpay/dash/pull/12",
+                    "files": ["src/`odd`.cpp"],
+                },
+            ],
+            "inbound": {},
+        })
+
+        self.assertIn(r"[#12: fix \[link\] title](https://github.com/dashpay/dash/pull/12)", body)
+        self.assertIn("<code>src/`odd`.cpp</code>", body)
+
+    def test_normalize_state_filters_malformed_entries(self):
+        state = handle_potential_conflicts.normalize_state({
+            "outbound": [
+                {"number": "12", "title": "valid", "url": "https://example.test/12", "files": ["src/a.cpp"]},
+                {"title": "missing number"},
+                "not-a-dict",
+            ],
+            "inbound": {
+                "bad": {"title": "missing number"},
+                "13": {"number": "13", "title": "valid inbound", "url": "https://example.test/13", "files": []},
+            },
+        })
+
+        self.assertEqual([12], [item["number"] for item in state["outbound"]])
+        self.assertEqual(["13"], list(state["inbound"].keys()))
+
     def test_state_is_empty_only_when_both_directions_are_empty(self):
         self.assertTrue(handle_potential_conflicts.state_is_empty({"outbound": [], "inbound": {}}))
         self.assertFalse(handle_potential_conflicts.state_is_empty({"outbound": [{"number": 1}], "inbound": {}}))
@@ -356,8 +388,8 @@ not-json
         formatted = handle_potential_conflicts.format_files(files)
 
         self.assertIn("and 2 more", formatted)
-        self.assertIn("`src/file_0.cpp`", formatted)
-        self.assertNotIn(f"`src/file_{handle_potential_conflicts.MAX_FILE_DETAILS}.cpp`", formatted)
+        self.assertIn("<code>src/file_0.cpp</code>", formatted)
+        self.assertNotIn(f"<code>src/file_{handle_potential_conflicts.MAX_FILE_DETAILS}.cpp</code>", formatted)
 
 
 if __name__ == "__main__":

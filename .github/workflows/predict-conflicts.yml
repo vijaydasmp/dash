@@ -30,15 +30,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Install Python dependencies
-        run: python3 -m pip install requests
       - name: Validate potential conflicts and update advisory comments
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          if [ "${{ github.event.action }}" = "closed" ]; then
-            .github/workflows/handle_potential_conflicts.py --pr-number "${{ github.event.pull_request.number }}" --cleanup-closed
+          python3 -m pip install requests
+          if [ "$EVENT_ACTION" = "closed" ]; then
+            .github/workflows/handle_potential_conflicts.py --pr-number "$PR_NUMBER" --cleanup-closed
           else
-            .github/workflows/handle_potential_conflicts.py --pr-number "${{ github.event.pull_request.number }}"
+            .github/workflows/handle_potential_conflicts.py --pr-number "$PR_NUMBER"
           fi
-        continue-on-error: true
