@@ -45,6 +45,12 @@ static bool SetStateVersion(CDeterministicMNState& state_mn, uint16_t nVersion, 
                             BlockValidationState& state)
 {
     const bool needs_extended = nVersion >= ProTxVersion::ExtAddr;
+    // Before the early-return: ProUpServ pre-sets nVersion, so migrate scriptPayout into the ExtAddr
+    // payout list here or it would be skipped.
+    if (needs_extended && state_mn.payouts.empty() && !state_mn.scriptPayout.empty()) {
+        state_mn.payouts = LegacyPayoutAsList(state_mn.scriptPayout);
+        state_mn.scriptPayout.clear();
+    }
     if (state_mn.nVersion == nVersion && state_mn.netInfo->CanStorePlatform() == needs_extended) {
         return true;
     }

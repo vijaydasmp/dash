@@ -124,7 +124,7 @@ public:
         MnEntry{dmn},
         m_dmn{Assert(dmn)},
         m_script_payouts{GetOwnerPayoutScripts(*m_dmn)},
-        m_script_payout{m_script_payouts.front()}
+        m_script_payout{m_script_payouts.empty() ? CScript() : m_script_payouts.front()}
     {
     }
     ~MnEntryImpl() = default;
