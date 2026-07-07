@@ -175,6 +175,9 @@ For these areas, prefer small tests that prove the invariant being changed.
 - Use atomic commits. Each commit should build and make sense on its own.
 - PR titles follow Conventional Commits, including `backport:` for Bitcoin Core
   backports.
+- PR descriptions must follow `.github/PULL_REQUEST_TEMPLATE.md`: remove the
+  italicized helper prompts, fill in the required sections, and keep the
+  checklist accurate for the change.
 - Do not put `@` mentions in PR descriptions; they are copied into merge
   commits and notify users repeatedly.
 - Explain what changed and why. For bug fixes, include the failure mode and why
