@@ -5,6 +5,7 @@
 #include <rpc/server_util.h>
 
 #include <banman.h>
+#include <common/args.h>
 #include <net_processing.h>
 #include <node/context.h>
 #include <policy/fees.h>

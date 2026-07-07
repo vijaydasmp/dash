@@ -8,9 +8,9 @@
 
 #include <wallet/wallettool.h>
 
+#include <common/args.h>
 #include <fs.h>
 #include <util/translation.h>
-#include <util/system.h>
 #include <wallet/dump.h>
 #include <wallet/salvage.h>
 #include <wallet/wallet.h>

@@ -8,6 +8,7 @@
 
 #include <chainparamsbase.h>
 #include <fs.h>
+#include <common/args.h>
 #include <key.h>
 #include <node/caches.h>
 #include <node/context.h> // IWYU pragma: export
@@ -16,7 +17,6 @@
 #include <random.h>
 #include <util/check.h>
 #include <util/string.h>
-#include <util/system.h>
 #include <util/time.h>
 #include <util/vector.h>
 
@@ -85,7 +85,7 @@ std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              node::NodeContext& node,
                                              BanMan* banman,
                                              const CChainParams& chainparams,
-                                             bool ignore_incoming_txs);
+                                             const PeerManager::Options& opts);
 void DashChainstateSetup(ChainstateManager& chainman,
                          node::NodeContext& node,
                          bool llmq_dbs_in_memory,

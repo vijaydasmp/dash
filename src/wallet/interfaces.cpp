@@ -6,6 +6,7 @@
 
 #include <chain.h>
 #include <coinjoin/client.h>
+#include <common/args.h>
 #include <consensus/amount.h>
 #include <interfaces/chain.h>
 #include <interfaces/coinjoin.h>
@@ -18,7 +19,6 @@
 #include <sync.h>
 #include <uint256.h>
 #include <util/check.h>
-#include <util/system.h>
 #include <util/translation.h>
 #include <util/ui_change_type.h>
 #include <validation.h>

@@ -8,6 +8,7 @@
 
 #include <bls/bls.h>
 #include <clientversion.h>
+#include <common/args.h>
 #include <crypto/sha256.h>
 #include <crypto/x11/dispatch.h>
 #include <fs.h>
@@ -18,7 +19,6 @@
 #include <tinyformat.h>
 #include <util/time.h>
 #include <util/string.h>
-#include <util/system.h>
 #include <util/translation.h>
 
 #include <algorithm>

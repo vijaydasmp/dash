@@ -13,12 +13,13 @@
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
 
+#include <common/args.h>
 #include <interfaces/node.h>
 #include <mapport.h>
 #include <net.h>
 #include <netbase.h>
-#include <txdb.h>       // for -dbcache defaults
-#include <validation.h> // For DEFAULT_SCRIPTCHECK_THREADS
+#include <txdb.h> // for -dbcache defaults
+#include <validation.h>   // For DEFAULT_SCRIPTCHECK_THREADS
 #include <util/string.h>
 
 #ifdef ENABLE_WALLET

@@ -17,6 +17,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <context.h>
+#include <common/args.h>
 #include <consensus/amount.h>
 #include <deploymentstatus.h>
 #include <fs.h>
@@ -49,8 +50,8 @@
 #include <node/chainstate.h>
 #include <node/context.h>
 #include <node/interface_ui.h>
+#include <node/peerman_args.h>
 #include <node/sync_manager.h>
-#include <node/txreconciliation.h>
 #include <policy/feerate.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
@@ -2211,12 +2212,18 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         RegisterValidationInterface(node.observer_ctx.get());
     }
 
+    PeerManager::Options peerman_opts{
+        .ignore_incoming_txs = ignores_incoming_txs,
+    };
+
+    node::ApplyArgsManOptions(args, peerman_opts);
+
     assert(!node.peerman);
     node.peerman = PeerManager::make(chainparams, *node.connman, *node.addrman, node.banman.get(), *node.dstxman,
                                      chainman, *node.mempool, *node.mn_metaman, *node.mn_sync,
                                      *node.sporkman, *node.chainlocks, *node.clhandler,
                                      node.active_ctx ? node.active_ctx->nodeman.get() : nullptr,
-                                     node.dmnman, node.cj_walletman, node.llmq_ctx, ignores_incoming_txs);
+                                     node.dmnman, node.cj_walletman, node.llmq_ctx, peerman_opts);
     RegisterValidationInterface(node.peerman.get());
 
     g_ds_notification_interface = std::make_unique<CDSNotificationInterface>(

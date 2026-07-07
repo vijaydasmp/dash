@@ -10,6 +10,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
+#include <common/args.h>
 #include <consensus/amount.h>
 #include <core_io.h>
 #include <consensus/params.h>
@@ -42,7 +43,6 @@
 #include <univalue.h>
 #include <util/check.h>
 #include <util/strencodings.h>
-#include <util/system.h>
 #include <util/translation.h>
 #include <validation.h>
 #include <validationinterface.h>
