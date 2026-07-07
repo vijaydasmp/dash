@@ -152,13 +152,6 @@ bool WalletInit::ParameterInteraction() const
         LogPrintf("%s: parameter interaction: -blocksonly=1 -> setting -walletbroadcast=0\n", __func__);
     }
 
-    int rescan_mode = gArgs.GetIntArg("-rescan", 0);
-    if (rescan_mode < 0 || rescan_mode > 2) {
-        LogPrintf("%s: Warning: incorrect -rescan mode, falling back to default value.\n", __func__);
-        InitWarning(_("Incorrect -rescan mode, falling back to default value"));
-        gArgs.ForceRemoveArg("rescan");
-    }
-
     if (gArgs.IsArgSet("-walletbackupsdir")) {
         if (!fs::is_directory(gArgs.GetArg("-walletbackupsdir", ""))) {
             InitWarning(strprintf(_("Warning: incorrect parameter %s, path must exist! Using default path."), "-walletbackupsdir"));

@@ -3470,21 +3470,19 @@ bool CWallet::AttachChain(const std::shared_ptr<CWallet>& walletInstance, interf
         // No need to read and scan block if block was created before
         // our wallet birthday (as adjusted for block time variability)
         // unless a full rescan was requested
-        if (gArgs.GetIntArg("-rescan", 0) != 2) {
-            std::optional<int64_t> time_first_key;
-            for (auto spk_man : walletInstance->GetAllScriptPubKeyMans()) {
-                int64_t time = spk_man->GetTimeFirstKey();
-                if (!time_first_key || time < *time_first_key) time_first_key = time;
-            }
-            if (time_first_key) {
-                FoundBlock found = FoundBlock().height(rescan_height);
-                chain.findFirstBlockWithTimeAndHeight(*time_first_key - TIMESTAMP_WINDOW, rescan_height, found);
-                if (!found.found) {
-                    // We were unable to find a block that had a time more recent than our earliest timestamp
-                    // or a height higher than the wallet was synced to, indicating that the wallet is newer than the
-                    // current chain tip. Skip rescanning in this case.
-                    rescan_height = *tip_height;
-                }
+        std::optional<int64_t> time_first_key;
+        for (auto spk_man : walletInstance->GetAllScriptPubKeyMans()) {
+            int64_t time = spk_man->GetTimeFirstKey();
+            if (!time_first_key || time < *time_first_key) time_first_key = time;
+        }
+        if (time_first_key) {
+            FoundBlock found = FoundBlock().height(rescan_height);
+            chain.findFirstBlockWithTimeAndHeight(*time_first_key - TIMESTAMP_WINDOW, rescan_height, found);
+            if (!found.found) {
+                // We were unable to find a block that had a time more recent than our earliest timestamp
+                // or a height higher than the wallet was synced to, indicating that the wallet is newer than the
+                // current chain tip. Skip rescanning in this case.
+                rescan_height = *tip_height;
             }
         }
 
