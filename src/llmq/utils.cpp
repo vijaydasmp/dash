@@ -471,7 +471,7 @@ std::vector<QuorumMembers> ComputeQuorumMembersByQuarterRotation(const Consensus
                                                                  const llmq::UtilParameters& util_params,
                                                                  gsl::not_null<const CBlockIndex*> pWorkBlockIndex,
                                                                  int cycleBaseHeight, const uint256& modifier,
-                                                                 bool storeSnapshot)
+                                                                 bool predicting)
 {
     const int cycleLength = llmqParams.dkgInterval;
     if (!llmqParams.useRotation || cycleBaseHeight % llmqParams.dkgInterval != 0) {
@@ -489,12 +489,14 @@ std::vector<QuorumMembers> ComputeQuorumMembersByQuarterRotation(const Consensus
     for (size_t idx{0}; idx < prev_cycles.size(); idx++) {
         prev_cycles[idx]->m_cycle_index = pWorkBlockIndex->GetAncestor(cycleBaseHeight - (cycleLength * (idx + 1)));
         if (prev_cycles[idx]->m_cycle_index == nullptr) {
+            if (predicting) return {};
             break;
         }
         if (auto opt_snap = util_params.m_qsnapman.GetSnapshotForBlock(llmqParams.type, prev_cycles[idx]->m_cycle_index);
             opt_snap.has_value()) {
             prev_cycles[idx]->m_snap = opt_snap.value();
         } else {
+            if (predicting) return {};
             // TODO: Check if it is triggered from outside (P2P, block validation) and maybe throw an exception
             // assert(false);
             break;
@@ -507,7 +509,7 @@ std::vector<QuorumMembers> ComputeQuorumMembersByQuarterRotation(const Consensus
     }
 
     auto newQuarterMembers = BuildNewQuorumQuarterMembers(llmqParams, util_params, allMns, previousQuarters, modifier,
-                                                          cycleBaseHeight, storeSnapshot);
+                                                          cycleBaseHeight, /*storeSnapshot=*/!predicting);
     // TODO: Check if it is triggered from outside (P2P, block validation) and maybe throw an exception
     // assert (!newQuarterMembers.empty());
 
@@ -620,7 +622,7 @@ std::optional<std::vector<CDeterministicMNCPtr>> ComputeQuorumMembersFromWorkBlo
     }
 
     auto quorumMembers = ComputeQuorumMembersByQuarterRotation(llmq_params, util_params, pWorkBlockIndex,
-                                                               cycleBaseHeight, modifier, /*storeSnapshot=*/false);
+                                                               cycleBaseHeight, modifier, /*predicting=*/true);
     if (quorumMembers.empty()) {
         return std::nullopt;
     }
@@ -696,7 +698,7 @@ QuorumMembers GetAllQuorumMembers(Consensus::LLMQType llmqType, const UtilParame
                                               pCycleQuorumBaseBlockIndex);
         auto q = ComputeQuorumMembersByQuarterRotation(llmq_params, util_params.replace_index(pCycleQuorumBaseBlockIndex),
                                                        pWorkBlockIndex, cycleQuorumBaseHeight, modifier,
-                                                       /*storeSnapshot=*/true);
+                                                       /*predicting=*/false);
         quorumMembers = q[quorumIndex];
 
         LOCK(cs_indexed_members);

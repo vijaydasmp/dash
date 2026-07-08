@@ -1134,7 +1134,7 @@ static RPCHelpMan quorum_dkginfo()
                     pWorkBlockIndex, quorumHeight);
                 if (!predicted_members.has_value()) {
                     obj.pushKV("known", false);
-                    obj.pushKV("reason", "quorum members could not be computed");
+                    obj.pushKV("reason", "rotated quorum snapshots are not available yet");
                     upcoming.push_back(obj);
                     continue;
                 }
