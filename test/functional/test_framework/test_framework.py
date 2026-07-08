@@ -2143,7 +2143,8 @@ class DashTestFramework(BitcoinTestFramework):
                 for mn in self.mninfo}
 
     def verify_upcoming_dkg_predictions(self, predictions, quorum_info):
-        members = set(m["proTxHash"] for m in quorum_info["members"])
+        # 'quorum info' lists members in member-index order
+        members = [m["proTxHash"] for m in quorum_info["members"]]
         work_height = quorum_info["height"] - quorum_info["quorumIndex"] - 8
         for proTxHash, entries in predictions.items():
             [entry] = [d for d in entries if d["quorumHeight"] == quorum_info["height"]]
@@ -2155,7 +2156,7 @@ class DashTestFramework(BitcoinTestFramework):
             assert_equal(entry["workBlockHeight"], work_height)
             assert_equal(entry["workBlockHash"], self.nodes[0].getblockhash(work_height))
             assert_equal(entry["memberCount"], len(members))
-            assert_equal(entry["isMember"], entry["memberIndex"] != -1)
+            assert_equal(entry["memberIndex"], members.index(proTxHash) if proTxHash in members else -1)
             assert_equal(entry["isMember"], proTxHash in members)
 
     def mine_quorum(self, llmq_type_name="llmq_test", llmq_type=100, expected_connections=None, expected_members=None, expected_contributions=None, expected_complaints=0, expected_justifications=0, expected_commitments=None, mninfos_online=None, mninfos_valid=None, skip_maturity=False):
