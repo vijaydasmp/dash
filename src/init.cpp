@@ -913,7 +913,7 @@ static void PeriodicStats(NodeContext& node)
         LogPrintf("%s: GetUTXOStats failed\n", __func__);
     }
 
-    CBlockIndex *tip = chainman.ActiveChain().Tip();
+    CBlockIndex *tip = WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip());
     double nNetworkHashPS = [&]() {
         // Short version of GetNetworkHashPS(120, -1);
         CBlockIndex *pindex = tip;
@@ -2298,7 +2298,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         RegisterValidationInterface(node.cj_walletman.get());
     }
 
-    bool fLoadCacheFiles = !(fReindex || fReindexChainState) && (chainman.ActiveChain().Tip() != nullptr);
+    bool fLoadCacheFiles = !(fReindex || fReindexChainState) && WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip() != nullptr);
 
     if (!node.netfulfilledman->LoadCache(fLoadCacheFiles)) {
         auto file_path = fs::PathToString(gArgs.GetDataDirNet() / "netfulfilled.dat");
@@ -2528,7 +2528,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         // Seed InstantSend tip-height cache; NetInstantSend receives future
         // updates via CValidationInterface but misses InitializeCurrentBlockTip.
         // TODO: move cache updates from NetInstantSend to g_ds_notification due to specific of Tip's processing
-        node.llmq_ctx->isman->CacheTipHeight(chainman.ActiveChain().Tip());
+        node.llmq_ctx->isman->CacheTipHeight(WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()));
 
         {
             // Get all UTXOs for each MN collateral in one go so that we can fill coin cache early
@@ -2592,7 +2592,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         }
 
         if (node.active_ctx) {
-            node.active_ctx->nodeman->Init(chainman.ActiveTip());
+            node.active_ctx->nodeman->Init(WITH_LOCK(::cs_main, return chainman.ActiveTip()));
             // Now that nodeman->Init has set proTxHash, fan out the
             // startup tip to all CValidationInterface subscribers.
             // The earlier call only kicked CDSNotificationInterface

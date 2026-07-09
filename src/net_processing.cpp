@@ -4707,7 +4707,7 @@ void PeerManagerImpl::ProcessMessage(
                 pindex = m_chainman.ActiveChain().Next(pindex);
         }
 
-        const auto send_headers = [this /* for m_connman */, &hashStop, &pindex, &nodestate, &pfrom, &msgMaker](auto msg_type_internal, auto& v_headers, auto callback) {
+        const auto send_headers = [this /* for m_connman */, &hashStop, &pindex, &nodestate, &pfrom, &msgMaker](auto msg_type_internal, auto& v_headers, auto callback) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
             int nLimit = GetHeadersLimit(pfrom, msg_type_internal == NetMsgType::HEADERS2);
             for (; pindex; pindex = m_chainman.ActiveChain().Next(pindex)) {
                 v_headers.emplace_back(callback(pindex));

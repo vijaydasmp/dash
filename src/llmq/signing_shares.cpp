@@ -744,7 +744,8 @@ bool CSigSharesManager::AsyncSignIfMember(Consensus::LLMQType llmqType, CSigning
             // the quorum list and no recovered signature has been created in the mean time
             const auto& llmq_params_opt = Params().GetLLMQ(llmqType);
             assert(llmq_params_opt.has_value());
-            return SelectQuorumForSigning(llmq_params_opt.value(), m_chainman.ActiveChain(), qman, id);
+            CChain& active_chain = *WITH_LOCK(::cs_main, return &m_chainman.ActiveChain());
+            return SelectQuorumForSigning(llmq_params_opt.value(), active_chain, qman, id);
         } else {
             return qman.GetQuorum(llmqType, quorumHash);
         }

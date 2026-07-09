@@ -102,7 +102,9 @@ MessageProcessingResult ChainlockHandler::ProcessNewChainLock(const NodeId from,
         }
     }
 
-    if (const auto ret = chainlock::VerifyChainLock(Params().GetConsensus(), m_chainman.ActiveChain(), qman, clsig);
+    const CBlockIndex* pindex_start = WITH_LOCK(::cs_main,
+        return llmq::SelectQuorumForSigningStartBlock(m_chainman.ActiveChain(), clsig.getHeight()));
+    if (const auto ret = chainlock::VerifyChainLock(Params().GetConsensus(), qman, clsig, pindex_start);
         ret != llmq::VerifyRecSigStatus::Valid) {
         LogPrint(BCLog::CHAINLOCKS, "ChainlockHandler::%s -- invalid CLSIG (%s), status=%d peer=%d\n", __func__,
                  clsig.ToString(), std23::to_underlying(ret), from);
