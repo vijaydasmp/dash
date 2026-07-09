@@ -31,6 +31,11 @@ namespace {
 constexpr size_t MAX_SESSIONS_PER_PEER_FACTOR{4};
 constexpr size_t MIN_SESSIONS_PER_PEER{100};
 
+// Incoming QSIGSHARE/QBSIGSHARES traffic is cheap to admit but drains only at BLS verification
+// speed, so unverified shares are bounded and over-cap shares dropped without misbehaviour scoring.
+constexpr size_t MAX_PENDING_SIG_SHARES_PER_NODE{1000};
+constexpr size_t MAX_PENDING_SIG_SHARES_TOTAL{10000};
+
 size_t GetMaxSessionsForPeer(const Consensus::LLMQParams& params)
 {
     return std::max<size_t>(size_t(params.size) * MAX_SESSIONS_PER_PEER_FACTOR, MIN_SESSIONS_PER_PEER);
@@ -422,7 +427,7 @@ bool CSigSharesManager::ProcessMessageBatchedSigShares(const CNode& pfrom, const
     LOCK(cs);
     auto& nodeState = nodeStates[pfrom.GetId()];
     for (const auto& s : sigSharesToProcess) {
-        nodeState.pendingIncomingSigShares.Add(s.GetKey(), s);
+        TryAddPendingIncomingSigShare(pfrom.GetId(), nodeState, s);
     }
     return true;
 }
@@ -467,12 +472,37 @@ bool CSigSharesManager::ProcessMessageSigShare(NodeId fromId, const CSigShare& s
         }
 
         auto& nodeState = nodeStates[fromId];
-        nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare);
+        TryAddPendingIncomingSigShare(fromId, nodeState, sigShare);
     }
 
     LogPrint(BCLog::LLMQ_SIGS, "CSigSharesManager::%s -- signHash=%s, id=%s, msgHash=%s, member=%d, node=%d\n", __func__,
              signHash.ToString(), sigShare.getId().ToString(), sigShare.getMsgHash().ToString(), sigShare.getQuorumMember(), fromId);
     return true;
+}
+
+bool CSigSharesManager::TryAddPendingIncomingSigShare(NodeId nodeId, CSigSharesNodeState& nodeState,
+                                                      const CSigShare& sigShare)
+{
+    AssertLockHeld(cs);
+
+    if (nodeState.banned) {
+        return false;
+    }
+    if (nodeState.pendingIncomingSigShares.Size() >= MAX_PENDING_SIG_SHARES_PER_NODE) {
+        LogPrint(BCLog::LLMQ_SIGS, "CSigSharesManager::%s -- per-node pending sig shares cap reached (%d), dropping sigShare. node=%d\n",
+                 __func__, MAX_PENDING_SIG_SHARES_PER_NODE, nodeId);
+        return false;
+    }
+    size_t total{0};
+    for (const auto& [_, ns] : nodeStates) {
+        total += ns.pendingIncomingSigShares.Size();
+    }
+    if (total >= MAX_PENDING_SIG_SHARES_TOTAL) {
+        LogPrint(BCLog::LLMQ_SIGS, "CSigSharesManager::%s -- global pending sig shares cap reached (%d), dropping sigShare. node=%d\n",
+                 __func__, MAX_PENDING_SIG_SHARES_TOTAL, nodeId);
+        return false;
+    }
+    return nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare);
 }
 
 bool CSigSharesManager::CollectPendingSigSharesToVerify(
@@ -1425,6 +1455,7 @@ void CSigSharesManager::MarkAsBanned(NodeId nodeId)
         sigSharesRequested.Erase(k);
     });
     nodeState.requestedSigShares.Clear();
+    nodeState.pendingIncomingSigShares.Clear();
     nodeState.banned = true;
 }
 
