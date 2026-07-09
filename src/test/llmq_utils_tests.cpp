@@ -103,6 +103,34 @@ BOOST_AUTO_TEST_CASE(sig_ses_ann_limit_is_per_llmq_type)
     BOOST_CHECK_EQUAL(node_state.GetSessionCount(Consensus::LLMQType::LLMQ_400_60), 1U);
 }
 
+BOOST_AUTO_TEST_CASE(sig_share_map_size_tracks_mutations)
+{
+    SigShareMap<CSigShare> sig_share_map;
+    const CSigShare sig_share1{MakeSigShare(1)};
+    const CSigShare sig_share2{MakeSigShare(2)};
+
+    BOOST_CHECK(sig_share_map.Add(sig_share1.GetKey(), sig_share1));
+    BOOST_CHECK(!sig_share_map.Add(sig_share1.GetKey(), sig_share1));
+    BOOST_CHECK(sig_share_map.Add(sig_share2.GetKey(), sig_share2));
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 2U);
+
+    sig_share_map.Erase(sig_share1.GetKey());
+    sig_share_map.Erase(sig_share1.GetKey());
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 1U);
+
+    sig_share_map.EraseAllForSignHash(sig_share2.GetSignHash());
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 0U);
+    BOOST_CHECK(sig_share_map.Empty());
+
+    BOOST_CHECK(sig_share_map.Add(sig_share1.GetKey(), sig_share1));
+    BOOST_CHECK(sig_share_map.Add(sig_share2.GetKey(), sig_share2));
+    sig_share_map.EraseIf([&](const SigShareKey& k, const CSigShare&) { return k == sig_share1.GetKey(); });
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 1U);
+
+    sig_share_map.Clear();
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 0U);
+}
+
 BOOST_AUTO_TEST_CASE(deterministic_outbound_connection_test)
 {
     // Test deterministic behavior
