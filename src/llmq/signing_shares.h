@@ -188,31 +188,36 @@ public:
         return true;
     }
 
-    void Erase(const SigShareKey& k)
+    size_t Erase(const SigShareKey& k)
     {
         auto it = m_data.find(k.first);
         if (it == m_data.end()) {
-            return;
+            return 0;
         }
-        m_num_entries -= it->second.erase(k.second);
+        const size_t n = it->second.erase(k.second);
+        m_num_entries -= n;
         if (it->second.empty()) {
             m_data.erase(it);
         }
+        return n;
     }
 
-    void EraseBucket(const uint256& signHash)
+    size_t EraseBucket(const uint256& signHash)
     {
         auto it = m_data.find(signHash);
         if (it == m_data.end()) {
-            return;
+            return 0;
         }
-        m_num_entries -= it->second.size();
+        const size_t n = it->second.size();
+        m_num_entries -= n;
         m_data.erase(it);
+        return n;
     }
 
     template<typename F>
-    void EraseIf(F&& f)
+    size_t EraseIf(F&& f)
     {
+        size_t erased{0};
         for (auto it = m_data.begin(); it != m_data.end(); ) {
             SigShareKey k;
             k.first = it->first;
@@ -221,6 +226,7 @@ public:
                 if (f(k, jt->second)) {
                     jt = it->second.erase(jt);
                     --m_num_entries;
+                    ++erased;
                 } else {
                     ++jt;
                 }
@@ -231,12 +237,15 @@ public:
                 ++it;
             }
         }
+        return erased;
     }
 
-    void Clear()
+    size_t Clear()
     {
+        const size_t prev = m_num_entries;
         m_data.clear();
         m_num_entries = 0;
+        return prev;
     }
 };
 
@@ -252,14 +261,14 @@ public:
         return internalMap.Emplace(k, v);
     }
 
-    void Erase(const SigShareKey& k)
+    size_t Erase(const SigShareKey& k)
     {
-        internalMap.Erase(k);
+        return internalMap.Erase(k);
     }
 
-    void Clear()
+    size_t Clear()
     {
-        internalMap.Clear();
+        return internalMap.Clear();
     }
 
     [[nodiscard]] bool Has(const SigShareKey& k) const
@@ -337,15 +346,15 @@ public:
         return &it->second;
     }
 
-    void EraseAllForSignHash(const uint256& signHash)
+    size_t EraseAllForSignHash(const uint256& signHash)
     {
-        internalMap.EraseBucket(signHash);
+        return internalMap.EraseBucket(signHash);
     }
 
     template<typename F>
-    void EraseIf(F&& f)
+    size_t EraseIf(F&& f)
     {
-        internalMap.EraseIf(f);
+        return internalMap.EraseIf(f);
     }
 
     template<typename F>
@@ -414,7 +423,10 @@ public:
     Session* GetSessionByRecvId(uint32_t sessionId);
     bool GetSessionInfoByRecvId(uint32_t sessionId, SessionInfo& retInfo);
 
-    void RemoveSession(const uint256& signHash);
+    // Returns the number of pending incoming sig shares that were dropped
+    // as part of tearing this session down; other per-session structures
+    // are erased unconditionally.
+    size_t RemoveSession(const uint256& signHash);
 };
 
 class CSignedSession
@@ -459,6 +471,10 @@ private:
     mutable Mutex cs;
 
     SigShareMap<CSigShare> sigShares GUARDED_BY(cs);
+    // Running total of shares held in nodeStates[*].pendingIncomingSigShares.
+    // Maintained explicitly so the global cap check in TryAddPendingIncomingSigShare
+    // doesn't need to walk every peer on every admission.
+    size_t m_pending_sig_shares_total GUARDED_BY(cs){0};
     Uint256HashMap<CSignedSession> signedSessions GUARDED_BY(cs);
 
     // stores time of last receivedSigShare. Used to detect timeouts
@@ -524,9 +540,13 @@ public:
     // if ProcessMessageSigShare returns false the node should be banned
     bool ProcessMessageSigShare(NodeId fromId, const CSigShare& sigShare) EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    // CollectPendingSigSharesToVerify returns true if there's more work to do
+    // CollectPendingSigSharesToVerify returns true if there's more work to do.
+    // The returned batch contains at most maxShares actual sig shares, drawn one
+    // at a time in randomized round-robin order across peers so that no single
+    // peer can dominate a batch. Bounding by shares (not by unique sessions)
+    // caps the amount of BLS work that can be in-flight in the worker pool.
     bool CollectPendingSigSharesToVerify(
-        size_t maxUniqueSessions, std::unordered_map<NodeId, std::vector<CSigShare>>& retSigShares,
+        size_t maxShares, std::unordered_map<NodeId, std::vector<CSigShare>>& retSigShares,
         std::unordered_map<std::pair<Consensus::LLMQType, uint256>, CQuorumCPtr, StaticSaltedHasher>& retQuorums)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 

@@ -114,21 +114,43 @@ BOOST_AUTO_TEST_CASE(sig_share_map_size_tracks_mutations)
     BOOST_CHECK(sig_share_map.Add(sig_share2.GetKey(), sig_share2));
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 2U);
 
-    sig_share_map.Erase(sig_share1.GetKey());
-    sig_share_map.Erase(sig_share1.GetKey());
+    BOOST_CHECK_EQUAL(sig_share_map.Erase(sig_share1.GetKey()), 1U);
+    BOOST_CHECK_EQUAL(sig_share_map.Erase(sig_share1.GetKey()), 0U);
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 1U);
 
-    sig_share_map.EraseAllForSignHash(sig_share2.GetSignHash());
+    BOOST_CHECK_EQUAL(sig_share_map.EraseAllForSignHash(sig_share2.GetSignHash()), 1U);
+    BOOST_CHECK_EQUAL(sig_share_map.EraseAllForSignHash(sig_share2.GetSignHash()), 0U);
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 0U);
     BOOST_CHECK(sig_share_map.Empty());
 
     BOOST_CHECK(sig_share_map.Add(sig_share1.GetKey(), sig_share1));
     BOOST_CHECK(sig_share_map.Add(sig_share2.GetKey(), sig_share2));
-    sig_share_map.EraseIf([&](const SigShareKey& k, const CSigShare&) { return k == sig_share1.GetKey(); });
+    BOOST_CHECK_EQUAL(sig_share_map.EraseIf([&](const SigShareKey& k, const CSigShare&) { return k == sig_share1.GetKey(); }), 1U);
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 1U);
 
-    sig_share_map.Clear();
+    BOOST_CHECK_EQUAL(sig_share_map.Clear(), 1U);
+    BOOST_CHECK_EQUAL(sig_share_map.Clear(), 0U);
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 0U);
+}
+
+BOOST_AUTO_TEST_CASE(sig_share_map_bucket_erase_returns_bucket_size)
+{
+    // EraseAllForSignHash must report the total number of entries evicted for the bucket,
+    // so callers can maintain accurate running totals (e.g. the global pending sig-share cap).
+    SigShareMap<CSigShare> sig_share_map;
+    const auto sign_hash = MakeSigShare(1).GetSignHash();
+
+    for (uint16_t member = 0; member < 5; ++member) {
+        CSigShare s{Consensus::LLMQType::LLMQ_50_60, GetTestQuorumHash(1), GetTestQuorumHash(2), GetTestQuorumHash(1),
+                    member, CBLSLazySignature{}};
+        s.UpdateKey();
+        BOOST_CHECK_EQUAL(s.GetSignHash(), sign_hash);
+        BOOST_CHECK(sig_share_map.Add(s.GetKey(), s));
+    }
+    BOOST_CHECK_EQUAL(sig_share_map.Size(), 5U);
+
+    BOOST_CHECK_EQUAL(sig_share_map.EraseAllForSignHash(sign_hash), 5U);
+    BOOST_CHECK(sig_share_map.Empty());
 }
 
 BOOST_AUTO_TEST_CASE(pending_sig_shares_session_removal_updates_count)
@@ -141,10 +163,18 @@ BOOST_AUTO_TEST_CASE(pending_sig_shares_session_removal_updates_count)
     BOOST_CHECK(node_state.pendingIncomingSigShares.Add(sig_share2.GetKey(), sig_share2));
     BOOST_CHECK_EQUAL(node_state.pendingIncomingSigShares.Size(), 2U);
 
-    node_state.RemoveSession(sig_share1.GetSignHash());
+    // RemoveSession must report the number of pending shares actually dropped so the manager's
+    // global pending-share counter can be decremented in lockstep.
+    BOOST_CHECK_EQUAL(node_state.RemoveSession(sig_share1.GetSignHash()), 1U);
     BOOST_CHECK_EQUAL(node_state.pendingIncomingSigShares.Size(), 1U);
     BOOST_CHECK(!node_state.pendingIncomingSigShares.Has(sig_share1.GetKey()));
     BOOST_CHECK(node_state.pendingIncomingSigShares.Has(sig_share2.GetKey()));
+
+    // Removing the same session twice is idempotent and reports zero on the second call.
+    BOOST_CHECK_EQUAL(node_state.RemoveSession(sig_share1.GetSignHash()), 0U);
+
+    // Removing a session that never had pending shares must also report zero.
+    BOOST_CHECK_EQUAL(node_state.RemoveSession(MakeSigShare(3).GetSignHash()), 0U);
 }
 
 BOOST_AUTO_TEST_CASE(deterministic_outbound_connection_test)

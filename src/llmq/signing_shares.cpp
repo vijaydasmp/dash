@@ -206,14 +206,14 @@ bool CSigSharesNodeState::GetSessionInfoByRecvId(uint32_t sessionId, SessionInfo
     return true;
 }
 
-void CSigSharesNodeState::RemoveSession(const uint256& signHash)
+size_t CSigSharesNodeState::RemoveSession(const uint256& signHash)
 {
     if (const auto it = sessions.find(signHash); it != sessions.end()) {
         sessionByRecvId.erase(it->second.recvSessionId);
         sessions.erase(it);
     }
     requestedSigShares.EraseAllForSignHash(signHash);
-    pendingIncomingSigShares.EraseAllForSignHash(signHash);
+    return pendingIncomingSigShares.EraseAllForSignHash(signHash);
 }
 
 //////////////////////
@@ -493,20 +493,20 @@ bool CSigSharesManager::TryAddPendingIncomingSigShare(NodeId nodeId, CSigSharesN
                  __func__, MAX_PENDING_SIG_SHARES_PER_NODE, nodeId);
         return false;
     }
-    size_t total{0};
-    for (const auto& [_, ns] : nodeStates) {
-        total += ns.pendingIncomingSigShares.Size();
-    }
-    if (total >= MAX_PENDING_SIG_SHARES_TOTAL) {
+    if (m_pending_sig_shares_total >= MAX_PENDING_SIG_SHARES_TOTAL) {
         LogPrint(BCLog::LLMQ_SIGS, "CSigSharesManager::%s -- global pending sig shares cap reached (%d), dropping sigShare. node=%d\n",
                  __func__, MAX_PENDING_SIG_SHARES_TOTAL, nodeId);
         return false;
     }
-    return nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare);
+    if (!nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare)) {
+        return false;
+    }
+    ++m_pending_sig_shares_total;
+    return true;
 }
 
 bool CSigSharesManager::CollectPendingSigSharesToVerify(
-    size_t maxUniqueSessions, std::unordered_map<NodeId, std::vector<CSigShare>>& retSigShares,
+    size_t maxShares, std::unordered_map<NodeId, std::vector<CSigShare>>& retSigShares,
     std::unordered_map<std::pair<Consensus::LLMQType, uint256>, CQuorumCPtr, StaticSaltedHasher>& retQuorums)
 {
     bool more_work{false};
@@ -517,16 +517,19 @@ bool CSigSharesManager::CollectPendingSigSharesToVerify(
             return false;
         }
 
-        // This will iterate node states in random order and pick one sig share at a time. This avoids processing
-        // of large batches at once from the same node while other nodes also provided shares. If we wouldn't do this,
-        // other nodes would be able to poison us with a large batch with N-1 valid shares and the last one being
-        // invalid, making batch verification fail and revert to per-share verification, which in turn would slow down
-        // the whole verification process
-        std::unordered_set<std::pair<NodeId, uint256>, StaticSaltedHasher> uniqueSignHashes;
+        // Iterate node states in random order and pick one sig share at a time. This ensures no single peer can
+        // dominate a batch and that a large flood from one peer cannot poison batch verification (an N-1 valid /
+        // 1 invalid batch would fall back to per-share verification and slow the whole pipeline).
+        //
+        // The batch is bounded by the number of shares actually added (maxShares), not by the count of unique
+        // (nodeId, signHash) sessions. Bounding by sessions could otherwise let a single session inflate the
+        // batch to the full pending-share cap, and, together with the in-flight batch cap, keep tens of thousands
+        // of shares outside the pending accounting.
+        size_t sharesAdded{0};
         IterateNodesRandom(
             nodeStates,
             [&]() {
-                return uniqueSignHashes.size() < maxUniqueSessions;
+                return sharesAdded < maxShares;
                 // TODO: remove NO_THREAD_SAFETY_ANALYSIS
                 // using here template IterateNodesRandom makes impossible to use lock annotation
             },
@@ -538,10 +541,10 @@ bool CSigSharesManager::CollectPendingSigSharesToVerify(
 
                 AssertLockHeld(cs);
                 if (const bool alreadyHave = this->sigShares.Has(sigShare.GetKey()); !alreadyHave) {
-                    uniqueSignHashes.emplace(nodeId, sigShare.GetSignHash());
                     retSigShares[nodeId].emplace_back(sigShare);
+                    ++sharesAdded;
                 }
-                ns.pendingIncomingSigShares.Erase(sigShare.GetKey());
+                m_pending_sig_shares_total -= ns.pendingIncomingSigShares.Erase(sigShare.GetKey());
                 return !ns.pendingIncomingSigShares.Empty();
             },
             rnd);
@@ -1396,6 +1399,7 @@ void CSigSharesManager::Cleanup()
             AssertLockHeld(cs);
             sigSharesRequested.Erase(k);
         });
+        m_pending_sig_shares_total -= it->second.pendingIncomingSigShares.Size();
         nodeStates.erase(nodeId);
     }
 }
@@ -1405,7 +1409,7 @@ void CSigSharesManager::RemoveSigSharesForSession(const uint256& signHash)
     AssertLockHeld(cs);
 
     for (auto& [_, nodeState] : nodeStates) {
-        nodeState.RemoveSession(signHash);
+        m_pending_sig_shares_total -= nodeState.RemoveSession(signHash);
     }
 
     sigSharesRequested.EraseAllForSignHash(signHash);
@@ -1427,6 +1431,7 @@ void CSigSharesManager::RemoveNodesIf(std::function<bool(NodeId)> predicate)
                 AssertLockHeld(cs);
                 sigSharesRequested.Erase(k);
             });
+            m_pending_sig_shares_total -= it->second.pendingIncomingSigShares.Size();
             it = nodeStates.erase(it);
         } else {
             ++it;
@@ -1455,7 +1460,7 @@ void CSigSharesManager::MarkAsBanned(NodeId nodeId)
         sigSharesRequested.Erase(k);
     });
     nodeState.requestedSigShares.Clear();
-    nodeState.pendingIncomingSigShares.Clear();
+    m_pending_sig_shares_total -= nodeState.pendingIncomingSigShares.Clear();
     nodeState.banned = true;
 }
 
