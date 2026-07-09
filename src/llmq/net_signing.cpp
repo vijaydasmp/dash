@@ -320,8 +320,11 @@ void NetSigning::WorkThreadDispatcher()
             }
         }
 
-        // Collect pending sig shares synchronously and dispatch each batch to a worker for parallel BLS verification
-        while (!workInterrupt) {
+        // Collect pending sig shares synchronously and dispatch each batch to a worker for parallel BLS verification.
+        // Batches awaiting verification are bounded so that under flood shares back up in the capped
+        // pending maps instead of migrating into the unbounded worker pool task queue.
+        static constexpr int MAX_UNVERIFIED_BATCHES{4};
+        while (!workInterrupt && unverified_batches < MAX_UNVERIFIED_BATCHES) {
             std::unordered_map<NodeId, std::vector<CSigShare>> sigSharesByNodes;
             std::unordered_map<std::pair<Consensus::LLMQType, uint256>, CQuorumCPtr, StaticSaltedHasher> quorums;
 
@@ -332,7 +335,13 @@ void NetSigning::WorkThreadDispatcher()
                 break;
             }
 
+            ++unverified_batches;
             worker_pool.push([this, sigSharesByNodes = std::move(sigSharesByNodes), quorums = std::move(quorums)](int) mutable {
+                // Ensures unverified_batches is decremented on every exit path, including exceptions.
+                struct UnverifiedBatchGuard {
+                    std::atomic<int>& count;
+                    ~UnverifiedBatchGuard() { --count; }
+                } guard{unverified_batches};
                 ProcessPendingSigShares(std::move(sigSharesByNodes), std::move(quorums));
             });
 

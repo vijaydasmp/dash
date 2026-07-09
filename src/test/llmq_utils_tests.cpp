@@ -131,6 +131,22 @@ BOOST_AUTO_TEST_CASE(sig_share_map_size_tracks_mutations)
     BOOST_CHECK_EQUAL(sig_share_map.Size(), 0U);
 }
 
+BOOST_AUTO_TEST_CASE(pending_sig_shares_session_removal_updates_count)
+{
+    CSigSharesNodeState node_state;
+    const CSigShare sig_share1{MakeSigShare(1)};
+    const CSigShare sig_share2{MakeSigShare(2)};
+
+    BOOST_CHECK(node_state.pendingIncomingSigShares.Add(sig_share1.GetKey(), sig_share1));
+    BOOST_CHECK(node_state.pendingIncomingSigShares.Add(sig_share2.GetKey(), sig_share2));
+    BOOST_CHECK_EQUAL(node_state.pendingIncomingSigShares.Size(), 2U);
+
+    node_state.RemoveSession(sig_share1.GetSignHash());
+    BOOST_CHECK_EQUAL(node_state.pendingIncomingSigShares.Size(), 1U);
+    BOOST_CHECK(!node_state.pendingIncomingSigShares.Has(sig_share1.GetKey()));
+    BOOST_CHECK(node_state.pendingIncomingSigShares.Has(sig_share2.GetKey()));
+}
+
 BOOST_AUTO_TEST_CASE(deterministic_outbound_connection_test)
 {
     // Test deterministic behavior
