@@ -23,6 +23,26 @@
 #include <unordered_map>
 
 namespace llmq {
+std::vector<CBatchedSigShares> UnserializeBatchedSigShares(CDataStream& vRecv)
+{
+    std::vector<CBatchedSigShares> msgs;
+    const uint64_t msgs_size{ReadCompactSize(vRecv, /*range_check=*/false)};
+    if (msgs_size > MAX_MSGS_TOTAL_BATCHED_SIGS) {
+        throw std::ios_base::failure("QBSIGSHARES batch count too large");
+    }
+    msgs.reserve(msgs_size);
+    size_t total_sigs_count{0};
+    while (msgs.size() < msgs_size) {
+        msgs.emplace_back();
+        vRecv >> msgs.back();
+        total_sigs_count += msgs.back().sigShares.size();
+        if (total_sigs_count > MAX_MSGS_TOTAL_BATCHED_SIGS) {
+            throw std::ios_base::failure("QBSIGSHARES sig share count too large");
+        }
+    }
+    return msgs;
+}
+
 void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv)
 {
     if (msg_type == NetMsgType::QSIGREC) {
@@ -99,27 +119,9 @@ void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CData
             return;
         }
     } else if (msg_type == NetMsgType::QBSIGSHARES) {
-        // The inner sigShares vector is bounded by CBatchedSigShares's SERIALIZE_METHODS
-        // via LIMITED_VECTOR, but many individually-valid batches could still exceed the
-        // total sig-share cap, so bound the outer count and check the running total as we
-        // decode so we stop reading before an attacker forces us through the full cross
-        // product of the per-vector limits.
         std::vector<CBatchedSigShares> msgs;
         try {
-            const uint64_t msgs_size{ReadCompactSize(vRecv, /*range_check=*/false)};
-            if (msgs_size > MAX_MSGS_TOTAL_BATCHED_SIGS) {
-                throw std::ios_base::failure("QBSIGSHARES batch count too large");
-            }
-            msgs.reserve(msgs_size);
-            size_t total_sigs_count{0};
-            while (msgs.size() < msgs_size) {
-                msgs.emplace_back();
-                vRecv >> msgs.back();
-                total_sigs_count += msgs.back().sigShares.size();
-                if (total_sigs_count > MAX_MSGS_TOTAL_BATCHED_SIGS) {
-                    throw std::ios_base::failure("QBSIGSHARES sig share count too large");
-                }
-            }
+            msgs = UnserializeBatchedSigShares(vRecv);
         } catch (const std::ios_base::failure& e) {
             LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- rejected %s from peer=%d: %s\n",
                      __func__, msg_type, pfrom.GetId(), e.what());
