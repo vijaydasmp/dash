@@ -11,7 +11,6 @@
 #include <chainlock/chainlock.h>
 #include <chainlock/handler.h>
 #include <llmq/context.h>
-#include <llmq/quorumsman.h>
 #include <msg_result.h>
 #include <protocol.h>
 
