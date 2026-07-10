@@ -11,6 +11,7 @@
 #include <llmq/utils.h>
 #include <netaddress.h>
 #include <random.h>
+#include <streams.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -169,6 +170,31 @@ BOOST_AUTO_TEST_CASE(pending_sig_shares_session_removal_updates_count)
     node_state.RemoveSession(sig_share1.GetSignHash());
     node_state.RemoveSession(MakeSigShare(3).GetSignHash());
     BOOST_CHECK_EQUAL(node_state.pendingIncomingSigShares.Size(), 1U);
+}
+
+BOOST_AUTO_TEST_CASE(batched_sig_shares_rejects_oversized_inner_vector)
+{
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    stream << VARINT(uint32_t{1});
+    WriteCompactSize(stream, MAX_MSGS_TOTAL_BATCHED_SIGS + 1);
+
+    CBatchedSigShares batched_sig_shares;
+    BOOST_CHECK_THROW(stream >> batched_sig_shares, std::ios_base::failure);
+    BOOST_CHECK(batched_sig_shares.sigShares.empty());
+}
+
+BOOST_AUTO_TEST_CASE(batched_sig_shares_accepts_max_inner_vector)
+{
+    CBatchedSigShares batched;
+    batched.sessionId = 1;
+    batched.sigShares.resize(MAX_MSGS_TOTAL_BATCHED_SIGS); // exactly the cap must be accepted
+
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    stream << batched;
+
+    CBatchedSigShares roundtripped;
+    BOOST_CHECK_NO_THROW(stream >> roundtripped);
+    BOOST_CHECK_EQUAL(roundtripped.sigShares.size(), MAX_MSGS_TOTAL_BATCHED_SIGS);
 }
 
 BOOST_AUTO_TEST_CASE(deterministic_outbound_connection_test)

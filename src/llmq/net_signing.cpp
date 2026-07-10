@@ -10,7 +10,6 @@
 #include <llmq/signing_shares.h>
 #include <llmq/signing.h>
 #include <spork.h>
-#include <util/std23.h>
 
 #include <logging.h>
 #include <streams.h>
@@ -98,16 +97,32 @@ void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CData
             return;
         }
     } else if (msg_type == NetMsgType::QBSIGSHARES) {
+        // The inner sigShares vector is bounded by CBatchedSigShares's SERIALIZE_METHODS
+        // via LIMITED_VECTOR, but many individually-valid batches could still exceed the
+        // total sig-share cap, so bound the outer count and check the running total as we
+        // decode so we stop reading before an attacker forces us through the full cross
+        // product of the per-vector limits.
         std::vector<CBatchedSigShares> msgs;
-        vRecv >> msgs;
-        const size_t totalSigsCount = std23::ranges::fold_left(msgs, size_t{0}, [](size_t s, const auto& bs) {
-            return s + bs.sigShares.size();
-        });
-        if (totalSigsCount > MAX_MSGS_TOTAL_BATCHED_SIGS) {
-            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- too many sigs in QBSIGSHARES message. cnt=%d, max=%d, node=%d\n",
-                     __func__, msgs.size(), MAX_MSGS_TOTAL_BATCHED_SIGS, pfrom.GetId());
+        try {
+            const uint64_t msgs_size{ReadCompactSize(vRecv, /*range_check=*/false)};
+            if (msgs_size > MAX_MSGS_TOTAL_BATCHED_SIGS) {
+                throw std::ios_base::failure("QBSIGSHARES batch count too large");
+            }
+            msgs.reserve(msgs_size);
+            size_t total_sigs_count{0};
+            while (msgs.size() < msgs_size) {
+                msgs.emplace_back();
+                vRecv >> msgs.back();
+                total_sigs_count += msgs.back().sigShares.size();
+                if (total_sigs_count > MAX_MSGS_TOTAL_BATCHED_SIGS) {
+                    throw std::ios_base::failure("QBSIGSHARES sig share count too large");
+                }
+            }
+        } catch (const std::ios_base::failure& e) {
+            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- rejected %s from peer=%d: %s\n",
+                     __func__, msg_type, pfrom.GetId(), e.what());
             BanNode(pfrom.GetId());
-            return;
+            throw;
         }
         if (!std::ranges::all_of(msgs, [this, &pfrom](const auto& bs) {
                 return m_shares_manager->ProcessMessageBatchedSigShares(pfrom, bs);
