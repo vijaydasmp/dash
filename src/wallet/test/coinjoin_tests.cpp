@@ -236,6 +236,26 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTe
     }));
 }
 
+// End-to-end check that NewKeyPool() stops mixing via NewKeyPoolCallback() ->
+// WithClient() while cs_wallet is held, which exercises the
+// cs_wallet -> cs_wallet_manager_map lock order. The reverse order (and thus
+// the full lock-order cycle) is not seeded in this binary; the deterministic
+// -DDEBUG_LOCKORDER regression for it lives in test/functional/rpc_coinjoin.py.
+BOOST_FIXTURE_TEST_CASE(coinjoin_newkeypool_stops_mixing_tests, CTransactionBuilderTestSetup)
+{
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [](auto& cj_man) {
+        BOOST_REQUIRE(cj_man.startMixing());
+        BOOST_CHECK_EQUAL(cj_man.isMixing(), true);
+    }));
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_REQUIRE(wallet->GetLegacyScriptPubKeyMan()->NewKeyPool());
+    }
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [](auto& cj_man) {
+        BOOST_CHECK_EQUAL(cj_man.isMixing(), false);
+    }));
+}
+
 BOOST_FIXTURE_TEST_CASE(CTransactionBuilderTest, CTransactionBuilderTestSetup)
 {
     // NOTE: Mock wallet version is FEATURE_BASE which means that it uses uncompressed pubkeys
