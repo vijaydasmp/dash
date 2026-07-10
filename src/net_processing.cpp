@@ -5524,7 +5524,13 @@ void PeerManagerImpl::ProcessMessage(
 
     if (msg_type == NetMsgType::SPORK) {
         CSporkMessage spork;
-        vRecv >> spork;
+        try {
+            vRecv >> spork;
+        } catch (const std::ios_base::failure& e) {
+            // Attribute deserialization failures to the peer; the outer catch would otherwise silently drop.
+            Misbehaving(*peer, 100, strprintf("malformed spork received. peer=%d error=%s", pfrom.GetId(), e.what()));
+            return;
+        }
 
         uint256 hash = spork.GetHash();
         CInv spork_inv{MSG_SPORK, hash};
