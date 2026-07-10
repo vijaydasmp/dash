@@ -44,13 +44,15 @@ void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CData
 
     if (m_sporkman.IsSporkActive(SPORK_21_QUORUM_ALL_CONNECTED) && msg_type == NetMsgType::QSIGSHARE) {
         std::vector<CSigShare> receivedSigShares;
-        vRecv >> receivedSigShares;
-
-        if (receivedSigShares.size() > CSigSharesManager::MAX_MSGS_SIG_SHARES) {
-            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- too many sigs in QSIGSHARE message. cnt=%d, max=%d, node=%d\n",
-                     __func__, receivedSigShares.size(), CSigSharesManager::MAX_MSGS_SIG_SHARES, pfrom.GetId());
+        try {
+            if (!UnserializeVectorWithMaxSize(vRecv, receivedSigShares, CSigSharesManager::MAX_MSGS_SIG_SHARES)) {
+                throw std::ios_base::failure("QSIGSHARE vector size too large");
+            }
+        } catch (const std::ios_base::failure& e) {
+            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- rejected %s from peer=%d: %s\n",
+                     __func__, msg_type, pfrom.GetId(), e.what());
             BanNode(pfrom.GetId());
-            return;
+            throw;
         }
 
         for (const auto& sigShare : receivedSigShares) {
@@ -62,13 +64,15 @@ void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CData
 
     if (msg_type == NetMsgType::QSIGSESANN) {
         std::vector<CSigSesAnn> msgs;
-        vRecv >> msgs;
-        if (msgs.size() > CSigSharesManager::MAX_MSGS_CNT_QSIGSESANN) {
-            LogPrint(BCLog::LLMQ_SIGS, /* Continued */
-                     "NetSigning::%s -- too many announcements in QSIGSESANN message. cnt=%d, max=%d, node=%d\n",
-                     __func__, msgs.size(), CSigSharesManager::MAX_MSGS_CNT_QSIGSESANN, pfrom.GetId());
+        try {
+            if (!UnserializeVectorWithMaxSize(vRecv, msgs, CSigSharesManager::MAX_MSGS_CNT_QSIGSESANN)) {
+                throw std::ios_base::failure("QSIGSESANN vector size too large");
+            }
+        } catch (const std::ios_base::failure& e) {
+            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- rejected %s from peer=%d: %s\n",
+                     __func__, msg_type, pfrom.GetId(), e.what());
             BanNode(pfrom.GetId());
-            return;
+            throw;
         }
         if (!std::ranges::all_of(msgs, [this, &pfrom](const auto& ann) {
                 return m_shares_manager->ProcessMessageSigSesAnn(pfrom, ann);
@@ -79,16 +83,14 @@ void NetSigning::ProcessMessage(CNode& pfrom, const std::string& msg_type, CData
     } else if (msg_type == NetMsgType::QSIGSHARESINV || msg_type == NetMsgType::QGETSIGSHARES) {
         std::vector<CSigSharesInv> msgs;
         try {
-            vRecv >> msgs;
-        } catch (const std::ios_base::failure&) {
+            if (!UnserializeVectorWithMaxSize(vRecv, msgs, CSigSharesManager::MAX_MSGS_CNT_QSIGSHARES)) {
+                throw std::ios_base::failure("QSIGSHARESINV vector size too large");
+            }
+        } catch (const std::ios_base::failure& e) {
+            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- rejected %s from peer=%d: %s\n",
+                     __func__, msg_type, pfrom.GetId(), e.what());
             BanNode(pfrom.GetId());
             throw;
-        }
-        if (msgs.size() > CSigSharesManager::MAX_MSGS_CNT_QSIGSHARES) {
-            LogPrint(BCLog::LLMQ_SIGS, "NetSigning::%s -- too many invs in %s message. cnt=%d, max=%d, node=%d\n",
-                     __func__, msg_type, msgs.size(), CSigSharesManager::MAX_MSGS_CNT_QSIGSHARES, pfrom.GetId());
-            BanNode(pfrom.GetId());
-            return;
         }
         if (!std::ranges::all_of(msgs, [this, &pfrom, &msg_type](const auto& inv) {
                 return m_shares_manager->ProcessMessageSigShares(pfrom, inv, msg_type);
