@@ -206,14 +206,14 @@ bool CSigSharesNodeState::GetSessionInfoByRecvId(uint32_t sessionId, SessionInfo
     return true;
 }
 
-size_t CSigSharesNodeState::RemoveSession(const uint256& signHash)
+void CSigSharesNodeState::RemoveSession(const uint256& signHash)
 {
     if (const auto it = sessions.find(signHash); it != sessions.end()) {
         sessionByRecvId.erase(it->second.recvSessionId);
         sessions.erase(it);
     }
     requestedSigShares.EraseAllForSignHash(signHash);
-    return pendingIncomingSigShares.EraseAllForSignHash(signHash);
+    pendingIncomingSigShares.EraseAllForSignHash(signHash);
 }
 
 //////////////////////
@@ -493,16 +493,18 @@ bool CSigSharesManager::TryAddPendingIncomingSigShare(NodeId nodeId, CSigSharesN
                  __func__, MAX_PENDING_SIG_SHARES_PER_NODE, nodeId);
         return false;
     }
-    if (m_pending_sig_shares_total >= MAX_PENDING_SIG_SHARES_TOTAL) {
+    size_t total{0};
+    for (const auto& [_, ns] : nodeStates) {
+        // the size of nodeStates is limited by DEFAULT_MAX_PEER_CONNECTIONS(125) so it should not be performance issue
+        // The name of variable is intentionally mentioned in comment to make this code snippet relevant for possible changes in future
+        total += ns.pendingIncomingSigShares.Size();
+    }
+    if (total >= MAX_PENDING_SIG_SHARES_TOTAL) {
         LogPrint(BCLog::LLMQ_SIGS, "CSigSharesManager::%s -- global pending sig shares cap reached (%d), dropping sigShare. node=%d\n",
                  __func__, MAX_PENDING_SIG_SHARES_TOTAL, nodeId);
         return false;
     }
-    if (!nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare)) {
-        return false;
-    }
-    ++m_pending_sig_shares_total;
-    return true;
+    return nodeState.pendingIncomingSigShares.Add(sigShare.GetKey(), sigShare);
 }
 
 bool CSigSharesManager::CollectPendingSigSharesToVerify(
@@ -544,7 +546,7 @@ bool CSigSharesManager::CollectPendingSigSharesToVerify(
                     retSigShares[nodeId].emplace_back(sigShare);
                     ++sharesAdded;
                 }
-                m_pending_sig_shares_total -= ns.pendingIncomingSigShares.Erase(sigShare.GetKey());
+                ns.pendingIncomingSigShares.Erase(sigShare.GetKey());
                 return !ns.pendingIncomingSigShares.Empty();
             },
             rnd);
@@ -1399,7 +1401,6 @@ void CSigSharesManager::Cleanup()
             AssertLockHeld(cs);
             sigSharesRequested.Erase(k);
         });
-        m_pending_sig_shares_total -= it->second.pendingIncomingSigShares.Size();
         nodeStates.erase(nodeId);
     }
 }
@@ -1409,7 +1410,7 @@ void CSigSharesManager::RemoveSigSharesForSession(const uint256& signHash)
     AssertLockHeld(cs);
 
     for (auto& [_, nodeState] : nodeStates) {
-        m_pending_sig_shares_total -= nodeState.RemoveSession(signHash);
+        nodeState.RemoveSession(signHash);
     }
 
     sigSharesRequested.EraseAllForSignHash(signHash);
@@ -1431,7 +1432,6 @@ void CSigSharesManager::RemoveNodesIf(std::function<bool(NodeId)> predicate)
                 AssertLockHeld(cs);
                 sigSharesRequested.Erase(k);
             });
-            m_pending_sig_shares_total -= it->second.pendingIncomingSigShares.Size();
             it = nodeStates.erase(it);
         } else {
             ++it;
@@ -1460,7 +1460,7 @@ void CSigSharesManager::MarkAsBanned(NodeId nodeId)
         sigSharesRequested.Erase(k);
     });
     nodeState.requestedSigShares.Clear();
-    m_pending_sig_shares_total -= nodeState.pendingIncomingSigShares.Clear();
+    nodeState.pendingIncomingSigShares.Clear();
     nodeState.banned = true;
 }
 

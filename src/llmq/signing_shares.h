@@ -188,36 +188,31 @@ public:
         return true;
     }
 
-    size_t Erase(const SigShareKey& k)
+    void Erase(const SigShareKey& k)
     {
         auto it = m_data.find(k.first);
         if (it == m_data.end()) {
-            return 0;
+            return;
         }
-        const size_t n = it->second.erase(k.second);
-        m_num_entries -= n;
+        m_num_entries -= it->second.erase(k.second);
         if (it->second.empty()) {
             m_data.erase(it);
         }
-        return n;
     }
 
-    size_t EraseBucket(const uint256& signHash)
+    void EraseBucket(const uint256& signHash)
     {
         auto it = m_data.find(signHash);
         if (it == m_data.end()) {
-            return 0;
+            return;
         }
-        const size_t n = it->second.size();
-        m_num_entries -= n;
+        m_num_entries -= it->second.size();
         m_data.erase(it);
-        return n;
     }
 
     template<typename F>
-    size_t EraseIf(F&& f)
+    void EraseIf(F&& f)
     {
-        size_t erased{0};
         for (auto it = m_data.begin(); it != m_data.end(); ) {
             SigShareKey k;
             k.first = it->first;
@@ -226,7 +221,6 @@ public:
                 if (f(k, jt->second)) {
                     jt = it->second.erase(jt);
                     --m_num_entries;
-                    ++erased;
                 } else {
                     ++jt;
                 }
@@ -237,15 +231,12 @@ public:
                 ++it;
             }
         }
-        return erased;
     }
 
-    size_t Clear()
+    void Clear()
     {
-        const size_t prev = m_num_entries;
         m_data.clear();
         m_num_entries = 0;
-        return prev;
     }
 };
 
@@ -261,14 +252,14 @@ public:
         return internalMap.Emplace(k, v);
     }
 
-    size_t Erase(const SigShareKey& k)
+    void Erase(const SigShareKey& k)
     {
-        return internalMap.Erase(k);
+        internalMap.Erase(k);
     }
 
-    size_t Clear()
+    void Clear()
     {
-        return internalMap.Clear();
+        internalMap.Clear();
     }
 
     [[nodiscard]] bool Has(const SigShareKey& k) const
@@ -346,15 +337,15 @@ public:
         return &it->second;
     }
 
-    size_t EraseAllForSignHash(const uint256& signHash)
+    void EraseAllForSignHash(const uint256& signHash)
     {
-        return internalMap.EraseBucket(signHash);
+        internalMap.EraseBucket(signHash);
     }
 
     template<typename F>
-    size_t EraseIf(F&& f)
+    void EraseIf(F&& f)
     {
-        return internalMap.EraseIf(f);
+        internalMap.EraseIf(f);
     }
 
     template<typename F>
@@ -423,10 +414,7 @@ public:
     Session* GetSessionByRecvId(uint32_t sessionId);
     bool GetSessionInfoByRecvId(uint32_t sessionId, SessionInfo& retInfo);
 
-    // Returns the number of pending incoming sig shares that were dropped
-    // as part of tearing this session down; other per-session structures
-    // are erased unconditionally.
-    size_t RemoveSession(const uint256& signHash);
+    void RemoveSession(const uint256& signHash);
 };
 
 class CSignedSession
@@ -471,10 +459,6 @@ private:
     mutable Mutex cs;
 
     SigShareMap<CSigShare> sigShares GUARDED_BY(cs);
-    // Running total of shares held in nodeStates[*].pendingIncomingSigShares.
-    // Maintained explicitly so the global cap check in TryAddPendingIncomingSigShare
-    // doesn't need to walk every peer on every admission.
-    size_t m_pending_sig_shares_total GUARDED_BY(cs){0};
     Uint256HashMap<CSignedSession> signedSessions GUARDED_BY(cs);
 
     // stores time of last receivedSigShare. Used to detect timeouts
