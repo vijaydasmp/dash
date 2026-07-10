@@ -177,7 +177,6 @@ private:
     // Keep track of current block height
     int nCachedBlockHeight{0};
 
-    int nCachedNumBlocks{std::numeric_limits<int>::max()};    // used for the overview screen
     bool fCreateAutoBackups{true}; // builtin support for automatic backups
 
     bool WaitForAnotherBlock() const;
@@ -218,9 +217,6 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
     // interfaces::CoinJoin::Client overrides
-    void resetCachedBlocks() override { nCachedNumBlocks = std::numeric_limits<int>::max(); }
-    int getCachedBlocks() const override { return nCachedNumBlocks; }
-    void setCachedBlocks(int nCachedBlocks) override { nCachedNumBlocks = nCachedBlocks; }
     void disableAutobackups() override { fCreateAutoBackups = false; }
     void resetPool() override EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
     UniValue getJsonInfo() const override EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
