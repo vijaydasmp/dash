@@ -909,14 +909,14 @@ bool CCoinJoinClientManager::DoAutomaticDenominating(ChainstateManager& chainman
     return fResult;
 }
 
-CDeterministicMNCPtr CCoinJoinClientManager::GetRandomNotUsedMasternode()
+CDeterministicMNCPtr CCoinJoinClientSession::GetRandomNotUsedMasternode()
 {
     auto mnList = m_dmnman.GetListAtChainTip();
 
     size_t nCountEnabled = mnList.GetCounts().enabled();
     size_t nCountNotExcluded{nCountEnabled - m_mn_metaman.GetUsedMasternodesCount()};
 
-    WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- %d enabled masternodes, %d masternodes to choose from\n", __func__, nCountEnabled, nCountNotExcluded);
+    WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- %d enabled masternodes, %d masternodes to choose from\n", __func__, nCountEnabled, nCountNotExcluded);
     if (nCountNotExcluded < 1) {
         return nullptr;
     }
@@ -936,12 +936,12 @@ CDeterministicMNCPtr CCoinJoinClientManager::GetRandomNotUsedMasternode()
             continue;
         }
 
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- found, masternode=%s\n", __func__,
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- found, masternode=%s\n", __func__,
                          dmn->proTxHash.ToString());
         return dmn;
     }
 
-    WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- failed\n", __func__);
+    WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- failed\n", __func__);
     return nullptr;
 }
 
@@ -1037,7 +1037,7 @@ bool CCoinJoinClientSession::StartNewQueue(CAmount nBalanceNeedsAnonymized, CCon
 
     // otherwise, try one randomly
     while (nTries < 10) {
-        auto dmn = m_clientman.GetRandomNotUsedMasternode();
+        auto dmn = GetRandomNotUsedMasternode();
         if (!dmn) {
             strAutoDenomResult = _("Can't find random Masternode.");
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::StartNewQueue -- %s\n", strAutoDenomResult.original);

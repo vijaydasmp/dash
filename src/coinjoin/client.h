@@ -99,6 +99,7 @@ private:
 
     bool JoinExistingQueue(CAmount nBalanceNeedsAnonymized, CConnman& connman);
     bool StartNewQueue(CAmount nBalanceNeedsAnonymized, CConnman& connman);
+    CDeterministicMNCPtr GetRandomNotUsedMasternode();
 
     /// step 0: select denominated inputs and txouts
     bool SelectDenominate(std::string& strErrorRet, std::vector<CTxDSIn>& vecTxDSInRet);
@@ -208,8 +209,6 @@ public:
     void CheckTimeout() EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
     void ProcessPendingDsaRequest(CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
-
-    CDeterministicMNCPtr GetRandomNotUsedMasternode();
 
     void UpdatedSuccessBlock();
 
