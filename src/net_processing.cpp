@@ -3514,6 +3514,7 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& 
 enum class DSTXValidationScore : int {
     NONE = 0,
     UNKNOWN_MASTERNODE = 1,
+    PREMATURE = 1,
     INVALID = 10,
 };
 
@@ -3528,10 +3529,6 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
 {
     assert(mn_metaman.IsValid());
 
-    if (!dstx.IsValidStructure()) {
-        LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
-        return {DSTXValidationScore::INVALID, true};
-    }
     if (dstxman.GetDSTX(hashTx)) {
         LogPrint(BCLog::COINJOIN, "DSTX -- Already have %s, skipping...\n", hashTx.ToString());
         return {DSTXValidationScore::NONE, true}; // not an error
@@ -3542,6 +3539,20 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
     {
         LOCK(cs_main);
         pindex = chainman.ActiveChain().Tip();
+    }
+
+    bool fPossiblyValidPostV24{false};
+    if (!dstx.IsValidStructure(pindex, chainman, &fPossiblyValidPostV24)) {
+        LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
+        // A tx that is structurally valid under post-V24 rules may come from a masternode
+        // whose tip is ahead of ours around the activation boundary. Like the 24-block-deep
+        // masternode scan below, tolerate the skew: drop it with only a small penalty so
+        // honest relayers are unaffected while a peer flooding us still gets discouraged
+        // eventually. Anything else malformed keeps the full penalty.
+        if (fPossiblyValidPostV24) {
+            return {DSTXValidationScore::PREMATURE, true};
+        }
+        return {DSTXValidationScore::INVALID, true};
     }
     // It could be that a MN is no longer in the list but its DSTX is not yet mined.
     // Try to find a MN up to 24 blocks deep to make sure such dstx-es are relayed and processed correctly.

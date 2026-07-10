@@ -11,6 +11,7 @@
 
 #include <chain.h>
 #include <chainparams.h>
+#include <deploymentstatus.h>
 #include <txmempool.h>
 #include <util/moneystr.h>
 #include <util/system.h>
@@ -88,24 +89,59 @@ bool CCoinJoinBroadcastTx::CheckSignature(const CBLSPublicKey& blsPubKey) const
     return true;
 }
 
-bool CCoinJoinBroadcastTx::IsValidStructure() const
+bool CCoinJoinBroadcastTx::IsExpired(const CBlockIndex* pindex, const chainlock::Chainlocks& clhandler) const
 {
-    // some trivial checks only
+    // expire confirmed DSTXes after ~1h since confirmation or chainlocked confirmation
+    if (!nConfirmedHeight.has_value() || pindex->nHeight < *nConfirmedHeight) return false; // not mined yet
+    if (pindex->nHeight - *nConfirmedHeight > 24) return true; // mined more than an hour ago
+    return clhandler.HasChainLock(pindex->nHeight, *pindex->phashBlock);
+}
+
+bool CCoinJoinBroadcastTx::IsValidStructure(const CBlockIndex* pindex, const ChainstateManager& chainman,
+                                            bool* fPossiblyValidPostV24Ret) const
+{
+    if (fPossiblyValidPostV24Ret) *fPossiblyValidPostV24Ret = false;
+
+    // some trivial checks only, activation-independent ones first
     if (masternodeOutpoint.IsNull() && m_protxHash.IsNull()) {
         return false;
     }
-    if (tx->vin.size() != tx->vout.size()) {
-        return false;
-    }
+
     if (tx->vin.size() < static_cast<size_t>(CoinJoin::GetMinPoolParticipants())) {
         return false;
     }
-    if (tx->vin.size() > CoinJoin::GetMaxPoolInputOutputCount()) {
+
+    if (!std::ranges::all_of(tx->vout, [](const auto& txOut) {
+        return CoinJoin::IsDenominatedAmount(txOut.nValue) && txOut.scriptPubKey.IsPayToPublicKeyHash();
+    })) {
         return false;
     }
-    return std::ranges::all_of(tx->vout, [](const auto& txOut) {
-        return CoinJoin::IsDenominatedAmount(txOut.nValue) && txOut.scriptPubKey.IsPayToPublicKeyHash();
-    });
+
+    // Post-V24: allow unbalanced counts (promotion/demotion) and up to 200 inputs
+    // (20 participants * 10 inputs for promotions)
+    // Pre-V24: require balanced input/output counts (1:1 mixing only), max 180 inputs
+    // (20 participants * 9 entries)
+    // Note: For post-V24 unbalanced transactions (promotion/demotion), value sum validation
+    // (inputs == outputs) requires UTXO access and is performed in IsValidInOuts() when the
+    // transaction is processed.
+    const size_t nMaxInputsPreV24 = CoinJoin::GetMaxPoolParticipants() * COINJOIN_ENTRY_MAX_SIZE;
+    const size_t nMaxInOutsPostV24 = CoinJoin::GetMaxPoolParticipants() * CoinJoin::PROMOTION_RATIO;
+    const bool fValidPreV24 = tx->vin.size() == tx->vout.size() && tx->vin.size() <= nMaxInputsPreV24;
+    // Post-V24 the input/output counts no longer bound each other, so cap them independently;
+    // demotion entries produce up to PROMOTION_RATIO outputs each, mirroring promotion inputs
+    const bool fValidPostV24 = tx->vin.size() <= nMaxInOutsPostV24 && tx->vout.size() <= nMaxInOutsPostV24;
+
+    const bool fV24Active = pindex && DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
+    if (fV24Active) {
+        return fValidPostV24;
+    }
+
+    // Pre-V24: report whether the tx would be valid on a post-V24 tip so callers can avoid
+    // fully punishing relayers whose tip is ahead of ours around the activation boundary
+    if (!fValidPreV24 && fValidPostV24 && fPossiblyValidPostV24Ret) {
+        *fPossiblyValidPostV24Ret = true;
+    }
+    return fValidPreV24;
 }
 
 void CCoinJoinBaseSession::SetNull()
@@ -204,27 +240,91 @@ std::string CCoinJoinBaseSession::GetStateString() const
     }
 }
 
+bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman)
+{
+    LOCK(::cs_main);
+    const CBlockIndex* pindex = chainman.ActiveChain().Tip();
+    return pindex && DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
+}
+
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                                          const CTxMemPool& mempool, const std::vector<CTxIn>& vin,
                                          const std::vector<CTxOut>& vout, int session_denom, PoolMessage& nMessageIDRet,
-                                         bool* fConsumeCollateralRet)
+                                         bool* fConsumeCollateralRet, bool fFinalTx)
 {
     std::set<CScript> setScripPubKeys;
     nMessageIDRet = MSG_NOERR;
     if (fConsumeCollateralRet) *fConsumeCollateralRet = false;
 
-    if (vin.size() != vout.size()) {
+    // Check if V24 is active for promotion/demotion support
+    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman);
+
+    // Determine entry type based on input/output counts
+    // Standard: N inputs, N outputs (same denom)
+    // Promotion: PROMOTION_RATIO inputs of session denom, 1 output of larger adjacent denom
+    // Demotion: 1 input of larger adjacent denom, PROMOTION_RATIO outputs of session denom
+    // FinalTx: aggregate of the above across all participants - per-entry shapes don't apply
+    enum class EntryType { STANDARD, PROMOTION, DEMOTION, FINAL_TX, INVALID };
+    EntryType entryType = EntryType::STANDARD;
+
+    if (fFinalTx && fV24Active) {
+        entryType = EntryType::FINAL_TX;
+    } else if (vin.size() == vout.size()) {
+        entryType = EntryType::STANDARD;
+    } else if (fV24Active) {
+        if (vin.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO) && vout.size() == 1) {
+            entryType = EntryType::PROMOTION;
+        } else if (vin.size() == 1 && vout.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO)) {
+            entryType = EntryType::DEMOTION;
+        } else {
+            entryType = EntryType::INVALID;
+        }
+    } else {
+        // Pre-V24: only standard entries allowed
         LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- ERROR: inputs vs outputs size mismatch! %d vs %d\n", __func__, vin.size(), vout.size());
         nMessageIDRet = ERR_SIZE_MISMATCH;
         if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
         return false;
     }
 
-    auto checkTxOut = [&](const CTxOut& txout) {
-        if (int nDenom = CoinJoin::AmountToDenomination(txout.nValue); nDenom != session_denom) {
-            LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::IsValidInOuts -- incompatible denom %d (%s) != %d (%s)\n",
-                     nDenom, CoinJoin::DenominationToString(nDenom), session_denom,
-                     CoinJoin::DenominationToString(session_denom));
+    if (entryType == EntryType::INVALID) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- ERROR: invalid entry structure! %d inputs, %d outputs\n", __func__, vin.size(), vout.size());
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
+        return false;
+    }
+
+    // Validate promotion/demotion entries using dedicated validators
+    // and determine expected denominations for UTXO input validation
+    int nExpectedInputDenom = session_denom;
+    int nExpectedOutputDenom = session_denom;
+    // Final tx only: promotion outputs and demotion inputs use the larger adjacent
+    // denomination, so it is allowed in addition to the session denomination.
+    // 0 (never matched) for per-entry validation or when session_denom is the largest denom.
+    int nLargerDenom{0};
+
+    if (entryType == EntryType::PROMOTION) {
+        if (!CoinJoin::ValidatePromotionEntry(vin, vout, session_denom, nMessageIDRet)) {
+            if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
+            return false;
+        }
+        nExpectedOutputDenom = CoinJoin::GetLargerAdjacentDenom(session_denom);
+    } else if (entryType == EntryType::DEMOTION) {
+        if (!CoinJoin::ValidateDemotionEntry(vin, vout, session_denom, nMessageIDRet)) {
+            if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
+            return false;
+        }
+        nExpectedInputDenom = CoinJoin::GetLargerAdjacentDenom(session_denom);
+    } else if (entryType == EntryType::FINAL_TX) {
+        nLargerDenom = CoinJoin::GetLargerAdjacentDenom(session_denom);
+    }
+
+    auto checkTxOut = [&](const CTxOut& txout, int nExpectedDenom) {
+        const int nDenom = CoinJoin::AmountToDenomination(txout.nValue);
+
+        if (nDenom != nExpectedDenom && (nLargerDenom == 0 || nDenom != nLargerDenom)) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::IsValidInOuts -- ERROR: incompatible denom %d (%s) != expected %d (%s)\n",
+                    nDenom, CoinJoin::DenominationToString(nDenom), nExpectedDenom, CoinJoin::DenominationToString(nExpectedDenom));
             nMessageIDRet = ERR_DENOM;
             if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
             return false;
@@ -235,22 +335,26 @@ bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const ll
             if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
             return false;
         }
+        // Check for duplicate scripts across all inputs and outputs (privacy requirement)
         if (!setScripPubKeys.insert(txout.scriptPubKey).second) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::IsValidInOuts -- ERROR: already have this script! scriptPubKey=%s\n", ScriptToAsmStr(txout.scriptPubKey));
             nMessageIDRet = ERR_ALREADY_HAVE;
             if (fConsumeCollateralRet) *fConsumeCollateralRet = true;
             return false;
         }
-        // IsPayToPublicKeyHash() above already checks for scriptPubKey size,
-        // no need to double-check, hence no usage of ERR_NON_STANDARD_PUBKEY
         return true;
     };
 
     CAmount nFees{0};
+    size_t nLargerInputs{0};
+    size_t nLargerOutputs{0};
 
     for (const auto& txout : vout) {
-        if (!checkTxOut(txout)) {
+        if (!checkTxOut(txout, nExpectedOutputDenom)) {
             return false;
+        }
+        if (nLargerDenom != 0 && CoinJoin::AmountToDenomination(txout.nValue) == nLargerDenom) {
+            ++nLargerOutputs;
         }
         nFees -= txout.nValue;
     }
@@ -275,20 +379,40 @@ bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const ll
             return false;
         }
 
-        if (!checkTxOut(coin.out)) {
+        if (!checkTxOut(coin.out, nExpectedInputDenom)) {
             return false;
+        }
+
+        if (nLargerDenom != 0 && CoinJoin::AmountToDenomination(coin.out.nValue) == nLargerDenom) {
+            ++nLargerInputs;
         }
 
         nFees += coin.out.nValue;
     }
 
-    // The same size and denom for inputs and outputs ensures their total value is also the same,
-    // no need to double-check. If not, we are doing something wrong, bail out.
+    // Value sum must match: inputs == outputs (no fees in CoinJoin)
+    // This holds for standard mixing (same denom) and promotion/demotion (value preserved)
     if (nFees != 0) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- ERROR: non-zero fees! fees: %lld\n", __func__, nFees);
         nMessageIDRet = ERR_FEES;
         return false;
     }
+
+    if (entryType == EntryType::FINAL_TX &&
+        !CoinJoin::ValidateFinalTxComposition(vin.size(), vout.size(), nLargerInputs, nLargerOutputs)) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- ERROR: inconsistent final tx composition! %d/%d total, %d/%d larger denom inputs/outputs\n",
+                 __func__, vin.size(), vout.size(), nLargerInputs, nLargerOutputs);
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        return false;
+    }
+
+    LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- Valid %s entry: %d inputs, %d outputs\n",
+             __func__,
+             entryType == EntryType::PROMOTION   ? "PROMOTION" :
+             entryType == EntryType::DEMOTION    ? "DEMOTION" :
+             entryType == EntryType::FINAL_TX    ? "FINAL_TX" :
+                                                   "STANDARD",
+             vin.size(), vout.size());
 
     return true;
 }
@@ -436,11 +560,7 @@ CCoinJoinBroadcastTx CDSTXManager::GetDSTX(const uint256& hash)
 
 bool CDSTXManager::IsTxExpired(const CCoinJoinBroadcastTx& tx, const CBlockIndex* pindex) const
 {
-    // expire confirmed DSTXes after ~1h since confirmation or chainlocked
-    const auto& opt_confirmed_height = tx.GetConfirmedHeight();
-    if (!opt_confirmed_height.has_value() || pindex->nHeight < *opt_confirmed_height) return false; // not mined yet
-    return (pindex->nHeight - *opt_confirmed_height > 24) ||
-           m_chainlocks.HasChainLock(pindex->nHeight, *pindex->phashBlock); // mined more than an hour ago or chainlocked
+    return tx.IsExpired(pindex, m_chainlocks);
 }
 
 void CDSTXManager::CheckDSTXes(const CBlockIndex* pindex)
@@ -513,3 +633,111 @@ void CDSTXManager::BlockDisconnected(const std::shared_ptr<const CBlock>& pblock
 
 int CoinJoin::GetMinPoolParticipants() { return Params().PoolMinParticipants(); }
 int CoinJoin::GetMaxPoolParticipants() { return Params().PoolMaxParticipants(); }
+
+bool CoinJoin::ValidatePromotionEntry(const std::vector<CTxIn>& vecTxIn, const std::vector<CTxOut>& vecTxOut,
+                                       int nSessionDenom, PoolMessage& nMessageIDRet)
+{
+    // Promotion: 10 inputs of smaller denom → 1 output of larger denom
+    // Session denom is the smaller denom (inputs)
+    nMessageIDRet = MSG_NOERR;
+
+    // Check input count
+    if (vecTxIn.size() != static_cast<size_t>(PROMOTION_RATIO)) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidatePromotionEntry -- ERROR: wrong input count %zu, expected %d\n",
+                vecTxIn.size(), PROMOTION_RATIO);
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        return false;
+    }
+
+    // Check output count
+    if (vecTxOut.size() != 1) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidatePromotionEntry -- ERROR: wrong output count %zu, expected 1\n",
+                vecTxOut.size());
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        return false;
+    }
+
+    // Get the larger adjacent denomination
+    const int nLargerDenom = GetLargerAdjacentDenom(nSessionDenom);
+    if (nLargerDenom == 0) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidatePromotionEntry -- ERROR: no larger adjacent denom for %s\n",
+                DenominationToString(nSessionDenom));
+        nMessageIDRet = ERR_DENOM;
+        return false;
+    }
+
+    // Validate output is at larger denomination
+    const int nOutputDenom = AmountToDenomination(vecTxOut[0].nValue);
+    if (nOutputDenom != nLargerDenom) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidatePromotionEntry -- ERROR: output denom %s != expected %s\n",
+                DenominationToString(nOutputDenom), DenominationToString(nLargerDenom));
+        nMessageIDRet = ERR_DENOM;
+        return false;
+    }
+
+    // Validate output is P2PKH
+    if (!vecTxOut[0].scriptPubKey.IsPayToPublicKeyHash()) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidatePromotionEntry -- ERROR: output is not P2PKH\n");
+        nMessageIDRet = ERR_INVALID_SCRIPT;
+        return false;
+    }
+
+    return true;
+}
+
+bool CoinJoin::ValidateDemotionEntry(const std::vector<CTxIn>& vecTxIn, const std::vector<CTxOut>& vecTxOut,
+                                      int nSessionDenom, PoolMessage& nMessageIDRet)
+{
+    // Demotion: 1 input of larger denom → 10 outputs of smaller denom
+    // Session denom is the smaller denom (outputs)
+    nMessageIDRet = MSG_NOERR;
+
+    // Check input count
+    if (vecTxIn.size() != 1) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidateDemotionEntry -- ERROR: wrong input count %zu, expected 1\n",
+                vecTxIn.size());
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        return false;
+    }
+
+    // Check output count
+    if (vecTxOut.size() != static_cast<size_t>(PROMOTION_RATIO)) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidateDemotionEntry -- ERROR: wrong output count %zu, expected %d\n",
+                vecTxOut.size(), PROMOTION_RATIO);
+        nMessageIDRet = ERR_SIZE_MISMATCH;
+        return false;
+    }
+
+    // Validate all outputs are at session denomination and P2PKH
+    for (const auto& txout : vecTxOut) {
+        const int nDenom = AmountToDenomination(txout.nValue);
+        if (nDenom != nSessionDenom) {
+            LogPrint(BCLog::COINJOIN, "CoinJoin::ValidateDemotionEntry -- ERROR: output denom %s != session denom %s\n",
+                    DenominationToString(nDenom), DenominationToString(nSessionDenom));
+            nMessageIDRet = ERR_DENOM;
+            return false;
+        }
+        if (!txout.scriptPubKey.IsPayToPublicKeyHash()) {
+            LogPrint(BCLog::COINJOIN, "CoinJoin::ValidateDemotionEntry -- ERROR: output is not P2PKH\n");
+            nMessageIDRet = ERR_INVALID_SCRIPT;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool CoinJoin::ValidateFinalTxComposition(size_t nTotalInputs, size_t nTotalOutputs,
+                                          size_t nLargerInputs, size_t nLargerOutputs)
+{
+    // Aggregate consistency: every larger-denom output consumes PROMOTION_RATIO session-denom
+    // inputs (promotion) and every larger-denom input produces PROMOTION_RATIO session-denom
+    // outputs (demotion); the remainder on both sides are standard 1:1 inputs/outputs and
+    // must not be negative. Together with the zero-fee check in IsValidInOuts() this
+    // guarantees the final tx is composable from valid standard/promotion/demotion entries.
+    if (nLargerInputs > nTotalInputs || nLargerOutputs > nTotalOutputs) return false;
+    const size_t nSessionInputs = nTotalInputs - nLargerInputs;
+    const size_t nSessionOutputs = nTotalOutputs - nLargerOutputs;
+    return nSessionInputs >= nLargerOutputs * size_t(PROMOTION_RATIO) &&
+           nSessionOutputs >= nLargerInputs * size_t(PROMOTION_RATIO);
+}

@@ -65,22 +65,23 @@ BOOST_AUTO_TEST_CASE(broadcasttx_isvalidstructure_good_and_bad)
         good.tx = MakeTransactionRef(mtx);
         good.m_protxHash = uint256::ONE; // at least one of (outpoint, protxhash) must be set
     }
-    BOOST_CHECK(good.IsValidStructure());
+    // Pre-V24 behavior (nullptr pindex = pre-fork)
+    BOOST_CHECK(good.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 
     // Bad: both identifiers null
     CCoinJoinBroadcastTx bad_ids = good;
     bad_ids.m_protxHash = uint256{};
     bad_ids.masternodeOutpoint.SetNull();
-    BOOST_CHECK(!bad_ids.IsValidStructure());
+    BOOST_CHECK(!bad_ids.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 
-    // Bad: vin/vout size mismatch
+    // Bad: vin/vout size mismatch (invalid pre-V24)
     CCoinJoinBroadcastTx bad_sizes = good;
     {
         CMutableTransaction mtx(*good.tx);
         mtx.vout.pop_back();
         bad_sizes.tx = MakeTransactionRef(mtx);
     }
-    BOOST_CHECK(!bad_sizes.IsValidStructure());
+    BOOST_CHECK(!bad_sizes.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 
     // Bad: non-P2PKH output
     CCoinJoinBroadcastTx bad_script = good;
@@ -89,7 +90,7 @@ BOOST_AUTO_TEST_CASE(broadcasttx_isvalidstructure_good_and_bad)
         mtx.vout[0].scriptPubKey = CScript() << OP_RETURN << std::vector<unsigned char>{'x'};
         bad_script.tx = MakeTransactionRef(mtx);
     }
-    BOOST_CHECK(!bad_script.IsValidStructure());
+    BOOST_CHECK(!bad_script.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 
     // Bad: non-denominated amount
     CCoinJoinBroadcastTx bad_amount = good;
@@ -98,7 +99,7 @@ BOOST_AUTO_TEST_CASE(broadcasttx_isvalidstructure_good_and_bad)
         mtx.vout[0].nValue = 42; // not a valid denom
         bad_amount.tx = MakeTransactionRef(mtx);
     }
-    BOOST_CHECK(!bad_amount.IsValidStructure());
+    BOOST_CHECK(!bad_amount.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 }
 
 BOOST_AUTO_TEST_CASE(entry_addscriptsig_matches_and_rejects)

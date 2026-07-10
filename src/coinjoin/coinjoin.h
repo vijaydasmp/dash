@@ -203,6 +203,15 @@ public:
     }
 
     bool AddScriptSig(const CTxIn& txin);
+
+    // Check if this is a standard mixing entry (not promotion/demotion)
+    // Standard: equal number of inputs and outputs
+    // Promotion: PROMOTION_RATIO inputs, 1 output
+    // Demotion: 1 input, PROMOTION_RATIO outputs
+    bool IsStandardMixingEntry() const
+    {
+        return vecTxDSIn.size() == vecTxOut.size();
+    }
 };
 
 
@@ -317,7 +326,15 @@ public:
 
     [[nodiscard]] const std::optional<int>& GetConfirmedHeight() const { return nConfirmedHeight; }
     void SetConfirmedHeight(std::optional<int> nConfirmedHeightIn) { assert(nConfirmedHeightIn == std::nullopt || *nConfirmedHeightIn > 0); nConfirmedHeight = nConfirmedHeightIn; }
-    [[nodiscard]] bool IsValidStructure() const;
+    [[nodiscard]] bool IsExpired(const CBlockIndex* pindex, const chainlock::Chainlocks& clhandler) const;
+    /**
+     * Trivial structural checks against the V24-dependent rules at pindex. When the tx fails
+     * only because V24 is not active at pindex but would be structurally valid on a post-V24
+     * tip, fPossiblyValidPostV24Ret (if provided) is set to true so callers can tolerate tip
+     * skew around the activation boundary.
+     */
+    [[nodiscard]] bool IsValidStructure(const CBlockIndex* pindex, const ChainstateManager& chainman,
+                                        bool* fPossiblyValidPostV24Ret = nullptr) const;
 };
 
 // base class
@@ -337,9 +354,17 @@ protected:
 
     virtual void SetNull() EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
 
+    /**
+     * Validate inputs/outputs of a single mixing entry or, with fFinalTx=true, of the
+     * aggregated final transaction. Post-V24 a final transaction concatenates standard (N:N),
+     * promotion (10:1) and demotion (1:10) entries, so per-entry shape rules don't apply to it;
+     * aggregate rules (allowed denominations, value balance, input/output consistency) are
+     * checked instead. session_denom is the caller's snapshot of the session denomination.
+     */
     static bool IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                               const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout,
-                              int session_denom, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet);
+                              int session_denom, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet,
+                              bool fFinalTx = false);
 
 public:
     // Atomic because the message-handling and scheduler threads write it while those threads and
@@ -354,6 +379,20 @@ public:
 
     int GetEntriesCount() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin) { LOCK(cs_coinjoin); return vecEntries.size(); }
     int GetEntriesCountLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin) { return vecEntries.size(); }
+
+    // Count only standard mixing entries (not promotion/demotion) for privacy threshold
+    int GetStandardEntriesCount() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
+    {
+        LOCK(cs_coinjoin);
+        return std::count_if(vecEntries.begin(), vecEntries.end(),
+                             [](const CCoinJoinEntry& entry) { return entry.IsStandardMixingEntry(); });
+    }
+
+    int GetStandardEntriesCountLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin)
+    {
+        return std::count_if(vecEntries.begin(), vecEntries.end(),
+                             [](const CCoinJoinEntry& entry) { return entry.IsStandardMixingEntry(); });
+    }
 };
 
 class CoinJoinQueueManager
@@ -417,9 +456,48 @@ namespace CoinJoin
 
     constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
 
+    /// Whether denomination promotion/demotion (post-V24) is active at the current chain tip
+    bool IsPromotionDemotionActive(const ChainstateManager& chainman);
+
     /// If the collateral is valid given by a client
     bool IsCollateralValid(ChainstateManager& chainman, const llmq::CInstantSendManager& isman,
                            const CTxMemPool& mempool, const CTransaction& txCollateral);
+
+    /**
+     * Validate a promotion entry: 10 inputs of smaller denom → 1 output of larger denom
+     * @param vecTxIn The inputs for this entry
+     * @param vecTxOut The outputs for this entry
+     * @param nSessionDenom The session denomination (the smaller denom for promotion)
+     * @param nMessageIDRet Error message if validation fails
+     * @return true if valid promotion entry
+     */
+    bool ValidatePromotionEntry(const std::vector<CTxIn>& vecTxIn, const std::vector<CTxOut>& vecTxOut,
+                                int nSessionDenom, PoolMessage& nMessageIDRet);
+
+    /**
+     * Validate a demotion entry: 1 input of larger denom → 10 outputs of smaller denom
+     * @param vecTxIn The inputs for this entry
+     * @param vecTxOut The outputs for this entry
+     * @param nSessionDenom The session denomination (the smaller denom for demotion outputs)
+     * @param nMessageIDRet Error message if validation fails
+     * @return true if valid demotion entry
+     */
+    bool ValidateDemotionEntry(const std::vector<CTxIn>& vecTxIn, const std::vector<CTxOut>& vecTxOut,
+                               int nSessionDenom, PoolMessage& nMessageIDRet);
+
+    /**
+     * Check that a final transaction's aggregate input/output counts are composable from valid
+     * standard (N:N), promotion (PROMOTION_RATIO:1) and demotion (1:PROMOTION_RATIO) entries.
+     * Inputs/outputs at the larger adjacent denomination are counted separately from the
+     * session-denomination remainder; value balance is checked by the caller.
+     * @param nTotalInputs Total number of inputs in the final tx
+     * @param nTotalOutputs Total number of outputs in the final tx
+     * @param nLargerInputs Number of inputs at the larger adjacent denomination (demotions)
+     * @param nLargerOutputs Number of outputs at the larger adjacent denomination (promotions)
+     * @return true if the counts are consistent with a mix of valid entries
+     */
+    bool ValidateFinalTxComposition(size_t nTotalInputs, size_t nTotalOutputs,
+                                    size_t nLargerInputs, size_t nLargerOutputs);
 }
 
 class CDSTXManager

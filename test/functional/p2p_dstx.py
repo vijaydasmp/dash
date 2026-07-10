@@ -4,10 +4,11 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test P2P CoinJoin broadcast transaction handling.
 
-Verifies that DSTX messages with an unverifiable (unknown) masternode incur
-only a small misbehavior penalty, while clearly malformed DSTXes get the
-existing stronger penalty. Also exercises the cumulative behavior so that
-a peer flooding unknown-MN DSTXes is eventually discouraged.
+Verifies that DSTX messages with an unverifiable (unknown) masternode, or a
+structure only valid once V24 activates, incur only a small misbehavior
+penalty, while clearly malformed DSTXes get the existing stronger penalty.
+Also exercises the cumulative behavior so that a peer flooding unknown-MN
+DSTXes is eventually discouraged.
 """
 
 import time
@@ -38,6 +39,9 @@ DISCOURAGEMENT_THRESHOLD = 100
 UNKNOWN_MN_SCORE = 1
 # Penalty applied when the DSTX itself is structurally bad / bad signature.
 INVALID_DSTX_SCORE = 10
+# Penalty applied when the DSTX is only structurally valid under post-V24 rules, which a
+# relayer whose tip is ahead of ours at the activation boundary may legitimately send.
+PREMATURE_DSTX_SCORE = 1
 
 
 class P2PDSTXTest(BitcoinTestFramework):
@@ -88,7 +92,7 @@ class P2PDSTXTest(BitcoinTestFramework):
         self.log.info("Structurally invalid DSTX => stronger (+%d) misbehavior penalty", INVALID_DSTX_SCORE)
         peer_invalid = node.add_p2p_connection(P2PInterface())
         bad = self.make_dstx(nonce=2)
-        bad.tx.vout.pop()  # vin.size() != vout.size() trips IsValidStructure
+        bad.tx.vout[0].nValue += 1  # not a recognised denom, invalid either side of V24
         with node.assert_debug_log([
             "Invalid DSTX structure",
             "Misbehaving",
@@ -96,6 +100,21 @@ class P2PDSTXTest(BitcoinTestFramework):
             "invalid dstx",
         ]):
             peer_invalid.send_and_ping(msg_dstx(bad))
+
+        self.log.info("Unbalanced DSTX pre-V24 => small (+%d) misbehavior penalty", PREMATURE_DSTX_SCORE)
+        # An unbalanced input/output count is only valid post-V24, so a masternode whose tip
+        # is ahead of ours at the activation boundary can relay one legitimately. It is still
+        # rejected here, but with the same tolerant penalty an unverifiable masternode gets.
+        peer_premature = node.add_p2p_connection(P2PInterface())
+        premature = self.make_dstx(nonce=3)
+        premature.tx.vout.pop()  # vin.size() != vout.size() is a promotion shape
+        with node.assert_debug_log([
+            "Invalid DSTX structure",
+            "Misbehaving",
+            "(0 -> {})".format(PREMATURE_DSTX_SCORE),
+            "invalid dstx",
+        ]):
+            peer_premature.send_and_ping(msg_dstx(premature))
 
         self.log.info("A peer flooding unknown-MN DSTXes is eventually discouraged")
         peer_flood = node.add_p2p_connection(P2PInterface())

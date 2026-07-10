@@ -47,6 +47,21 @@ constexpr std::array<CAmount, 5> vecStandardDenominations{
 constexpr std::array<CAmount, 5> GetStandardDenominations() { return vecStandardDenominations; }
 constexpr CAmount GetSmallestDenomination() { return vecStandardDenominations.back(); }
 
+/**
+ * Get the index of a denomination in vecStandardDenominations (0=largest, 4=smallest)
+ * Returns -1 if not a valid denomination
+ */
+constexpr int GetDenominationIndex(int nDenom)
+{
+    if (nDenom <= 0) return -1;
+    for (size_t i = 0; i < vecStandardDenominations.size(); ++i) {
+        if (nDenom == (1 << i)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 /*
     Return a bitshifted integer representing a denomination in vecStandardDenominations
     or 0 if none was found
@@ -74,9 +89,7 @@ constexpr CAmount DenominationToAmount(int nDenom)
         return 0;
     }
 
-    size_t nMaxDenoms = vecStandardDenominations.size();
-
-    if (nDenom >= (1 << nMaxDenoms) || nDenom < 0) {
+    if (nDenom >= (1 << vecStandardDenominations.size()) || nDenom < 0) {
         // out of bounds
         return -1;
     }
@@ -86,16 +99,8 @@ constexpr CAmount DenominationToAmount(int nDenom)
         return -2;
     }
 
-    CAmount nDenomAmount{-3};
-
-    for (size_t i = 0; i < nMaxDenoms; ++i) {
-        if (nDenom & (1 << i)) {
-            nDenomAmount = vecStandardDenominations[i];
-            break;
-        }
-    }
-
-    return nDenomAmount;
+    const int idx = GetDenominationIndex(nDenom);
+    return idx >= 0 ? vecStandardDenominations[idx] : -3;
 }
 
 
@@ -109,6 +114,74 @@ std::string DenominationToString(int nDenom);
 
 constexpr CAmount GetCollateralAmount() { return GetSmallestDenomination() / 10; }
 constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
+
+// Promotion/demotion constants (post-V24 feature)
+constexpr int PROMOTION_RATIO = 10;   // 10 smaller denomination coins = 1 larger denomination coin
+constexpr int GAP_THRESHOLD = 10;     // Deficit gap required to trigger promotion/demotion
+
+/**
+ * Check if two denominations are adjacent (one step apart in the denom list)
+ * Used for validating promotion/demotion entries post-V24
+ */
+constexpr bool AreAdjacentDenominations(int nDenom1, int nDenom2)
+{
+    int idx1 = GetDenominationIndex(nDenom1);
+    int idx2 = GetDenominationIndex(nDenom2);
+    if (idx1 < 0 || idx2 < 0) return false;
+    return (idx1 == idx2 + 1) || (idx1 == idx2 - 1);
+}
+
+/**
+ * Get the larger adjacent denomination (returns 0 if none exists or invalid)
+ */
+constexpr int GetLargerAdjacentDenom(int nDenom)
+{
+    int idx = GetDenominationIndex(nDenom);
+    if (idx <= 0) return 0;  // Already largest or invalid
+    return 1 << (idx - 1);
+}
+
+/**
+ * Get the smaller adjacent denomination (returns 0 if none exists or invalid)
+ */
+constexpr int GetSmallerAdjacentDenom(int nDenom)
+{
+    int idx = GetDenominationIndex(nDenom);
+    if (idx < 0 || idx >= static_cast<int>(vecStandardDenominations.size()) - 1) return 0;
+    return 1 << (idx + 1);
+}
+
+/**
+ * Core promotion decision (post-V24): combine PROMOTION_RATIO fully-mixed coins of the
+ * smaller denomination into one coin of the larger adjacent denomination when the larger
+ * denomination is further from the per-denom goal by more than GAP_THRESHOLD (the gap
+ * prevents promote/demote oscillation). Callers resolve wallet counts and validate that
+ * the denominations are adjacent.
+ */
+constexpr bool ShouldPromoteDenoms(int nSmallerCount, int nLargerCount, int nSmallerFullyMixedCount, int nGoal)
+{
+    // Don't sacrifice a denomination that's still being built up
+    if (nSmallerCount < nGoal / 2) return false;
+    // A promotion consumes PROMOTION_RATIO fully-mixed coins
+    if (nSmallerFullyMixedCount < PROMOTION_RATIO) return false;
+    const int nSmallerDeficit = nSmallerCount < nGoal ? nGoal - nSmallerCount : 0;
+    const int nLargerDeficit = nLargerCount < nGoal ? nGoal - nLargerCount : 0;
+    return nLargerDeficit > nSmallerDeficit + GAP_THRESHOLD;
+}
+
+/**
+ * Core demotion decision (post-V24): split one coin of the larger denomination into
+ * PROMOTION_RATIO coins of the smaller adjacent denomination when the smaller denomination
+ * is further from the per-denom goal by more than GAP_THRESHOLD.
+ */
+constexpr bool ShouldDemoteDenoms(int nLargerCount, int nSmallerCount, int nGoal)
+{
+    // Don't sacrifice a denomination that's still being built up
+    if (nLargerCount < nGoal / 2) return false;
+    const int nSmallerDeficit = nSmallerCount < nGoal ? nGoal - nSmallerCount : 0;
+    const int nLargerDeficit = nLargerCount < nGoal ? nGoal - nLargerCount : 0;
+    return nSmallerDeficit > nLargerDeficit + GAP_THRESHOLD;
+}
 
 constexpr bool IsCollateralAmount(CAmount nInputAmount)
 {
