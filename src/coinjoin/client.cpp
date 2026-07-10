@@ -138,21 +138,16 @@ void CCoinJoinClientSession::ProcessMessage(CNode& peer, CChainState& active_cha
 }
 
 bool CCoinJoinClientManager::startMixing() {
-    // Refuse to start mixing on a wallet that is locked for mixing
-    if (m_wallet->IsLocked(/*fForMixing=*/true)) {
-        return false;
-    }
-    bool expected{false};
-    return fMixing.compare_exchange_strong(expected, true);
+    return m_wallet->StartMixing();
 }
 
 void CCoinJoinClientManager::stopMixing() {
-    fMixing = false;
+    m_wallet->StopMixing();
 }
 
 bool CCoinJoinClientManager::isMixing() const
 {
-    return fMixing;
+    return m_wallet->IsMixing();
 }
 
 void CCoinJoinClientSession::ResetPool()

@@ -236,11 +236,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTe
     }));
 }
 
-// End-to-end check that NewKeyPool() stops mixing via NewKeyPoolCallback() ->
-// WithClient() while cs_wallet is held, which exercises the
-// cs_wallet -> cs_wallet_manager_map lock order. The reverse order (and thus
-// the full lock-order cycle) is not seeded in this binary; the deterministic
-// -DDEBUG_LOCKORDER regression for it lives in test/functional/rpc_coinjoin.py.
+// End-to-end check that NewKeyPool() stops mixing
 BOOST_FIXTURE_TEST_CASE(coinjoin_newkeypool_stops_mixing_tests, CTransactionBuilderTestSetup)
 {
     BOOST_CHECK(m_node.cj_walletman->doForClient("", [](auto& cj_man) {

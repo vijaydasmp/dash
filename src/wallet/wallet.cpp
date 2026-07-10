@@ -1682,13 +1682,19 @@ void CWallet::UnsetBlankWalletFlag(WalletBatch& batch)
     UnsetWalletFlagWithDB(batch, WALLET_FLAG_BLANK_WALLET);
 }
 
+bool CWallet::StartMixing()
+{
+    // Refuse to start mixing on a wallet that is locked for mixing
+    if (IsLocked(/*fForMixing=*/true)) {
+        return false;
+    }
+    bool expected{false};
+    return m_mixing.compare_exchange_strong(expected, true);
+}
+
 void CWallet::NewKeyPoolCallback()
 {
-    // Note: WithClient may not find this wallet when it is in the middle of its creation.
-    // Skipping stopMixing() is fine in this case.
-    if (coinjoin_available()) {
-        coinjoin_loader().WithClient(GetName(), [](auto& client) { client.stopMixing(); });
-    }
+    StopMixing();
     nKeysLeftSinceAutoBackup = 0;
 }
 

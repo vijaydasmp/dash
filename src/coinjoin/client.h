@@ -11,7 +11,6 @@
 #include <interfaces/coinjoin.h>
 #include <util/translation.h>
 
-#include <atomic>
 #include <deque>
 #include <memory>
 #include <ranges>
@@ -169,8 +168,6 @@ private:
     mutable Mutex cs_deqsessions;
     // TODO: or map<denom, CCoinJoinClientSession> ??
     std::deque<CCoinJoinClientSession> deqSessions GUARDED_BY(cs_deqsessions);
-
-    std::atomic<bool> fMixing{false};
 
     int nCachedLastSuccessBlock{0};
     int nMinBlocksToWait{1}; // how many blocks to wait for after one successful mixing tx in non-multisession mode
