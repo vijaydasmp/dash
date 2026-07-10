@@ -909,11 +909,6 @@ bool CCoinJoinClientManager::DoAutomaticDenominating(ChainstateManager& chainman
     return fResult;
 }
 
-void CCoinJoinClientManager::AddUsedMasternode(const uint256& proTxHash)
-{
-    m_mn_metaman.AddUsedMasternode(proTxHash);
-}
-
 CDeterministicMNCPtr CCoinJoinClientManager::GetRandomNotUsedMasternode()
 {
     auto mnList = m_dmnman.GetListAtChainTip();
@@ -994,7 +989,7 @@ bool CCoinJoinClientSession::JoinExistingQueue(CAmount nBalanceNeedsAnonymized, 
             continue;
         }
 
-        m_clientman.AddUsedMasternode(dmn->proTxHash);
+        m_mn_metaman.AddUsedMasternode(dmn->proTxHash);
 
         if (connman.IsMasternodeOrDisconnectRequested(dmn->pdmnState->netInfo->GetPrimary())) {
             WalletCJLogPrint(m_wallet, /* Continued */
@@ -1049,7 +1044,7 @@ bool CCoinJoinClientSession::StartNewQueue(CAmount nBalanceNeedsAnonymized, CCon
             return false;
         }
 
-        m_clientman.AddUsedMasternode(dmn->proTxHash);
+        m_mn_metaman.AddUsedMasternode(dmn->proTxHash);
 
         // skip next mn payments winners
         if (dmn->pdmnState->nLastPaidHeight + nWeightedMnCount < mnList.GetHeight() + WinnersToSkip()) {
