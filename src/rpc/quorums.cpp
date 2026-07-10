@@ -998,21 +998,18 @@ static RPCHelpMan quorum_dkginfo()
             {
                 {RPCResult::Type::NUM, "active_dkgs", "Total number of active DKG sessions this node is participating in right now"},
                 {RPCResult::Type::NUM, "next_dkg", "The number of blocks until the next potential DKG session"},
+                GetRpcResult("proTxHash"),
                 {RPCResult::Type::ARR, "upcoming_dkgs", /*optional=*/true, "Upcoming DKG sessions for the given proTxHash whose work block is already mined. For rotated quorums all indices in a cycle share the cycle base work block",
                 {
                     {RPCResult::Type::OBJ, "", "",
                     {
                         GetRpcResult("llmqType"),
-                        {RPCResult::Type::STR, "llmqTypeName", "The name of the quorum type"},
                         GetRpcResult("quorumIndex"),
                         {RPCResult::Type::NUM, "quorumHeight", "The height at which the quorum session starts"},
                         {RPCResult::Type::NUM, "blocksUntilStart", "The number of blocks until the quorum session starts"},
-                        GetRpcResult("proTxHash"),
                         {RPCResult::Type::BOOL, "known", "Whether participation could be determined"},
                         {RPCResult::Type::STR, "reason", /*optional=*/true, "Why participation could not be determined"},
                         {RPCResult::Type::BOOL, "isMember", /*optional=*/true, "Whether the masternode is a member of the upcoming quorum"},
-                        GetRpcResult("memberIndex"),
-                        {RPCResult::Type::NUM, "memberCount", /*optional=*/true, "The number of members in the upcoming quorum"},
                         {RPCResult::Type::NUM, "workBlockHeight", /*optional=*/true, "The height of the work block used to compute membership"},
                         {RPCResult::Type::STR_HEX, "workBlockHash", /*optional=*/true, "The hash of the work block used to compute membership"},
                     }},
@@ -1032,6 +1029,7 @@ static RPCHelpMan quorum_dkginfo()
     ret.pushKV("active_dkgs", dkgdbgman.GetSessionCount());
 
     const ChainstateManager& chainman = EnsureChainman(node);
+    const auto& consensus = chainman.GetParams().GetConsensus();
     const CBlockIndex* const pindexTip = WITH_LOCK(cs_main, return chainman.ActiveChain().Tip());
     CHECK_NONFATAL(pindexTip);
     const int nTipHeight{pindexTip->nHeight};
@@ -1045,7 +1043,7 @@ static RPCHelpMan quorum_dkginfo()
         }
         return minDkgWindow;
     };
-    ret.pushKV("next_dkg", minNextDKG(Params().GetConsensus(), nTipHeight));
+    ret.pushKV("next_dkg", minNextDKG(consensus, nTipHeight));
 
     const auto quorum_type_known_enabled = [&](Consensus::LLMQType llmq_type, int quorum_base_height) {
         const int quorum_base_predecessor_height{quorum_base_height - 1};
@@ -1057,7 +1055,6 @@ static RPCHelpMan quorum_dkginfo()
         // The future predecessor is not mined yet, but both DIP0024 conditions are pure height
         // checks (buried deployment); evaluate them at the future height and let pindexTip stand
         // in for the rest (versionbits TESTDUMMY is monotonic once active).
-        const auto& consensus = Params().GetConsensus();
         return chainman.IsQuorumTypeEnabled(llmq_type, pindexTip,
                                             /*optDIP0024IsActive=*/quorum_base_height >=
                                                 consensus.DeploymentHeight(Consensus::DEPLOYMENT_DIP0024),
@@ -1073,8 +1070,9 @@ static RPCHelpMan quorum_dkginfo()
     }
 
     if (!proTxHash.IsNull()) {
+        ret.pushKV("proTxHash", proTxHash.ToString());
         UniValue upcoming(UniValue::VARR);
-        for (const auto& llmq_params : Params().GetConsensus().llmqs) {
+        for (const auto& llmq_params : consensus.llmqs) {
             // Whether a rotated cycle applies at the *upcoming* cycle base is what matters here,
             // not whether the tip's own current cycle is rotated. Iterate every possible index
             // for any llmq type that supports rotation and decide per-entry below.
@@ -1095,7 +1093,6 @@ static RPCHelpMan quorum_dkginfo()
                 // height check. A rotation-capable type without rotation active at its cycle
                 // base has no canonical member selection, so skip it (this can only happen
                 // around DIP0024 activation).
-                const Consensus::Params& consensus{Params().GetConsensus()};
                 if (llmq_params.useRotation &&
                     (cycleBaseHeight < 1 || cycleBaseHeight < consensus.DeploymentHeight(Consensus::DEPLOYMENT_DIP0024))) {
                     continue;
@@ -1103,11 +1100,9 @@ static RPCHelpMan quorum_dkginfo()
 
                 UniValue obj(UniValue::VOBJ);
                 obj.pushKV("llmqType", static_cast<int>(llmq_params.type));
-                obj.pushKV("llmqTypeName", std::string(llmq_params.name));
                 obj.pushKV("quorumIndex", quorumIndex);
                 obj.pushKV("quorumHeight", quorumHeight);
                 obj.pushKV("blocksUntilStart", quorumHeight - nTipHeight);
-                obj.pushKV("proTxHash", proTxHash.ToString());
 
                 // All indices of a rotated cycle share the work block of their cycle base, so
                 // gate availability on the work block height rather than each index's start
@@ -1120,7 +1115,7 @@ static RPCHelpMan quorum_dkginfo()
                 }
 
                 const CBlockIndex* const pWorkBlockIndex = pindexTip->GetAncestor(workHeight);
-                if (!DeploymentActiveAfter(pWorkBlockIndex, Params().GetConsensus(), Consensus::DEPLOYMENT_V20)) {
+                if (!DeploymentActiveAfter(pWorkBlockIndex, consensus, Consensus::DEPLOYMENT_V20)) {
                     obj.pushKV("known", false);
                     obj.pushKV("reason", "pre-v20 quorum selection needs future quorum base block hash");
                     upcoming.push_back(obj);
@@ -1138,19 +1133,17 @@ static RPCHelpMan quorum_dkginfo()
                     upcoming.push_back(obj);
                     continue;
                 }
-                const auto& members = *predicted_members;
 
                 obj.pushKV("known", true);
-                int memberIndex{-1};
-                for (size_t i = 0; i < members.size(); ++i) {
-                    if (members[i]->proTxHash == proTxHash) {
-                        memberIndex = (int)i;
+
+                bool is_member{false};
+                for (const auto& member : *predicted_members) {
+                    if (member->proTxHash == proTxHash) {
+                        is_member = true;
                         break;
                     }
                 }
-                obj.pushKV("isMember", memberIndex != -1);
-                obj.pushKV("memberIndex", memberIndex);
-                obj.pushKV("memberCount", (int)members.size());
+                obj.pushKV("isMember", is_member);
                 obj.pushKV("workBlockHeight", pWorkBlockIndex->nHeight);
                 obj.pushKV("workBlockHash", pWorkBlockIndex->GetBlockHash().ToString());
                 upcoming.push_back(obj);

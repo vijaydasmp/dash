@@ -2148,15 +2148,12 @@ class DashTestFramework(BitcoinTestFramework):
         work_height = quorum_info["height"] - quorum_info["quorumIndex"] - 8
         for proTxHash, entries in predictions.items():
             [entry] = [d for d in entries if d["quorumHeight"] == quorum_info["height"]]
-            assert_equal(entry["proTxHash"], proTxHash)
             if not entry["known"]:
                 # no prediction was possible (e.g. pre-v20); the RPC must tell why
                 assert "reason" in entry
                 continue
             assert_equal(entry["workBlockHeight"], work_height)
             assert_equal(entry["workBlockHash"], self.nodes[0].getblockhash(work_height))
-            assert_equal(entry["memberCount"], len(members))
-            assert_equal(entry["memberIndex"], members.index(proTxHash) if proTxHash in members else -1)
             assert_equal(entry["isMember"], proTxHash in members)
 
     def mine_quorum(self, llmq_type_name="llmq_test", llmq_type=100, expected_connections=None, expected_members=None, expected_contributions=None, expected_complaints=0, expected_justifications=0, expected_commitments=None, mninfos_online=None, mninfos_valid=None, skip_maturity=False):
