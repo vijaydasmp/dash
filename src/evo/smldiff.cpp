@@ -182,6 +182,16 @@ bool BuildSimplifiedMNListDiff(CDeterministicMNManager& dmnman, const Chainstate
         errorRet = strprintf("base block %s is higher then block %s", baseBlockHash.ToString(), blockHash.ToString());
         return false;
     }
+    // No availability check for baseBlockIndex: the base is only used for
+    // EvoDB-backed masternode/quorum state, which pruned nodes retain, and
+    // GetListForBlock below fails with the same sentinel when a snapshot
+    // node has not validated the base yet. Only the target block is read
+    // from disk (for cbTx and its merkle tree).
+    if (!(blockIndex->nStatus & BLOCK_HAVE_DATA)) {
+        errorRet = strprintf("block data for block %s is not available (pruned or below an unvalidated snapshot base)",
+                             blockIndex->GetBlockHash().ToString());
+        return false;
+    }
 
     auto baseDmnList = dmnman.GetListForBlock(baseBlockIndex);
     auto dmnList = dmnman.GetListForBlock(blockIndex);
@@ -222,4 +232,9 @@ bool BuildSimplifiedMNListDiff(CDeterministicMNManager& dmnman, const Chainstate
     mnListDiffRet.cbTxMerkleTree = CPartialMerkleTree(vHashes, vMatch);
 
     return true;
+}
+
+bool IsBlockDataUnavailableError(const std::string& error)
+{
+    return error.find("is not available (pruned or below an unvalidated snapshot base)") != std::string::npos;
 }
