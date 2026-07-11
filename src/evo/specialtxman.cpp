@@ -745,6 +745,15 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
                 return false;
             }
         }
+        if (!fJustCheck) {
+            // Persist the list produced by this chainstate's own connection of
+            // the snapshot base block (no-op for every other block). Snapshot
+            // activation may populate the shared MN-list cache with seeded
+            // state, so completion must not reconstruct this value through that
+            // cache. Before DIP3 activates, mn_list is the independently
+            // computed empty list.
+            chainstate.RecordBackgroundMNListHash(pindex, mn_list);
+        }
 
         int64_t nTime6 = GetTimeMicros();
         nTimeDMN += nTime6 - nTime5;

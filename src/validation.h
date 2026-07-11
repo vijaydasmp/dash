@@ -56,6 +56,7 @@ class CMNHFManager;
 class CTxMemPool;
 class TxValidationState;
 class CChainstateHelper;
+class CDeterministicMNList;
 class ChainstateManager;
 enum class EvoDbIdentity;
 struct PrecomputedTransactionData;
@@ -703,6 +704,11 @@ public:
     //! Unconditionally flush all changes to disk.
     void ForceFlushStateToDisk();
 
+    /** Persist the hash of the MN list this chainstate derived when connecting
+     *  the snapshot base block. No-op on any other block or chainstate, so
+     *  ordinary block connection never pays for hashing the full list. */
+    void RecordBackgroundMNListHash(const CBlockIndex* pindex, const CDeterministicMNList& mn_list);
+
     //! Prune blockfiles from the disk if necessary and then flush chainstate changes
     //! if we pruned.
     void PruneAndFlush();
@@ -880,6 +886,10 @@ enum class SnapshotCompletionResult {
     // The blockhash of the current tip of the background validation chainstate does
     // not match the one expected by the snapshot chainstate.
     BASE_BLOCKHASH_MISMATCH,
+
+    // Dash's derived Evo state or per-chainstate best-block markers did not
+    // converge at the snapshot base block.
+    EVO_STATE_MISMATCH,
 };
 
 /**

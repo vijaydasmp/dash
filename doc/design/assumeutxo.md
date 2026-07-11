@@ -110,9 +110,13 @@ sequentially.
 
 Once the tip of the background chainstate hits the base block of the snapshot
 chainstate, we stop use of the background chainstate by setting `m_disabled`, in
-`CompleteSnapshotValidation()`, which is checked in `ActivateBestChain()`). We hash the
+`MaybeCompleteSnapshotValidation()`, which is checked in `ActivateBestChain()`. We hash the
 background chainstate's UTXO set contents and ensure it matches the compiled value in
-`CMainParams::m_assumeutxo_data`.
+`CMainParams::m_assumeutxo_data`. In Dash, completion additionally compares the
+deterministic masternode-list hash the background chainstate derived at the base block
+against the hash recorded at snapshot activation, and the EvoDB best-block markers
+against both chainstates' coins tips; any divergence fails completion with
+`EVO_STATE_MISMATCH` and quarantines the snapshot exactly like a UTXO hash mismatch.
 
 |    |    |
 | ---------- | ----------- |

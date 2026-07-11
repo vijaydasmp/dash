@@ -267,6 +267,14 @@ CBlockIndex* BlockManager::InsertBlockIndex(const uint256& hash)
 
 bool BlockManager::LoadBlockIndex()
 {
+    // Snapshot promotion reloads the block index a second time in the same
+    // process (see node::LoadChainstate), and both containers below are rebuilt
+    // from m_block_index by this function. They are multimaps, so without
+    // clearing them the second load would duplicate every parent/child edge and
+    // every unlinked entry for the lifetime of the process.
+    m_prev_block_index.clear();
+    m_blocks_unlinked.clear();
+
     if (!m_block_tree_db->LoadBlockIndexGuts(GetConsensus(), [this](const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) { return this->InsertBlockIndex(hash); })) {
         return false;
     }

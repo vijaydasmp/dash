@@ -789,8 +789,22 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_mined_commitment_is_chain_aware, Snaps
 
 BOOST_FIXTURE_TEST_CASE(chainstatemanager_evodb_snapshot_only_flush_restart, SnapshotTestSetup)
 {
-    this->SetupSnapshot();
+    auto chainstates = this->SetupSnapshot();
+    Chainstate* background_chainstate = std::get<0>(chainstates);
     ChainstateManager& chainman = *Assert(m_node.chainman);
+
+    // Keep this M2 marker-independence test below completion height; #25740 now
+    // completes and cleans up immediately on restart when background is at base.
+    DisconnectedBlockTransactions unused_pool;
+    BlockValidationState unused_state;
+    {
+        LOCK2(::cs_main, background_chainstate->MempoolMutex());
+        BOOST_CHECK(background_chainstate->DisconnectTip(unused_state, &unused_pool));
+        unused_pool.clear();
+        background_chainstate->ForceFlushStateToDisk();
+    }
+    BOOST_CHECK_EQUAL(background_chainstate->m_chain.Height(), 109);
+
     uint256 normal_marker;
     BOOST_REQUIRE(m_node.evodb->ReadBestBlock(EvoDbIdentity::NORMAL, normal_marker));
 
@@ -845,6 +859,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init_missing_evodb_marker, Sn
 
     WITH_LOCK(::cs_main, restarted.ResetChainstates());
     fs::remove_all(gArgs.GetDataDirNet() / "chainstate_snapshot");
+    BOOST_REQUIRE(m_node.evodb->DiscardSnapshotMarkers());
     this->LoadVerifyActivateChainstate();
 }
 
@@ -931,6 +946,11 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion, SnapshotTestSetup
     BOOST_CHECK(!fs::exists(snapshot_invalid_dir));
     // chainstate_snapshot should now *not* exist.
     BOOST_CHECK(!fs::exists(snapshot_chainstate_dir));
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip_hash));
+    uint256 obsolete_marker;
+    BOOST_CHECK(!m_node.evodb->ReadBestBlock(EvoDbIdentity::SNAPSHOT, obsolete_marker));
+    BOOST_CHECK(!m_node.evodb->ReadSnapshotBaseMNListHash(obsolete_marker));
+    BOOST_CHECK(!m_node.evodb->HasDualChainstateMarker());
 
     const Chainstate& active_cs2 = chainman_restarted.ActiveChainstate();
 
@@ -953,6 +973,186 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion, SnapshotTestSetup
         LOCK(chainman_restarted.GetMutex());
         BOOST_CHECK_EQUAL(chainman_restarted.ActiveHeight(), 220);
     }
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion_incorrect_base_mn_list, SnapshotTestSetup)
+{
+    auto [validation_chainstate, snapshot_chainstate] = this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+
+    const CBlockIndex* base_index = WITH_LOCK(::cs_main, return validation_chainstate->m_chain.Tip());
+    BOOST_REQUIRE(base_index);
+    const CDeterministicMNList incorrect_base_list{
+        base_index->GetBlockHash(), base_index->nHeight, /*totalRegisteredCount=*/1};
+    const uint256 incorrect_hash{SerializeHash(incorrect_base_list)};
+    uint256 captured_block;
+    uint256 captured_hash;
+    BOOST_REQUIRE(m_node.evodb->ReadBackgroundMNListHash(captured_block, captured_hash));
+    BOOST_CHECK_EQUAL(captured_block, base_index->GetBlockHash());
+    BOOST_CHECK_NE(captured_hash, incorrect_hash);
+    m_node.dmnman->SetListForBlockForTesting(incorrect_base_list);
+
+    // The regtest assumeutxo fixture predates DIP3. Temporarily make DIP3 active
+    // so the legacy completion lookup would consume the poisoned shared cache.
+    Consensus::Params& mutable_consensus{
+        const_cast<Consensus::Params&>(Params().GetConsensus())};
+    const int old_dip3_height{mutable_consensus.DIP0003Height};
+    mutable_consensus.DIP0003Height = 1;
+    // Boost's execution monitor longjmps past normal unwinding on fatal
+    // failures, but for ordinary exceptions (BOOST_REQUIRE, deserialization
+    // errors from the poisoned record below) this guard keeps the process-wide
+    // consensus params from leaking into later test cases.
+    struct Dip3HeightRestore {
+        Consensus::Params& params;
+        int height;
+        ~Dip3HeightRestore() { params.DIP0003Height = height; }
+    } dip3_restore{mutable_consensus, old_dip3_height};
+
+    {
+        auto tx = m_node.evodb->BeginTransaction(EvoDbIdentity::SNAPSHOT);
+        // Seed an incorrect full base list, not merely an incorrect comparison
+        // hash. The key mirrors DB_LIST_SNAPSHOT in evo/deterministicmns.cpp
+        // (file-local there); keep them in sync.
+        m_node.evodb->Write(
+            std::make_pair(std::string{"dmn_S3"}, base_index->GetBlockHash()),
+            incorrect_base_list);
+        m_node.evodb->WriteSnapshotBaseMNListHash(incorrect_hash);
+        tx->Commit();
+    }
+    BOOST_REQUIRE(m_node.evodb->CommitRootTransaction(EvoDbIdentity::SNAPSHOT, /*sync=*/true));
+
+    const auto result = WITH_LOCK(::cs_main,
+        return chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {}));
+    BOOST_CHECK_EQUAL(result, SnapshotCompletionResult::EVO_STATE_MISMATCH);
+    BOOST_CHECK_EQUAL(&chainman.ActiveChainstate(), validation_chainstate);
+    BOOST_CHECK(snapshot_chainstate != &chainman.ActiveChainstate());
+    BOOST_CHECK(!m_node.evodb->HasDualChainstateMarker());
+    uint256 obsolete_marker;
+    BOOST_CHECK(!m_node.evodb->ReadBestBlock(EvoDbIdentity::SNAPSHOT, obsolete_marker));
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_first_rename, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+    const uint256 snapshot_tip = WITH_LOCK(::cs_main, return chainman.ActiveChainstate().CoinsTip().GetBestBlock());
+    BOOST_REQUIRE_EQUAL(WITH_LOCK(::cs_main,
+        return chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {})),
+        SnapshotCompletionResult::SUCCESS);
+
+    this->SimulateNodeRestart();
+    const fs::path data_dir{gArgs.GetDataDirNet()};
+    fs::rename(data_dir / "chainstate", data_dir / "chainstate_todelete");
+
+    this->LoadVerifyActivateChainstate();
+
+    BOOST_CHECK(fs::exists(data_dir / "chainstate"));
+    BOOST_CHECK(!fs::exists(data_dir / "chainstate_snapshot"));
+    BOOST_CHECK(!fs::exists(data_dir / "chainstate_todelete"));
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip));
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_completed_swap, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+    const uint256 snapshot_tip = WITH_LOCK(::cs_main, return chainman.ActiveChainstate().CoinsTip().GetBestBlock());
+    BOOST_REQUIRE_EQUAL(WITH_LOCK(::cs_main,
+        return chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {})),
+        SnapshotCompletionResult::SUCCESS);
+
+    this->SimulateNodeRestart();
+    const fs::path data_dir{gArgs.GetDataDirNet()};
+    fs::rename(data_dir / "chainstate", data_dir / "chainstate_todelete");
+    fs::rename(data_dir / "chainstate_snapshot", data_dir / "chainstate");
+
+    this->LoadVerifyActivateChainstate();
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip));
+    BOOST_CHECK(!m_node.evodb->HasDualChainstateMarker());
+
+    // A restart of the already-promoted state is an idempotent no-op.
+    this->SimulateNodeRestart();
+    this->LoadVerifyActivateChainstate();
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip));
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_invalid_rename, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& restarted = this->SimulateNodeRestart();
+    const fs::path data_dir{gArgs.GetDataDirNet()};
+    fs::rename(data_dir / "chainstate_snapshot", data_dir / "chainstate_snapshot_INVALID");
+
+    this->LoadVerifyActivateChainstate();
+
+    BOOST_CHECK(fs::exists(data_dir / "chainstate_snapshot_INVALID"));
+    BOOST_CHECK(!fs::exists(data_dir / "chainstate_snapshot"));
+    BOOST_CHECK(!m_node.evodb->HasDualChainstateMarker());
+    uint256 obsolete;
+    BOOST_CHECK(!m_node.evodb->ReadBestBlock(EvoDbIdentity::SNAPSHOT, obsolete));
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(
+        EvoDbIdentity::NORMAL,
+        WITH_LOCK(::cs_main, return restarted.ActiveChainstate().CoinsTip().GetBestBlock())));
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_promoted_swap, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+    const uint256 snapshot_tip = WITH_LOCK(::cs_main, return chainman.ActiveChainstate().CoinsTip().GetBestBlock());
+    BOOST_REQUIRE_EQUAL(WITH_LOCK(::cs_main,
+        return chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {})),
+        SnapshotCompletionResult::SUCCESS);
+
+    this->SimulateNodeRestart();
+    const fs::path data_dir{gArgs.GetDataDirNet()};
+    fs::rename(data_dir / "chainstate", data_dir / "chainstate_todelete");
+    fs::rename(data_dir / "chainstate_snapshot", data_dir / "chainstate");
+    BOOST_REQUIRE(m_node.evodb->PromoteSnapshotMarkers(snapshot_tip));
+
+    this->LoadVerifyActivateChainstate();
+    BOOST_CHECK(!fs::exists(data_dir / "chainstate_todelete"));
+    BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip));
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_missing_on_disk_base_is_error, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+    const uint256 base_hash{*chainman.SnapshotBlockhash()};
+
+    SnapshotCompletionResult result;
+    {
+        LOCK(::cs_main);
+        auto node = chainman.BlockIndex().extract(base_hash);
+        BOOST_REQUIRE(!node.empty());
+        result = chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {});
+        chainman.BlockIndex().insert(std::move(node));
+    }
+    BOOST_CHECK_EQUAL(result, SnapshotCompletionResult::BASE_BLOCKHASH_MISMATCH);
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion_without_base_list_marker, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+
+    // Simulate a cold-start activation, where the base MN list was not
+    // derivable and so no lifecycle hash markers were captured: completion
+    // must fall back to the UTXO-set hash alone instead of quarantining a
+    // valid snapshot.
+    {
+        auto tx = m_node.evodb->BeginTransaction(EvoDbIdentity::SNAPSHOT);
+        m_node.evodb->Erase(EVODB_SNAPSHOT_MNLIST_HASH);
+        m_node.evodb->Erase(EVODB_BACKGROUND_MNLIST_HASH);
+        tx->Commit();
+    }
+    BOOST_REQUIRE(m_node.evodb->CommitRootTransaction(EvoDbIdentity::SNAPSHOT, /*sync=*/true));
+
+    const auto res = WITH_LOCK(::cs_main,
+        return chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {}));
+    BOOST_CHECK_EQUAL(res, SnapshotCompletionResult::SUCCESS);
+    WITH_LOCK(::cs_main, BOOST_CHECK(chainman.IsSnapshotValidated()));
 }
 
 BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion_hash_mismatch, SnapshotTestSetup)

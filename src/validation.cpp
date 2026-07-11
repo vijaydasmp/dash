@@ -2751,6 +2751,17 @@ void Chainstate::ForceFlushStateToDisk()
     }
 }
 
+void Chainstate::RecordBackgroundMNListHash(const CBlockIndex* pindex, const CDeterministicMNList& mn_list)
+{
+    if (EvoDbIdentity() != ::EvoDbIdentity::NORMAL) return;
+    // Only the snapshot base block's list takes part in snapshot completion,
+    // and it only matters while a snapshot chainstate exists. Hashing the full
+    // list is too expensive to do on every connect.
+    const auto base_blockhash = m_chainman.SnapshotBlockhash();
+    if (!base_blockhash || *base_blockhash != pindex->GetBlockHash()) return;
+    m_evoDb.WriteBackgroundMNListHash(pindex->GetBlockHash(), ::SerializeHash(mn_list));
+}
+
 void Chainstate::PruneAndFlush()
 {
     BlockValidationState state;
@@ -5829,13 +5840,49 @@ bool ChainstateManager::PopulateAndValidateSnapshot(
     index->nChainTx = au_data.nChainTx;
     snapshot_chainstate.setBlockIndexCandidates.insert(snapshot_start_block);
 
+    // Until the loadtxoutset milestone the snapshot carries no Dash payload,
+    // so the base MN list is only derivable when this node's own background
+    // chainstate has already validated the base block. On a cold start
+    // (background tip below the base) it is not derivable at all: attempting
+    // the lookup would take GetListForBlockInternal's legacy bootstrap branch
+    // (the dual-chainstate marker is not durable yet at this point), fabricate
+    // an empty "initial snapshot" list for the base block, and poison the
+    // shared list cache that the background chainstate later derives base+1
+    // from. Capture the lifecycle hashes only when the base state genuinely
+    // exists; completion skips the comparison when the markers are absent.
+    // The background chainstate never re-connects a base block it has already
+    // validated, so RecordBackgroundMNListHash cannot fire for it either --
+    // this capture stands in for it.
+    // TODO(assumeutxo, loadtxoutset): once the snapshot payload carries the
+    // base MN list, derive the SNAPSHOT-side marker from the payload so it is
+    // always present and independent of local state.
+    std::optional<uint256> base_mn_list_hash;
+    if (const CBlockIndex* ibd_tip = m_ibd_chainstate->m_chain.Tip();
+        ibd_tip != nullptr && ibd_tip->GetBlockHash() == base_blockhash) {
+        base_mn_list_hash =
+            snapshot_chainstate.ChainHelper().GetDeterministicMNListHash(snapshot_start_block);
+        auto db_tx = snapshot_chainstate.m_evoDb.BeginTransaction(::EvoDbIdentity::NORMAL);
+        snapshot_chainstate.m_evoDb.WriteBackgroundMNListHash(base_blockhash, *base_mn_list_hash);
+        db_tx->Commit();
+    }
+
+    // Snapshot lifecycle recovery depends on the background chainstate's
+    // independently captured MN-list hash. Make all preceding NORMAL writes
+    // durable before publishing the snapshot markers.
+    if (!snapshot_chainstate.m_evoDb.CommitRootTransaction(EvoDbIdentity::NORMAL, /*sync=*/true)) {
+        LogPrintf("[snapshot] failed to sync background EvoDB state\n");
+        return false;
+    }
     {
         auto db_tx = snapshot_chainstate.m_evoDb.BeginTransaction(EvoDbIdentity::SNAPSHOT);
         snapshot_chainstate.m_evoDb.WriteBestBlock(EvoDbIdentity::SNAPSHOT, base_blockhash);
+        if (base_mn_list_hash.has_value()) {
+            snapshot_chainstate.m_evoDb.WriteSnapshotBaseMNListHash(*base_mn_list_hash);
+        }
         snapshot_chainstate.m_evoDb.WriteDualChainstateMarker();
         db_tx->Commit();
     }
-    if (!snapshot_chainstate.m_evoDb.CommitRootTransaction(EvoDbIdentity::SNAPSHOT)) {
+    if (!snapshot_chainstate.m_evoDb.CommitRootTransaction(EvoDbIdentity::SNAPSHOT, /*sync=*/true)) {
         LogPrintf("[snapshot] failed to commit snapshot EvoDB marker\n");
         return false;
     }
@@ -5871,8 +5918,18 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
        // validation chainstate.
        return SnapshotCompletionResult::SKIPPED;
     }
+    const auto snapshot_base_height_opt = this->GetSnapshotBaseHeight();
+    if (!snapshot_base_height_opt) {
+        if (!m_snapshot_chainstate->CoinsDB().StoragePath()) {
+            // Some Dash unit fixtures construct a synthetic in-memory snapshot
+            // chainstate before inserting its base block into the block index.
+            return SnapshotCompletionResult::SKIPPED;
+        }
+        LogPrintf("[snapshot] on-disk snapshot base block is missing from the block index\n");
+        return SnapshotCompletionResult::BASE_BLOCKHASH_MISMATCH;
+    }
     const int snapshot_tip_height = this->ActiveHeight();
-    const int snapshot_base_height = *Assert(this->GetSnapshotBaseHeight());
+    const int snapshot_base_height = *snapshot_base_height_opt;
     const CBlockIndex& index_new = *Assert(m_ibd_chainstate->m_chain.Tip());
 
     if (index_new.nHeight < snapshot_base_height) {
@@ -5882,6 +5939,21 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
 
     assert(SnapshotBlockhash());
     uint256 snapshot_blockhash = *Assert(SnapshotBlockhash());
+
+    // Completion is serialized by cs_main. Flush each identity in sequence so
+    // CEvoDB's single-open-transaction invariant is preserved and marker
+    // promotion can atomically operate on fully committed transaction trees.
+    m_ibd_chainstate->ForceFlushStateToDisk();
+    m_snapshot_chainstate->ForceFlushStateToDisk();
+    if (!m_ibd_chainstate->m_evoDb.CommitRootTransaction(EvoDbIdentity::NORMAL, /*sync=*/true) ||
+        !m_snapshot_chainstate->m_evoDb.CommitRootTransaction(EvoDbIdentity::SNAPSHOT, /*sync=*/true)) {
+        // A failed sync here is an unrecoverable database write error, and the
+        // caller (ConnectTip) discards the result: with the background tip
+        // already at the base, nothing would retry completion until restart.
+        // Abort like the other unrecoverable EvoDB paths.
+        AbortNode("Failed to sync EvoDB state for snapshot completion");
+        return SnapshotCompletionResult::STATS_FAILED;
+    }
 
     auto handle_invalid_snapshot = [&]() EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         bilingual_str user_error = strprintf(_(
@@ -5908,6 +5980,9 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
         assert(this->IsUsable(m_ibd_chainstate.get()));
 
         m_snapshot_chainstate->InvalidateCoinsDBOnDisk();
+        if (!m_ibd_chainstate->m_evoDb.DiscardSnapshotMarkers()) {
+            LogPrintf("[snapshot] failed to remove invalid snapshot EvoDB markers\n");
+        }
 
         shutdown_fnc(user_error);
     };
@@ -5930,7 +6005,6 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
     assert(this->GetAll().size() == 2);
 
     CCoinsViewDB& ibd_coins_db = m_ibd_chainstate->CoinsDB();
-    m_ibd_chainstate->ForceFlushStateToDisk();
 
     auto maybe_au_data = ExpectedAssumeutxo(curr_height, ::Params());
     if (!maybe_au_data) {
@@ -5977,6 +6051,42 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
             au_data.hash_serialized.ToString());
         handle_invalid_snapshot();
         return SnapshotCompletionResult::HASH_MISMATCH;
+    }
+
+    // The snapshot marker records the derived deterministic-MN state that was
+    // available when the snapshot chainstate began using the base block. Compare
+    // it with the state independently derived by background validation.
+    //
+    // TODO(assumeutxo, M4-B4): extend the snapshot format and this comparison to
+    // the CbTx merkleRootMNList, merkleRootQuorums, and creditPool commitments.
+    uint256 snapshot_mn_list_hash;
+    if (!m_ibd_chainstate->m_evoDb.ReadSnapshotBaseMNListHash(snapshot_mn_list_hash)) {
+        // Cold-start activation could not capture the base MN list (the
+        // snapshot format carries no Dash payload yet), so there is nothing to
+        // compare against. The UTXO-set hash above remains the completion
+        // criterion, exactly as upstream.
+        LogPrintf("[snapshot] no base MN-list marker was captured at activation; skipping deterministic MN-list comparison\n");
+    } else {
+        uint256 background_mn_list_block;
+        uint256 background_mn_list_hash;
+        if (!m_ibd_chainstate->m_evoDb.ReadBackgroundMNListHash(
+                background_mn_list_block, background_mn_list_hash) ||
+            background_mn_list_block != snapshot_blockhash ||
+            snapshot_mn_list_hash != background_mn_list_hash) {
+            LogPrintf("[snapshot] deterministic MN list mismatch at base block: captured_block=%s, actual=%s, expected=%s\n",
+                      background_mn_list_block.ToString(), background_mn_list_hash.ToString(),
+                      snapshot_mn_list_hash.ToString());
+            handle_invalid_snapshot();
+            return SnapshotCompletionResult::EVO_STATE_MISMATCH;
+        }
+    }
+
+    const uint256 snapshot_tip = m_snapshot_chainstate->CoinsTip().GetBestBlock();
+    if (!m_ibd_chainstate->m_evoDb.VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_blockhash) ||
+        !m_snapshot_chainstate->m_evoDb.VerifyBestBlock(EvoDbIdentity::SNAPSHOT, snapshot_tip)) {
+        LogPrintf("[snapshot] EvoDB best-block markers do not match their chainstate tips\n");
+        handle_invalid_snapshot();
+        return SnapshotCompletionResult::EVO_STATE_MISMATCH;
     }
 
     LogPrintf("[snapshot] snapshot beginning at %s has been fully validated\n",
@@ -6202,6 +6312,7 @@ void Chainstate::InvalidateCoinsDBOnDisk()
     // accordingly in MaybeCompleteSnapshotValidation().
     try {
         fs::rename(snapshot_datadir, invalid_path);
+        DirectoryCommit(snapshot_datadir.parent_path());
     } catch (const fs::filesystem_error& e) {
         auto src_str = fs::PathToString(snapshot_datadir);
         auto dest_str = fs::PathToString(invalid_path);
@@ -6221,7 +6332,7 @@ const CBlockIndex* ChainstateManager::GetSnapshotBaseBlock() const
 {
     const auto blockhash_op = this->SnapshotBlockhash();
     if (!blockhash_op) return nullptr;
-    return Assert(m_blockman.LookupBlockIndex(*blockhash_op));
+    return m_blockman.LookupBlockIndex(*blockhash_op);
 }
 
 std::optional<int> ChainstateManager::GetSnapshotBaseHeight() const
@@ -6258,6 +6369,9 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
     const auto& snapshot_chainstate_path = *snapshot_chainstate_path_maybe;
     const auto& ibd_chainstate_path = *ibd_chainstate_path_maybe;
 
+    const uint256 snapshot_tip = m_snapshot_chainstate->CoinsTip().GetBestBlock();
+    CEvoDB& evo_db = m_snapshot_chainstate->m_evoDb;
+
     // Since we're going to be moving around the underlying leveldb filesystem content
     // for each chainstate, make sure that the chainstates (and their constituent
     // CoinsViews members) have been destructed first.
@@ -6288,6 +6402,7 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
 
     try {
         fs::rename(ibd_chainstate_path, tmp_old);
+        DirectoryCommit(ibd_chainstate_path.parent_path());
     } catch (const fs::filesystem_error& e) {
         rename_failed_abort(ibd_chainstate_path, tmp_old, e);
         throw;
@@ -6299,9 +6414,17 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
 
     try {
         fs::rename(snapshot_chainstate_path, ibd_chainstate_path);
+        DirectoryCommit(snapshot_chainstate_path.parent_path());
     } catch (const fs::filesystem_error& e) {
         rename_failed_abort(snapshot_chainstate_path, ibd_chainstate_path, e);
         throw;
+    }
+
+    // Only after both directory renames are durable can the snapshot marker be
+    // promoted to NORMAL and the lifecycle metadata be removed.
+    if (!evo_db.PromoteSnapshotMarkers(snapshot_tip)) {
+        LogPrintf("[snapshot] failed to promote snapshot EvoDB markers during cleanup\n");
+        return false;
     }
 
     if (!DeleteCoinsDBFromDisk(tmp_old, /*is_snapshot=*/false)) {
