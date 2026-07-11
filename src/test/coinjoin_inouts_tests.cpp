@@ -287,6 +287,76 @@ BOOST_AUTO_TEST_CASE(server_signfinaltx_participant_oversized_count_is_rejected_
     BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
 }
 
+BOOST_AUTO_TEST_CASE(entry_allows_one_oversized_input_for_collateral_penalty)
+{
+    CCoinJoinEntry oversized_entry;
+    oversized_entry.vecTxDSIn.resize(COINJOIN_ENTRY_MAX_SIZE + 1);
+
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    stream << oversized_entry;
+
+    CCoinJoinEntry entry;
+    BOOST_CHECK_NO_THROW(stream >> entry);
+    BOOST_CHECK_EQUAL(entry.vecTxDSIn.size(), COINJOIN_ENTRY_MAX_SIZE + 1);
+    BOOST_CHECK(entry.vecTxOut.empty());
+}
+
+BOOST_AUTO_TEST_CASE(entry_rejects_huge_inputs_before_materializing)
+{
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    WriteCompactSize(stream, COINJOIN_ENTRY_MAX_SIZE + 2);
+
+    CCoinJoinEntry entry;
+    BOOST_CHECK_THROW(stream >> entry, std::ios_base::failure);
+    BOOST_CHECK(entry.vecTxDSIn.empty());
+}
+
+BOOST_AUTO_TEST_CASE(entry_flags_oversized_outputs_before_materializing)
+{
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    WriteCompactSize(stream, 0);
+    stream << MakeTransactionRef(CMutableTransaction{});
+    WriteCompactSize(stream, COINJOIN_ENTRY_MAX_SIZE + 1);
+
+    CCoinJoinEntry entry;
+    BOOST_CHECK_NO_THROW(stream >> entry);
+    BOOST_CHECK(entry.fHasOversizedTxOut);
+    BOOST_CHECK(entry.vecTxOut.empty());
+}
+
+BOOST_AUTO_TEST_CASE(entry_throws_on_huge_outputs_before_materializing)
+{
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    WriteCompactSize(stream, 0);
+    stream << MakeTransactionRef(CMutableTransaction{});
+    WriteCompactSize(stream, MAX_SIZE + 1);
+
+    // Above the generic CompactSize cap the message is simply malformed, so the
+    // standard deserialization error is raised. No output is materialized, and the
+    // half-read entry is not left looking like an oversized-but-chargeable one:
+    // fHasOversizedTxOut stays clear, so it cannot reach AddEntry's collateral path.
+    CCoinJoinEntry entry;
+    BOOST_CHECK_THROW(stream >> entry, std::ios_base::failure);
+    BOOST_CHECK(!entry.fHasOversizedTxOut);
+    BOOST_CHECK(entry.vecTxOut.empty());
+}
+
+BOOST_AUTO_TEST_CASE(entry_accepts_max_sized_vectors)
+{
+    CCoinJoinEntry entry;
+    entry.vecTxDSIn.resize(COINJOIN_ENTRY_MAX_SIZE); // exactly the cap must be accepted
+    entry.vecTxOut.resize(COINJOIN_ENTRY_MAX_SIZE);
+
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    stream << entry;
+
+    CCoinJoinEntry roundtripped;
+    BOOST_CHECK_NO_THROW(stream >> roundtripped);
+    BOOST_CHECK_EQUAL(roundtripped.vecTxDSIn.size(), COINJOIN_ENTRY_MAX_SIZE);
+    BOOST_CHECK_EQUAL(roundtripped.vecTxOut.size(), COINJOIN_ENTRY_MAX_SIZE);
+    BOOST_CHECK(!roundtripped.fHasOversizedTxOut);
+}
+
 BOOST_AUTO_TEST_CASE(queue_timeout_bounds)
 {
     CCoinJoinQueue dsq;

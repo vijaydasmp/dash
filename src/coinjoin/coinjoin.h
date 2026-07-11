@@ -13,6 +13,7 @@
 #include <netaddress.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
+#include <serialize.h>
 #include <sync.h>
 #include <timedata.h>
 #include <util/translation.h>
@@ -154,6 +155,7 @@ public:
     CTransactionRef txCollateral;
     // memory only
     CService addr;
+    bool fHasOversizedTxOut{false};
 
     CCoinJoinEntry() :
         txCollateral(MakeTransactionRef(CMutableTransaction{}))
@@ -167,9 +169,34 @@ public:
     {
     }
 
-    SERIALIZE_METHODS(CCoinJoinEntry, obj)
+    template <typename Stream>
+    void Serialize(Stream& s) const
     {
-        READWRITE(obj.vecTxDSIn, obj.txCollateral, obj.vecTxOut);
+        s << vecTxDSIn << txCollateral << vecTxOut;
+    }
+
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        fHasOversizedTxOut = false;
+
+        // Accept one input over the cap so AddEntry can apply the collateral
+        // penalty for an entry that is merely too large; anything bigger is
+        // rejected before any element is decoded.
+        if (!UnserializeVectorWithMaxSize(s, vecTxDSIn, COINJOIN_ENTRY_MAX_SIZE + 1)) {
+            throw std::ios_base::failure("CCoinJoinEntry::vecTxDSIn size too large");
+        }
+
+        s >> txCollateral;
+
+        if (!UnserializeVectorWithMaxSize(s, vecTxOut, COINJOIN_ENTRY_MAX_SIZE)) {
+            // Outputs follow txCollateral on the wire, so an output count over the
+            // cap must not throw mid-entry: flag it and leave txCollateral intact
+            // so AddEntry can reject the entry with ERR_MAXIMUM and consume its
+            // collateral. A count above the generic MAX_SIZE cap is malformed and
+            // still throws from ReadCompactSize.
+            fHasOversizedTxOut = true;
+        }
     }
 
     bool AddScriptSig(const CTxIn& txin);

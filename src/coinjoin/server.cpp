@@ -610,6 +610,27 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         return false;
     }
 
+    if (entry.fHasOversizedTxOut || entry.vecTxOut.size() > COINJOIN_ENTRY_MAX_SIZE) {
+        const size_t txout_size{entry.fHasOversizedTxOut ? COINJOIN_ENTRY_MAX_SIZE + 1 : entry.vecTxOut.size()};
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: too many outputs! %d/%d\n", __func__,
+                 static_cast<int>(txout_size), static_cast<int>(COINJOIN_ENTRY_MAX_SIZE));
+        nMessageIDRet = ERR_MAXIMUM;
+        CTransactionRef txCollateralToConsume;
+        {
+            LOCK(cs_coinjoin);
+            const auto it = std::ranges::find_if(vecSessionCollaterals, [&entry](const auto& txCollateral) {
+                return *entry.txCollateral == *txCollateral;
+            });
+            if (it != vecSessionCollaterals.end()) {
+                txCollateralToConsume = *it;
+            }
+        }
+        if (txCollateralToConsume) {
+            ConsumeCollateral(txCollateralToConsume);
+        }
+        return false;
+    }
+
     if (!CoinJoin::IsCollateralValid(m_chainman, m_isman, mempool, *entry.txCollateral)) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: collateral not valid!\n", __func__);
         nMessageIDRet = ERR_INVALID_COLLATERAL;
