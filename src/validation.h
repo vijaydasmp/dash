@@ -56,6 +56,7 @@ class CTxMemPool;
 class TxValidationState;
 class CChainstateHelper;
 class ChainstateManager;
+enum class EvoDbIdentity;
 struct PrecomputedTransactionData;
 struct ChainTxData;
 struct DisconnectedBlockTransactions;
@@ -533,6 +534,11 @@ public:
                          CEvoDB& evoDb,
                          const std::unique_ptr<CChainstateHelper>& chain_helper,
                          std::optional<uint256> from_snapshot_blockhash = std::nullopt);
+
+    //! Return the stable EvoDB identity corresponding to this chainstate's coins DB.
+    ::EvoDbIdentity EvoDbIdentity() const;
+
+    std::string EvoDbInconsistencyMessage();
 
     /**
      * Initialize the CoinsViews UTXO set database management data structures. The in-memory
@@ -1102,13 +1108,13 @@ public:
 
     //! When starting up, search the datadir for a chainstate based on a UTXO
     //! snapshot that is in the process of being validated.
-    bool DetectSnapshotChainstate(CTxMemPool* mempool) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    bool DetectSnapshotChainstate(CTxMemPool* mempool, bilingual_str& error) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     void ResetChainstates() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     //! Switch the active chainstate to one based on a UTXO snapshot that was loaded
     //! previously.
-    Chainstate& ActivateExistingSnapshot(CTxMemPool* mempool, uint256 base_blockhash)
+    Chainstate* ActivateExistingSnapshot(CTxMemPool* mempool, uint256 base_blockhash)
         EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     ~ChainstateManager();

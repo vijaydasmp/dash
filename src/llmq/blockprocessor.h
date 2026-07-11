@@ -26,6 +26,7 @@ class CBlock;
 class CBlockIndex;
 class CBLSSignature;
 class CChain;
+class Chainstate;
 class ChainstateManager;
 class CDataStream;
 class CDeterministicMNManager;
@@ -43,6 +44,12 @@ class CQuorumSnapshotManager;
 using QcHashMap = std::map<Consensus::LLMQType, std::vector<uint256>>;
 //! As above, but keyed by quorumIndex, for rotation-enabled types.
 using QcIndexedHashMap = std::map<Consensus::LLMQType, std::map<int16_t, uint256>>;
+
+/** Erase a mined commitment unless another chainstate still contains its block. */
+bool EraseMinedCommitmentIfUnreferenced(CEvoDB& evo_db, const Chainstate& chainstate,
+                                        gsl::not_null<const CBlockIndex*> pindex,
+                                        Consensus::LLMQType llmq_type, const uint256& quorum_hash)
+    EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
 class CQuorumBlockProcessor
 {

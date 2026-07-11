@@ -34,6 +34,18 @@
 
 using node::SnapshotMetadata;
 
+namespace {
+
+void SeedSnapshotMarker(CEvoDB& evodb, const uint256& hash)
+{
+    auto tx = evodb.BeginTransaction(EvoDbIdentity::SNAPSHOT);
+    evodb.WriteBestBlock(EvoDbIdentity::SNAPSHOT, hash);
+    tx->Commit();
+    BOOST_REQUIRE(evodb.CommitRootTransaction(EvoDbIdentity::SNAPSHOT));
+}
+
+} // namespace
+
 BOOST_FIXTURE_TEST_SUITE(validation_chainstatemanager_tests, ChainTestingSetup)
 
 static void DashChainstateSetup(ChainstateManager& chainman,
@@ -109,8 +121,11 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     // Create a snapshot-based chainstate.
     //
     const uint256 snapshot_blockhash = GetRandHash();
-    Chainstate& c2 = WITH_LOCK(::cs_main, return manager.ActivateExistingSnapshot(
+    SeedSnapshotMarker(evodb, snapshot_blockhash);
+    Chainstate* c2_ptr = WITH_LOCK(::cs_main, return manager.ActivateExistingSnapshot(
         &mempool, snapshot_blockhash));
+    BOOST_REQUIRE(c2_ptr);
+    Chainstate& c2 = *c2_ptr;
     chainstates.push_back(&c2);
 
     DashChainstateSetup(manager, m_node, /*llmq_dbs_in_memory=*/true, /*llmq_dbs_wipe=*/false);
@@ -185,7 +200,11 @@ BOOST_AUTO_TEST_CASE(chainstatemanager_rebalance_caches)
 
     // Create a snapshot-based chainstate.
     //
-    Chainstate& c2 = WITH_LOCK(cs_main, return manager.ActivateExistingSnapshot(&mempool, GetRandHash()));
+    const uint256 snapshot_blockhash = GetRandHash();
+    SeedSnapshotMarker(evodb, snapshot_blockhash);
+    Chainstate* c2_ptr = WITH_LOCK(cs_main, return manager.ActivateExistingSnapshot(&mempool, snapshot_blockhash));
+    BOOST_REQUIRE(c2_ptr);
+    Chainstate& c2 = *c2_ptr;
     chainstates.push_back(&c2);
     c2.InitCoinsDB(
         /*cache_size_bytes=*/1 << 23, /*in_memory=*/true, /*should_wipe=*/false);
@@ -218,6 +237,7 @@ struct SnapshotTestSetup : TestChain100Setup {
                               {},
                               /*coins_db_in_memory=*/false,
                               /*block_tree_db_in_memory=*/false,
+                              /*dash_dbs_in_memory=*/false,
                           }
     {
     }
@@ -315,6 +335,15 @@ struct SnapshotTestSetup : TestChain100Setup {
 
         Chainstate& snapshot_chainstate = chainman.ActiveChainstate();
 
+        // To be checked against later when we try loading a subsequent snapshot.
+        uint256 loaded_snapshot_blockhash{*chainman.SnapshotBlockhash()};
+
+        BOOST_CHECK(m_node.evodb->VerifyBestBlock(
+            EvoDbIdentity::SNAPSHOT, loaded_snapshot_blockhash));
+        BOOST_CHECK(m_node.evodb->VerifyBestBlock(
+            EvoDbIdentity::NORMAL, loaded_snapshot_blockhash));
+        BOOST_CHECK(m_node.evodb->HasDualChainstateMarker());
+
         {
             LOCK(::cs_main);
 
@@ -333,9 +362,6 @@ struct SnapshotTestSetup : TestChain100Setup {
         const CBlockIndex* tip = WITH_LOCK(chainman.GetMutex(), return chainman.ActiveTip());
 
         BOOST_CHECK_EQUAL(tip->nChainTx, au_data.nChainTx);
-
-        // To be checked against later when we try loading a subsequent snapshot.
-        uint256 loaded_snapshot_blockhash{*chainman.SnapshotBlockhash()};
 
         // Make some assertions about the both chainstates. These checks ensure the
         // legacy chainstate hasn't changed and that the newly created chainstate
@@ -370,6 +396,10 @@ struct SnapshotTestSetup : TestChain100Setup {
         // Mine some new blocks on top of the activated snapshot chainstate.
         constexpr size_t new_coins{100};
         mineBlocks(new_coins);  // Defined in TestChain100Setup.
+
+        const uint256 snapshot_tip = WITH_LOCK(chainman.GetMutex(), return chainman.ActiveTip()->GetBlockHash());
+        BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::SNAPSHOT, snapshot_tip));
+        BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, loaded_snapshot_blockhash));
 
         {
             LOCK(::cs_main);
@@ -503,8 +533,12 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
 
     BOOST_CHECK_EQUAL(expected_assumed_valid, num_assumed_valid);
 
-    Chainstate& cs2 = WITH_LOCK(::cs_main,
-        return chainman.ActivateExistingSnapshot(&mempool, GetRandHash()));
+    const uint256 snapshot_blockhash = GetRandHash();
+    SeedSnapshotMarker(*m_node.evodb, snapshot_blockhash);
+    Chainstate* cs2_ptr = WITH_LOCK(::cs_main,
+        return chainman.ActivateExistingSnapshot(&mempool, snapshot_blockhash));
+    BOOST_REQUIRE(cs2_ptr);
+    Chainstate& cs2 = *cs2_ptr;
 
     reload_all_block_indexes();
 
@@ -573,6 +607,33 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init, SnapshotTestSetup)
             }
         }
     }
+}
+
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init_missing_evodb_marker, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+
+    {
+        auto tx = m_node.evodb->BeginTransaction(EvoDbIdentity::SNAPSHOT);
+        m_node.evodb->Erase(std::make_pair(EVODB_BEST_BLOCK, uint8_t{1}));
+        tx->Commit();
+    }
+    BOOST_REQUIRE(m_node.evodb->CommitRootTransaction(EvoDbIdentity::SNAPSHOT));
+
+    ChainstateManager& restarted = this->SimulateNodeRestart();
+    WITH_LOCK(::cs_main, restarted.InitializeChainstate(
+        m_node.mempool.get(), *m_node.evodb, m_node.chain_helper));
+
+    bilingual_str error;
+    BOOST_CHECK(!WITH_LOCK(::cs_main, return restarted.DetectSnapshotChainstate(m_node.mempool.get(), error)));
+    BOOST_CHECK(error.original.find("Snapshot chainstate EvoDB marker") != std::string::npos);
+
+    WITH_LOCK(::cs_main, restarted.ResetChainstates());
+    fs::remove_all(gArgs.GetDataDirNet() / "chainstate_snapshot");
+    this->LoadVerifyActivateChainstate();
+    g_txindex = std::make_unique<TxIndex>(1 << 20, /*memory=*/true);
+    BOOST_REQUIRE(g_txindex->Start(restarted.ActiveChainstate()));
+    IndexWaitSynced(*g_txindex);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -66,7 +66,10 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
     chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
 
     // Load a chain created from a UTXO snapshot, if any exist.
-    chainman.DetectSnapshotChainstate(options.mempool);
+    bilingual_str snapshot_error;
+    if (!chainman.DetectSnapshotChainstate(options.mempool, snapshot_error)) {
+        return {ChainstateLoadStatus::FAILURE, snapshot_error};
+    }
 
     auto& pblocktree{chainman.m_blockman.m_block_tree_db};
     // new CBlockTreeDB tries to delete the existing file, which
@@ -176,7 +179,12 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         // TODO: CEvoDB instance should probably be a part of Chainstate
         // (for multiple chainstates to actually work in parallel)
         // and not a global
-        if (&chainman.ActiveChainstate() == chainstate && !evodb->CommitRootTransaction()) {
+        // Commit every chainstate's own identity: ReplayBlocks processes
+        // special transactions, and its coins repair is flushed to disk
+        // immediately, so leaving a non-active identity's EvoDB writes in the
+        // in-memory overlay would let a crash strand the coins DB ahead of
+        // that identity's best-block marker.
+        if (!evodb->CommitRootTransaction(chainstate->EvoDbIdentity())) {
             return {ChainstateLoadStatus::FAILURE, _("Failed to commit Evo database")};
         }
 
