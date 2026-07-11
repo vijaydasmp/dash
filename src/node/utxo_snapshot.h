@@ -13,8 +13,6 @@
 
 #include <optional>
 
-extern RecursiveMutex cs_main;
-
 namespace node {
 //! Metadata describing a serialized version of a UTXO set from which an
 //! assumeutxo Chainstate can be constructed.

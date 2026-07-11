@@ -11,6 +11,7 @@
 #include <rpc/blockchain.h>
 #include <sync.h>
 #include <test/util/chainstate.h>
+#include <test/util/index.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <timedata.h>
@@ -20,6 +21,7 @@
 
 #include <chainlock/handler.h>
 #include <evo/evodb.h>
+#include <governance/governance.h>
 #include <llmq/blockprocessor.h>
 #include <llmq/signing.h>
 
@@ -185,7 +187,7 @@ struct SnapshotTestSetup : TestChain100Setup {
     // tests, but we can't otherwise test this functionality since it relies on
     // destructive filesystem operations.
     SnapshotTestSetup() : TestChain100Setup{
-                              {},
+                              CBaseChainParams::REGTEST,
                               {},
                               /*coins_db_in_memory=*/false,
                               /*block_tree_db_in_memory=*/false,
@@ -387,11 +389,22 @@ struct SnapshotTestSetup : TestChain100Setup {
         ChainstateManager& chainman = *Assert(m_node.chainman);
 
         BOOST_TEST_MESSAGE("Simulating node restart");
+        // TestChainSetup owns a txindex connected to the old chainstate. Stop it
+        // before destroying that chainstate, just as TestChainSetup's destructor does.
+        IndexWaitSynced(*g_txindex);
+        g_txindex->Interrupt();
+        g_txindex->Stop();
+        SyncWithValidationInterfaceQueue();
+        g_txindex.reset();
         {
             LOCK(::cs_main);
             for (Chainstate* cs : chainman.GetAll()) {
                 cs->ForceFlushStateToDisk();
             }
+            // Tear down Dash managers connected to the mempool and old chainstate
+            // before LoadVerifyActivateChainstate() recreates them below.
+            m_node.govman.reset();
+            DashChainstateSetupClose(m_node);
             chainman.ResetChainstates();
             BOOST_CHECK_EQUAL(chainman.GetAll().size(), 0);
             const ChainstateManager::Options chainman_opts{
@@ -518,6 +531,12 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init, SnapshotTestSetup)
 
     // This call reinitializes the chainstates.
     this->LoadVerifyActivateChainstate();
+
+    // Restore the txindex normally owned by TestChainSetup so subsequent block
+    // generation and fixture teardown use the restarted chainstate.
+    g_txindex = std::make_unique<TxIndex>(1 << 20, /*memory=*/true);
+    BOOST_REQUIRE(g_txindex->Start(chainman_restarted.ActiveChainstate()));
+    IndexWaitSynced(*g_txindex);
 
     {
         LOCK(chainman_restarted.GetMutex());

@@ -441,13 +441,22 @@ TestingSetup::~TestingSetup()
     DashChainstateSetupClose(m_node);
 }
 
-TestChain100Setup::TestChain100Setup(const std::string& chain_name, const std::vector<const char*>& extra_args)
-    : TestChainSetup{100, chain_name, extra_args}
+TestChain100Setup::TestChain100Setup(
+        const std::string& chain_name,
+        const std::vector<const char*>& extra_args,
+        const bool coins_db_in_memory,
+        const bool block_tree_db_in_memory)
+    : TestChainSetup{100, chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
 }
 
-TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name, const std::vector<const char*>& extra_args)
-    : TestingSetup{chain_name, extra_args}
+TestChainSetup::TestChainSetup(
+        int num_blocks,
+        const std::string& chain_name,
+        const std::vector<const char*>& extra_args,
+        const bool coins_db_in_memory,
+        const bool block_tree_db_in_memory)
+    : TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
     SetMockTime(1598887952);
     constexpr std::array<unsigned char, 32> vchKey = {
