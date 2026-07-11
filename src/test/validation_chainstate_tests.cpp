@@ -6,7 +6,9 @@
 #include <chainparams.h>
 #include <consensus/validation.h>
 #include <evo/evodb.h>
+#include <evo/deterministicmns.h>
 #include <index/txindex.h>
+#include <node/interface_ui.h>
 #include <random.h>
 #include <rpc/blockchain.h>
 #include <sync.h>
@@ -16,10 +18,30 @@
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <validation.h>
+#include <validationinterface.h>
 
 #include <vector>
 
+#include <boost/signals2/connection.hpp>
 #include <boost/test/unit_test.hpp>
+
+namespace {
+
+class TipEventCounter final : public CValidationInterface
+{
+public:
+    int block_connected{0};
+    int updated_tip{0};
+    int mn_list_changed{0};
+    int chainstate_flushed{0};
+
+    void BlockConnected(const std::shared_ptr<const CBlock>&, const CBlockIndex*) override { ++block_connected; }
+    void UpdatedBlockTip(const CBlockIndex*, const CBlockIndex*, bool) override { ++updated_tip; }
+    void NotifyMasternodeListChanged(bool, const CDeterministicMNList&, const CDeterministicMNListDiff&) override { ++mn_list_changed; }
+    void ChainStateFlushed(const CBlockLocator&) override { ++chainstate_flushed; }
+};
+
+} // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validation_chainstate_tests, ChainTestingSetup)
 
@@ -131,8 +153,19 @@ BOOST_FIXTURE_TEST_CASE(chainstate_update_tip, TestChain100Setup)
         BOOST_CHECK(accepted);
     }
 
-    // UpdateTip is called here
+    SyncWithValidationInterfaceQueue();
+    TipEventCounter event_counter;
+    RegisterValidationInterface(&event_counter);
+    int ui_mn_list_changed{0};
+    auto ui_connection = uiInterface.NotifyMasternodeListChanged_connect(
+        [&](const CDeterministicMNList&, const CBlockIndex*) { ++ui_mn_list_changed; });
+
+    // UpdateTip is called here.
     bool block_added = background_cs.ActivateBestChain(state, pblockone);
+    WITH_LOCK(::cs_main, background_cs.ForceFlushStateToDisk());
+    SyncWithValidationInterfaceQueue();
+    ui_connection.disconnect();
+    UnregisterValidationInterface(&event_counter);
 
     // Ensure tip is as expected
     BOOST_CHECK_EQUAL(background_cs.m_chain.Tip()->GetBlockHash(), pblockone->GetHash());
@@ -141,6 +174,11 @@ BOOST_FIXTURE_TEST_CASE(chainstate_update_tip, TestChain100Setup)
     // validation chain.
     BOOST_CHECK(block_added);
     BOOST_CHECK_EQUAL(curr_tip, ::g_best_block);
+    BOOST_CHECK_EQUAL(event_counter.block_connected, 0);
+    BOOST_CHECK_EQUAL(event_counter.updated_tip, 0);
+    BOOST_CHECK_EQUAL(event_counter.mn_list_changed, 0);
+    BOOST_CHECK_EQUAL(event_counter.chainstate_flushed, 0);
+    BOOST_CHECK_EQUAL(ui_mn_list_changed, 0);
 }
 
 //! A chain whose V19 activation sits above the assumeutxo height, so the
@@ -196,7 +234,7 @@ BOOST_FIXTURE_TEST_CASE(chainstate_connectblock_bls_scheme, V19AboveSnapshotSetu
         CBlockIndex* pindex = nullptr;
         bool newblock = false;
         BOOST_REQUIRE(CheckBlock(*pblock, state, Params().GetConsensus()));
-        BOOST_REQUIRE(background_cs.AcceptBlock(pblock, state, &pindex, true, nullptr, &newblock));
+        BOOST_REQUIRE(m_node.chainman->AcceptBlock(pblock, state, &pindex, true, nullptr, &newblock));
     }
     BOOST_REQUIRE(background_cs.ActivateBestChain(state, pblock));
 

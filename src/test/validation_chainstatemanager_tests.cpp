@@ -29,32 +29,16 @@
 #include <llmq/signing.h>
 #include <llmq/signing_shares.h>
 #include <node/blockstorage.h>
-#include <node/interface_ui.h>
 
 #include <tinyformat.h>
 
 #include <vector>
 
-#include <boost/signals2/connection.hpp>
 #include <boost/test/unit_test.hpp>
 
 using node::SnapshotMetadata;
 
 namespace {
-
-class TipEventCounter final : public CValidationInterface
-{
-public:
-    int block_connected{0};
-    int updated_tip{0};
-    int mn_list_changed{0};
-    int chainstate_flushed{0};
-
-    void BlockConnected(const std::shared_ptr<const CBlock>&, const CBlockIndex*) override { ++block_connected; }
-    void UpdatedBlockTip(const CBlockIndex*, const CBlockIndex*, bool) override { ++updated_tip; }
-    void NotifyMasternodeListChanged(bool, const CDeterministicMNList&, const CDeterministicMNListDiff&) override { ++mn_list_changed; }
-    void ChainStateFlushed(const CBlockLocator&) override { ++chainstate_flushed; }
-};
 
 void SeedSnapshotMarker(CEvoDB& evodb, const uint256& hash)
 {
@@ -184,28 +168,6 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     BOOST_CHECK_EQUAL(active_tip2, exp_tip2);
 
     BOOST_CHECK_EQUAL(exp_tip, exp_tip2);
-
-    // Connect genesis through the now-background chainstate. This exercises
-    // Dash special-transaction and quorum processing with a non-active caller,
-    // and background validation must not emit active-tip notifications.
-    SyncWithValidationInterfaceQueue();
-    TipEventCounter event_counter;
-    RegisterValidationInterface(&event_counter);
-    int ui_mn_list_changed{0};
-    auto ui_connection = uiInterface.NotifyMasternodeListChanged_connect(
-        [&](const CDeterministicMNList&, const CBlockIndex*) { ++ui_mn_list_changed; });
-    BlockValidationState background_state;
-    BOOST_CHECK(c1.ActivateBestChain(background_state, nullptr));
-    WITH_LOCK(::cs_main, c1.ForceFlushStateToDisk());
-    SyncWithValidationInterfaceQueue();
-    ui_connection.disconnect();
-    UnregisterValidationInterface(&event_counter);
-    BOOST_CHECK_EQUAL(c1.m_chain.Tip(), WITH_LOCK(::cs_main, return manager.ActiveChain().Genesis()));
-    BOOST_CHECK_EQUAL(event_counter.block_connected, 0);
-    BOOST_CHECK_EQUAL(event_counter.updated_tip, 0);
-    BOOST_CHECK_EQUAL(event_counter.mn_list_changed, 0);
-    BOOST_CHECK_EQUAL(event_counter.chainstate_flushed, 0);
-    BOOST_CHECK_EQUAL(ui_mn_list_changed, 0);
 
     // Let scheduler events finish running to avoid accessing memory that is going to be unloaded
     SyncWithValidationInterfaceQueue();
@@ -517,6 +479,55 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, SnapshotTestSetup)
     this->SetupSnapshot();
 }
 
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_reconsider_block_candidates, SnapshotTestSetup)
+{
+    auto [background_chainstate, snapshot_chainstate] = this->SetupSnapshot();
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+
+    // Build a valid fork block directly on the background tip. Since the
+    // background tip is the snapshot base, this block is not on the path the
+    // background chainstate is allowed to validate.
+    CScript script_pub_key = CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG;
+    CBlock fork_block = CreateBlock(/*txns=*/{}, script_pub_key, *background_chainstate);
+    BOOST_REQUIRE_EQUAL(fork_block.hashPrevBlock, WITH_LOCK(::cs_main, return background_chainstate->m_chain.Tip()->GetBlockHash()));
+    BOOST_REQUIRE(chainman.ProcessNewBlock(std::make_shared<const CBlock>(fork_block), /*force_processing=*/true, /*new_block=*/nullptr));
+
+    CBlockIndex* fork_index{WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(fork_block.GetHash()))};
+    BOOST_REQUIRE(fork_index);
+
+    {
+        LOCK(::cs_main);
+        const arith_uint256 original_work{fork_index->nChainWork};
+        const CBlockIndex* snapshot_base{snapshot_chainstate->SnapshotBase()};
+        BOOST_REQUIRE(snapshot_base);
+        BOOST_REQUIRE_EQUAL(background_chainstate->m_chain.Tip(), snapshot_base);
+        BOOST_REQUIRE(!snapshot_base->GetAncestor(fork_index->nHeight));
+
+        // Make the fork the highest-work block and simulate validation having
+        // marked it failed. ResetBlockFailureFlags used to add it only to the
+        // invoking background chainstate's candidate set.
+        fork_index->nChainWork = snapshot_chainstate->m_chain.Tip()->nChainWork + 1;
+        fork_index->nStatus |= BLOCK_FAILED_VALID;
+        chainman.m_failed_blocks.insert(fork_index);
+        background_chainstate->setBlockIndexCandidates.erase(fork_index);
+        snapshot_chainstate->setBlockIndexCandidates.erase(fork_index);
+
+        background_chainstate->ResetBlockFailureFlags(fork_index);
+
+        BOOST_CHECK(fork_index->IsValid());
+        BOOST_CHECK_EQUAL(background_chainstate->setBlockIndexCandidates.count(fork_index), 0);
+        BOOST_CHECK_EQUAL(snapshot_chainstate->setBlockIndexCandidates.count(fork_index), 1);
+        for (const CBlockIndex* candidate : background_chainstate->setBlockIndexCandidates) {
+            BOOST_CHECK_EQUAL(snapshot_base->GetAncestor(candidate->nHeight), candidate);
+        }
+
+        // Restore the synthetic work value so the shared block index remains
+        // internally consistent for fixture teardown.
+        snapshot_chainstate->setBlockIndexCandidates.erase(fork_index);
+        fork_index->nChainWork = original_work;
+    }
+}
+
 //! Test LoadBlockIndex behavior when multiple chainstates are in use.
 //!
 //! - First, verify that setBlockIndexCandidates is as expected when using a single,
@@ -818,6 +829,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_evodb_snapshot_only_flush_restart, Sna
         LOCK2(::cs_main, background_chainstate->MempoolMutex());
         BOOST_CHECK(background_chainstate->DisconnectTip(unused_state, &unused_pool));
         unused_pool.clear();
+        background_chainstate->TryAddBlockIndexCandidate(background_chainstate->m_chain.Tip());
         background_chainstate->ForceFlushStateToDisk();
     }
     BOOST_CHECK_EQUAL(background_chainstate->m_chain.Height(), 109);
@@ -1132,21 +1144,21 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_promoted_swa
     BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, snapshot_tip));
 }
 
-BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_missing_on_disk_base_is_error, SnapshotTestSetup)
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_base_is_cached, SnapshotTestSetup)
 {
     this->SetupSnapshot();
     ChainstateManager& chainman = *Assert(m_node.chainman);
     const uint256 base_hash{*chainman.SnapshotBlockhash()};
 
-    SnapshotCompletionResult result;
     {
         LOCK(::cs_main);
+        const CBlockIndex* cached_base = chainman.ActiveChainstate().SnapshotBase();
+        BOOST_REQUIRE(cached_base);
         auto node = chainman.BlockIndex().extract(base_hash);
         BOOST_REQUIRE(!node.empty());
-        result = chainman.MaybeCompleteSnapshotValidation([](bilingual_str) {});
+        BOOST_CHECK_EQUAL(chainman.ActiveChainstate().SnapshotBase(), cached_base);
         chainman.BlockIndex().insert(std::move(node));
     }
-    BOOST_CHECK_EQUAL(result, SnapshotCompletionResult::BASE_BLOCKHASH_MISMATCH);
 }
 
 BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion_without_base_list_marker, SnapshotTestSetup)

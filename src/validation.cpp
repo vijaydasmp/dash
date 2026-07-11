@@ -3533,6 +3533,7 @@ bool Chainstate::InvalidateBlock(BlockValidationState& state, CBlockIndex* pinde
             if (!m_chain.Contains(candidate) &&
                     !CBlockIndexWorkComparator()(candidate, pindex->pprev) &&
                     candidate->IsValid(BLOCK_VALID_TRANSACTIONS) &&
+                    !(candidate->nStatus & BLOCK_CONFLICT_CHAINLOCK) &&
                     candidate->HaveTxsDownloaded()) {
                 candidate_blocks_by_work.insert(std::make_pair(candidate->nChainWork, candidate));
             }
@@ -3770,6 +3771,7 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
     }
 
     int nHeight = pindex->nHeight;
+    std::vector<CBlockIndex*> reconsidered_blocks;
 
     // Remove the invalidity flag from this block and all its descendants.
     for (auto& [_, block_index] : m_blockman.m_block_index) {
@@ -3779,11 +3781,7 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
                 block_index.nStatus &= ~BLOCK_CONFLICT_CHAINLOCK;
             }
             m_blockman.m_dirty_blockindex.insert(&block_index);
-            if (block_index.IsValid(BLOCK_VALID_TRANSACTIONS) && block_index.HaveTxsDownloaded() && setBlockIndexCandidates.value_comp()(m_chain.Tip(), &block_index)) {
-                if (ignore_chainlocks || !(block_index.nStatus & BLOCK_CONFLICT_CHAINLOCK)) {
-                    setBlockIndexCandidates.insert(&block_index);
-                }
-            }
+            reconsidered_blocks.push_back(&block_index);
             if (&block_index == m_chainman.m_best_invalid) {
                 // Reset invalid block marker if it was pointing to one of those.
                 m_chainman.m_best_invalid = nullptr;
@@ -3800,11 +3798,7 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
                 pindex->nStatus &= ~BLOCK_CONFLICT_CHAINLOCK;
             }
             m_blockman.m_dirty_blockindex.insert(pindex);
-            if (pindex->IsValid(BLOCK_VALID_TRANSACTIONS) && pindex->HaveTxsDownloaded() && setBlockIndexCandidates.value_comp()(m_chain.Tip(), pindex)) {
-                if (ignore_chainlocks || !(pindex->nStatus & BLOCK_CONFLICT_CHAINLOCK)) {
-                    setBlockIndexCandidates.insert(pindex);
-                }
-            }
+            reconsidered_blocks.push_back(pindex);
             if (pindex == m_chainman.m_best_invalid) {
                 // Reset invalid block marker if it was pointing to one of those.
                 m_chainman.m_best_invalid = nullptr;
@@ -3822,6 +3816,15 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
             }
         }
         pindex = pindex->pprev;
+    }
+
+    // Failure flags and m_best_invalid are shared by all chainstates, so
+    // candidate admission must be recomputed for all of them as well.
+    for (CBlockIndex* reconsidered : reconsidered_blocks) {
+        if (!reconsidered->IsValid(BLOCK_VALID_TRANSACTIONS) || !reconsidered->HaveTxsDownloaded()) continue;
+        for (Chainstate* chainstate : m_chainman.GetAll()) {
+            chainstate->TryAddBlockIndexCandidate(reconsidered);
+        }
     }
 }
 
@@ -5265,7 +5268,7 @@ void ChainstateManager::CheckBlockIndex()
                         // The active chainstate should always have this block
                         // as a candidate, but a background chainstate should
                         // only have it if it is an ancestor of the snapshot base.
-                        if (is_active || GetSnapshotBaseBlock()->GetAncestor(pindex->nHeight) == pindex) {
+                        if (is_active || Assert(GetSnapshotBaseBlock())->GetAncestor(pindex->nHeight) == pindex) {
                             assert(c->setBlockIndexCandidates.count(pindex));
                         }
                     }
@@ -5309,7 +5312,7 @@ void ChainstateManager::CheckBlockIndex()
                 const bool is_active = c == &ActiveChainstate();
                 if (!CBlockIndexWorkComparator()(pindex, c->m_chain.Tip()) && c->setBlockIndexCandidates.count(pindex) == 0) {
                     if (pindexFirstInvalid == nullptr && pindexFirstConflicing == nullptr) {
-                        if (is_active || GetSnapshotBaseBlock()->GetAncestor(pindex->nHeight) == pindex) {
+                        if (is_active || Assert(GetSnapshotBaseBlock())->GetAncestor(pindex->nHeight) == pindex) {
                             assert(foundInUnlinked);
                         }
                     }
@@ -6369,7 +6372,15 @@ util::Result<void> Chainstate::InvalidateCoinsDBOnDisk()
 
 const CBlockIndex* ChainstateManager::GetSnapshotBaseBlock() const
 {
-    return m_active_chainstate ? m_active_chainstate->SnapshotBase() : nullptr;
+    // Deliberately bypass Chainstate::SnapshotBase(), which Asserts a missing
+    // base block out of existence: startup snapshot completion must be able to
+    // observe "base not in the block index" and fail with
+    // BASE_BLOCKHASH_MISMATCH instead of aborting the node. Callers that
+    // require existence Assert at the call site.
+    if (!m_active_chainstate || !m_active_chainstate->m_from_snapshot_blockhash) {
+        return nullptr;
+    }
+    return m_blockman.LookupBlockIndex(*m_active_chainstate->m_from_snapshot_blockhash);
 }
 
 std::optional<int> ChainstateManager::GetSnapshotBaseHeight() const
