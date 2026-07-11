@@ -986,17 +986,13 @@ public:
     //! coins databases. This will be split somehow across chainstates.
     int64_t m_total_coinsdb_cache{0};
 
-    //! Instantiate a new chainstate and assign it based upon whether it is
-    //! from a snapshot.
+    //! Instantiate a new chainstate.
     //!
     //! @param[in] mempool              The mempool to pass to the chainstate
     //                                  constructor
-    //! @param[in] snapshot_blockhash   If given, signify that this chainstate
-    //!                                 is based on a snapshot.
     Chainstate& InitializeChainstate(CTxMemPool* mempool,
                                       CEvoDB& evoDb,
-                                      const std::unique_ptr<CChainstateHelper>& chain_helper,
-                                      const std::optional<uint256>& snapshot_blockhash = std::nullopt)
+                                      const std::unique_ptr<CChainstateHelper>& chain_helper)
         LIFETIMEBOUND EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     //! Get all chainstates currently being used.
@@ -1102,6 +1098,17 @@ public:
     bool IsQuorumTypeEnabled(const Consensus::LLMQType llmqType, gsl::not_null<const CBlockIndex*> pindexPrev,
                              std::optional<bool> optDIP0024IsActive = std::nullopt,
                              std::optional<bool> optHaveDIP0024Quorums = std::nullopt) const;
+
+    //! When starting up, search the datadir for a chainstate based on a UTXO
+    //! snapshot that is in the process of being validated.
+    bool DetectSnapshotChainstate(CTxMemPool* mempool) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    void ResetChainstates() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! Switch the active chainstate to one based on a UTXO snapshot that was loaded
+    //! previously.
+    Chainstate& ActivateExistingSnapshot(CTxMemPool* mempool, uint256 base_blockhash)
+        EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     ~ChainstateManager();
 };
