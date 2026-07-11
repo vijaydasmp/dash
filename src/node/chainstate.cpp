@@ -35,65 +35,19 @@
 #include <vector>
 
 namespace node {
-ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSizes& cache_sizes,
-                                    const ChainstateLoadOptions& options, std::unique_ptr<CEvoDB>& evodb,
-                                    std::unique_ptr<CDeterministicMNManager>& dmnman, std::unique_ptr<LLMQContext>& llmq_ctx,
-                                    std::unique_ptr<CChainstateHelper>& chain_helper)
+// Complete initialization of chainstates after the initial call has been made
+// to ChainstateManager::InitializeChainstate().
+static ChainstateLoadResult CompleteChainstateInitialization(ChainstateManager& chainman, const CacheSizes& cache_sizes,
+                                                             const ChainstateLoadOptions& options, CEvoDB& evodb,
+                                                             std::unique_ptr<CDeterministicMNManager>& dmnman,
+                                                             std::unique_ptr<LLMQContext>& llmq_ctx,
+                                                             std::unique_ptr<CChainstateHelper>& chain_helper)
+    EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
-    assert(options.mn_metaman);
-    assert(options.sporkman);
-    assert(options.chainlocks);
-    assert(options.mn_sync);
-
     const bool to_wipe_data = options.reindex || options.reindex_chainstate;
-    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
-        return to_wipe_data || chainstate->CoinsTip().GetBestBlock().IsNull();
-    };
-
-    if (!hashAssumeValid.IsNull()) {
-        LogPrintf("Assuming ancestors of block %s have valid signatures.\n", hashAssumeValid.GetHex());
-    } else {
-        LogPrintf("Validating signatures for all blocks.\n");
-    }
-    LogPrintf("Setting nMinimumChainWork=%s\n", nMinimumChainWork.GetHex());
-    if (nMinimumChainWork < UintToArith256(chainman.GetConsensus().nMinimumChainWork)) {
-        LogPrintf("Warning: nMinimumChainWork set below default value of %s\n", chainman.GetConsensus().nMinimumChainWork.GetHex());
-    }
-    if (nPruneTarget == std::numeric_limits<uint64_t>::max()) {
-        LogPrintf("Block pruning enabled.  Use RPC call pruneblockchain(height) to manually prune block and undo files.\n");
-    } else if (nPruneTarget) {
-        LogPrintf("Prune configured to target %u MiB on disk for block and undo files.\n", nPruneTarget / 1024 / 1024);
-    }
-
-    LOCK(cs_main);
-
-    evodb.reset();
-    // TODO: pass DbWrapperParams as options instead multiple params
-    evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data});
 
     dmnman.reset();
-    dmnman = std::make_unique<CDeterministicMNManager>(*evodb, *options.mn_metaman);
-
-    chainman.m_total_coinstip_cache = cache_sizes.coins;
-    chainman.m_total_coinsdb_cache = cache_sizes.coins_db;
-
-    // Load the fully validated chainstate.
-    chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
-
-    // Wiping the shared EvoDB above erased the SNAPSHOT best-block marker that
-    // ActivateExistingSnapshot() requires, so a persisted snapshot chainstate can
-    // no longer be revived. Discard it here rather than letting startup fail with
-    // advice ("reindex") the user has just followed, which would never recover.
-    if (to_wipe_data && !DeleteSnapshotChainstateFromDisk()) {
-        return {ChainstateLoadStatus::FAILURE,
-                _("Failed to remove the snapshot chainstate directory. Remove it manually before restarting.")};
-    }
-
-    // Load a chain created from a UTXO snapshot, if any exist.
-    bilingual_str snapshot_error;
-    if (!chainman.DetectSnapshotChainstate(options.mempool, snapshot_error)) {
-        return {ChainstateLoadStatus::FAILURE, snapshot_error};
-    }
+    dmnman = std::make_unique<CDeterministicMNManager>(evodb, *options.mn_metaman);
 
     auto& pblocktree{chainman.m_blockman.m_block_tree_db};
     // new CBlockTreeDB tries to delete the existing file, which
@@ -103,7 +57,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
 
     // Initialize llmq_ctx and connection to mempool
     llmq_ctx.reset();
-    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, *evodb, *options.sporkman, chainman,
+    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, evodb, *options.sporkman, chainman,
                                              util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data},
                                              options.bls_threads, options.worker_count, options.max_recsigs_age);
     if (options.mempool) {
@@ -112,7 +66,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
 
     // Initialize chain_helper
     chain_helper.reset();
-    chain_helper = std::make_unique<CChainstateHelper>(*evodb, *dmnman, *options.mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
+    chain_helper = std::make_unique<CChainstateHelper>(evodb, *dmnman, *options.mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
                                                        *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), *options.chainlocks,
                                                        *(llmq_ctx->qman));
 
@@ -161,6 +115,13 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         return {ChainstateLoadStatus::FAILURE, _("Error initializing block database")};
     }
 
+    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+        return options.reindex || options.reindex_chainstate || chainstate->CoinsTip().GetBestBlock().IsNull();
+    };
+
+    assert(chainman.m_total_coinstip_cache > 0);
+    assert(chainman.m_total_coinsdb_cache > 0);
+
     // Conservative value which is arbitrarily chosen, as it will ultimately be changed
     // by a call to `chainman.MaybeRebalanceCaches()`. We just need to make sure
     // that the sum of the two caches (40%) does not exceed the allowable amount
@@ -208,7 +169,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         // immediately, so leaving a non-active identity's EvoDB writes in the
         // in-memory overlay would let a crash strand the coins DB ahead of
         // that identity's best-block marker.
-        if (!evodb->CommitRootTransaction(chainstate->EvoDbIdentity())) {
+        if (!evodb.CommitRootTransaction(chainstate->EvoDbIdentity())) {
             return {ChainstateLoadStatus::FAILURE, _("Failed to commit Evo database")};
         }
 
@@ -234,6 +195,120 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
     // disk, rebalance the coins caches to desired levels based
     // on the condition of each chainstate.
     chainman.MaybeRebalanceCaches();
+
+    return {ChainstateLoadStatus::SUCCESS, {}};
+}
+
+ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSizes& cache_sizes,
+                                    const ChainstateLoadOptions& options, std::unique_ptr<CEvoDB>& evodb,
+                                    std::unique_ptr<CDeterministicMNManager>& dmnman, std::unique_ptr<LLMQContext>& llmq_ctx,
+                                    std::unique_ptr<CChainstateHelper>& chain_helper)
+{
+    assert(options.mn_metaman);
+    assert(options.sporkman);
+    assert(options.chainlocks);
+    assert(options.mn_sync);
+
+    if (!hashAssumeValid.IsNull()) {
+        LogPrintf("Assuming ancestors of block %s have valid signatures.\n", hashAssumeValid.GetHex());
+    } else {
+        LogPrintf("Validating signatures for all blocks.\n");
+    }
+    LogPrintf("Setting nMinimumChainWork=%s\n", nMinimumChainWork.GetHex());
+    if (nMinimumChainWork < UintToArith256(chainman.GetConsensus().nMinimumChainWork)) {
+        LogPrintf("Warning: nMinimumChainWork set below default value of %s\n", chainman.GetConsensus().nMinimumChainWork.GetHex());
+    }
+    if (nPruneTarget == std::numeric_limits<uint64_t>::max()) {
+        LogPrintf("Block pruning enabled.  Use RPC call pruneblockchain(height) to manually prune block and undo files.\n");
+    } else if (nPruneTarget) {
+        LogPrintf("Prune configured to target %u MiB on disk for block and undo files.\n", nPruneTarget / 1024 / 1024);
+    }
+
+    LOCK(cs_main);
+
+    evodb.reset();
+    // TODO: pass DbWrapperParams as options instead multiple params
+    evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{
+        .path = options.data_dir,
+        .memory = options.dash_dbs_in_memory,
+        .wipe = options.reindex || options.reindex_chainstate});
+
+    chainman.m_total_coinstip_cache = cache_sizes.coins;
+    chainman.m_total_coinsdb_cache = cache_sizes.coins_db;
+
+    // Load the fully validated chainstate.
+    chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
+
+    // Wiping the shared EvoDB above erased the SNAPSHOT best-block marker that
+    // ActivateExistingSnapshot() requires, so a persisted snapshot chainstate can
+    // no longer be revived. Discard it here rather than letting startup fail with
+    // advice ("reindex") the user has just followed, which would never recover.
+    if ((options.reindex || options.reindex_chainstate) && !DeleteSnapshotChainstateFromDisk()) {
+        return {ChainstateLoadStatus::FAILURE,
+                _("Failed to remove the snapshot chainstate directory. Remove it manually before restarting.")};
+    }
+
+    // Load a chain created from a UTXO snapshot, if any exist.
+    bilingual_str snapshot_error;
+    if (!chainman.DetectSnapshotChainstate(options.mempool, snapshot_error)) {
+        return {ChainstateLoadStatus::FAILURE, snapshot_error};
+    }
+
+    auto [init_status, init_error] = CompleteChainstateInitialization(chainman, cache_sizes, options, *evodb, dmnman,
+                                                                      llmq_ctx, chain_helper);
+    if (init_status != ChainstateLoadStatus::SUCCESS) {
+        return {init_status, init_error};
+    }
+
+    // If a snapshot chainstate was fully validated by a background chainstate during
+    // the last run, detect it here and clean up the now-unneeded background
+    // chainstate.
+    //
+    // Why is this cleanup done here (on subsequent restart) and not just when the
+    // snapshot is actually validated? Because this entails unusual
+    // filesystem operations to move leveldb data directories around, and that seems
+    // too risky to do in the middle of normal runtime.
+    const auto snapshot_completion = chainman.MaybeCompleteSnapshotValidation();
+
+    if (snapshot_completion == SnapshotCompletionResult::SKIPPED) {
+        // Do nothing; expected case.
+    } else if (snapshot_completion == SnapshotCompletionResult::SUCCESS) {
+        LogPrintf("[snapshot] cleaning up unneeded background chainstate, then reinitializing\n");
+        // The mempool holds raw pointers to dmnman and llmq_ctx->isman, so it has to
+        // let go of them before either manager is destroyed.
+        if (options.mempool) {
+            options.mempool->DisconnectManagers();
+        }
+        chain_helper.reset();
+        llmq_ctx.reset();
+        dmnman.reset();
+        if (!chainman.ValidatedSnapshotCleanup()) {
+            AbortNode("Background chainstate cleanup failed unexpectedly.");
+        }
+
+        // Because ValidatedSnapshotCleanup() has torn down chainstates with
+        // ChainstateManager::ResetChainstates(), reinitialize them here without
+        // duplicating the blockindex work above.
+        assert(chainman.GetAll().empty());
+        assert(!chainman.IsSnapshotActive());
+        assert(!chainman.IsSnapshotValidated());
+
+        chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
+
+        // A reload of the block index is required to recompute setBlockIndexCandidates
+        // for the fully validated chainstate.
+        chainman.ActiveChainstate().UnloadBlockIndex();
+
+        std::tie(init_status, init_error) = CompleteChainstateInitialization(chainman, cache_sizes, options, *evodb,
+                                                                             dmnman, llmq_ctx, chain_helper);
+        if (init_status != ChainstateLoadStatus::SUCCESS) {
+            return {init_status, init_error};
+        }
+    } else {
+        return {ChainstateLoadStatus::FAILURE, _(
+           "UTXO snapshot failed to validate. "
+           "Restart to resume normal initial block download, or try loading a different snapshot.")};
+    }
 
     return {ChainstateLoadStatus::SUCCESS, {}};
 }
