@@ -32,6 +32,7 @@
 #include <util/check.h>
 #include <util/fs.h>
 #include <util/hasher.h>
+#include <util/result.h>
 #include <util/translation.h>
 #include <versionbits.h>
 
@@ -861,7 +862,7 @@ private:
      * In case of an invalid snapshot, rename the coins leveldb directory so
      * that it can be examined for issue diagnosis.
      */
-    void InvalidateCoinsDBOnDisk() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    [[nodiscard]] util::Result<void> InvalidateCoinsDBOnDisk() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     friend ChainstateManager;
 };

@@ -387,7 +387,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         llmq_ctx.reset();
         dmnman.reset();
         if (!chainman.ValidatedSnapshotCleanup()) {
-            AbortNode("Background chainstate cleanup failed unexpectedly.");
+            return {ChainstateLoadStatus::FAILURE_FATAL, Untranslated("Background chainstate cleanup failed unexpectedly.")};
         }
 
         // Because ValidatedSnapshotCleanup() has torn down chainstates with
