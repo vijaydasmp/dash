@@ -998,7 +998,7 @@ static RPCHelpMan quorum_dkginfo()
             {
                 {RPCResult::Type::NUM, "active_dkgs", "Total number of active DKG sessions this node is participating in right now"},
                 {RPCResult::Type::NUM, "next_dkg", "The number of blocks until the next potential DKG session"},
-                GetRpcResult("proTxHash"),
+                GetRpcResult("proTxHash", /*optional=*/true),
                 {RPCResult::Type::ARR, "upcoming_dkgs", /*optional=*/true, "Upcoming DKG sessions for the given proTxHash whose work block is already mined. For rotated quorums all indices in a cycle share the cycle base work block",
                 {
                     {RPCResult::Type::OBJ, "", "",
