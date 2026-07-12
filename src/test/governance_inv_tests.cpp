@@ -7,14 +7,12 @@
 #include <governance/governance.h>
 #include <governance/net_governance.h>
 #include <governance/object.h>
-#include <masternode/meta.h>
 #include <masternode/sync.h>
 #include <net.h>
 #include <net_processing.h>
 #include <netfulfilledman.h>
 #include <node/connection_types.h>
 #include <protocol.h>
-#include <scheduler.h>
 #include <streams.h>
 #include <uint256.h>
 #include <util/strencodings.h>
@@ -30,7 +28,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <thread>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -39,16 +36,16 @@ namespace {
 struct GovernanceInvSetup : public TestingSetup {
     GovernanceInvSetup() : TestingSetup{CBaseChainParams::MAIN}
     {
-        // ConfirmInventoryRequest and CheckAndRemove short-circuit on
-        // !IsBlockchainSynced(); CheckAndRemove also asserts metaman.IsValid().
-        // NetGovernance::AlreadyHave gates on m_gov_manager.IsValid().
+        // ConfirmInventoryRequest and the NetGovernance object/vote handlers
+        // short-circuit on !IsBlockchainSynced().
         BOOST_REQUIRE(m_node.mn_sync);
         m_node.mn_sync->SwitchToNextAsset();
         BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
 
         BOOST_REQUIRE(m_node.mn_metaman);
-        BOOST_REQUIRE(m_node.mn_metaman->LoadCache(/*load_cache=*/false));
-
+        // Note: mn_metaman is left unloaded. No test here reaches
+        // CGovernanceObject::ProcessVote, which asserts metaman.IsValid() -- a vote whose
+        // parent object exists would, and would need it loaded first.
         m_node.govman = std::make_unique<CGovernanceManager>(*m_node.mn_metaman, *m_node.chainman, *m_node.chain_helper->superblocks, *m_node.dmnman, *m_node.mn_sync);
         // Match runtime preconditions: NetGovernance::AlreadyHave claims we
         // already have the inv when governance isn't loaded (e.g.
@@ -73,7 +70,8 @@ struct GovernanceInvSetup : public TestingSetup {
             m_node.peerman.get(), *m_node.govman, *m_node.mn_sync,
             *m_node.netfulfilledman, *m_node.connman));
 
-        // Anchor the mocked clock so SetMockTime advances are deterministic.
+        // Anchor the clock so the object and vote timestamps the tests build
+        // from GetTime() are deterministic. Nothing advances it.
         SetMockTime(1'700'000'000s);
     }
     ~GovernanceInvSetup() {
