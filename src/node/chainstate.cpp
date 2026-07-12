@@ -47,7 +47,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
                                                      const CacheSizes& cache_sizes,
                                                      const ChainstateLoadOptions& options)
 {
-    auto is_coinsview_empty = [&](CChainState* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return options.reindex || options.reindex_chainstate || chainstate->CoinsTip().GetBestBlock().IsNull();
     };
 
@@ -117,7 +117,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
     // At this point we're either in reindex or we've loaded a useful
     // block tree into BlockIndex()!
 
-    for (CChainState* chainstate : chainman.GetAll()) {
+    for (Chainstate* chainstate : chainman.GetAll()) {
         chainstate->InitCoinsDB(
             /*cache_size_bytes=*/cache_sizes.coins_db,
             /*in_memory=*/options.coins_db_in_memory,
@@ -145,7 +145,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
         assert(chainstate->CanFlushToDisk());
 
         // flush evodb
-        // TODO: CEvoDB instance should probably be a part of CChainState
+        // TODO: CEvoDB instance should probably be a part of Chainstate
         // (for multiple chainstates to actually work in parallel)
         // and not a global
         if (&chainman.ActiveChainstate() == chainstate && !evodb->CommitRootTransaction()) {
@@ -224,13 +224,13 @@ void DashChainstateSetupClose(std::unique_ptr<CChainstateHelper>& chain_helper,
 ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB& evodb,
                                             const ChainstateLoadOptions& options)
 {
-    auto is_coinsview_empty = [&](CChainState* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return options.reindex || options.reindex_chainstate || chainstate->CoinsTip().GetBestBlock().IsNull();
     };
 
     LOCK(cs_main);
 
-    for (CChainState* chainstate : chainman.GetAll()) {
+    for (Chainstate* chainstate : chainman.GetAll()) {
         if (!is_coinsview_empty(chainstate)) {
             const CBlockIndex* tip = chainstate->m_chain.Tip();
             if (tip && tip->nTime > GetTime() + MAX_FUTURE_BLOCK_TIME) {
@@ -264,7 +264,7 @@ ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB&
             }
 
         } else {
-            // TODO: CEvoDB instance should probably be a part of CChainState
+            // TODO: CEvoDB instance should probably be a part of Chainstate
             // (for multiple chainstates to actually work in parallel)
             // and not a global
             if (&chainman.ActiveChainstate() == chainstate && !evodb.IsEmpty()) {

@@ -40,13 +40,13 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     ChainstateManager& manager = *m_node.chainman;
     CTxMemPool& mempool = *m_node.mempool;
     CEvoDB& evodb = *m_node.evodb;
-    std::vector<CChainState*> chainstates;
+    std::vector<Chainstate*> chainstates;
 
     BOOST_CHECK(!manager.SnapshotBlockhash().has_value());
 
     // Create a legacy (IBD) chainstate.
     //
-    CChainState& c1 = WITH_LOCK(::cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper));
+    Chainstate& c1 = WITH_LOCK(::cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper));
     chainstates.push_back(&c1);
     c1.InitCoinsDB(
         /*cache_size_bytes=*/1 << 23, /*in_memory=*/true, /*should_wipe=*/false);
@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     // Create a snapshot-based chainstate.
     //
     const uint256 snapshot_blockhash = GetRandHash();
-    CChainState& c2 = WITH_LOCK(::cs_main, return manager.InitializeChainstate(
+    Chainstate& c2 = WITH_LOCK(::cs_main, return manager.InitializeChainstate(
         &mempool, evodb, m_node.chain_helper,
         snapshot_blockhash)
     );
@@ -135,11 +135,11 @@ BOOST_AUTO_TEST_CASE(chainstatemanager_rebalance_caches)
     manager.m_total_coinsdb_cache = max_cache;
     manager.m_total_coinstip_cache = max_cache;
 
-    std::vector<CChainState*> chainstates;
+    std::vector<Chainstate*> chainstates;
 
     // Create a legacy (IBD) chainstate.
     //
-    CChainState& c1 = WITH_LOCK(cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper));
+    Chainstate& c1 = WITH_LOCK(cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper));
     chainstates.push_back(&c1);
     c1.InitCoinsDB(
         /*cache_size_bytes=*/1 << 23, /*in_memory=*/true, /*should_wipe=*/false);
@@ -157,7 +157,7 @@ BOOST_AUTO_TEST_CASE(chainstatemanager_rebalance_caches)
 
     // Create a snapshot-based chainstate.
     //
-    CChainState& c2 = WITH_LOCK(cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper, GetRandHash()));
+    Chainstate& c2 = WITH_LOCK(cs_main, return manager.InitializeChainstate(&mempool, evodb, m_node.chain_helper, GetRandHash()));
     chainstates.push_back(&c2);
     c2.InitCoinsDB(
         /*cache_size_bytes=*/1 << 23, /*in_memory=*/true, /*should_wipe=*/false);
@@ -274,7 +274,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, TestChain100Setup)
         LOCK(::cs_main);
         int chains_tested{0};
 
-        for (CChainState* chainstate : chainman.GetAll()) {
+        for (Chainstate* chainstate : chainman.GetAll()) {
             BOOST_TEST_MESSAGE("Checking coins in " << chainstate->ToString());
             CCoinsViewCache& coinscache = chainstate->CoinsTip();
 
@@ -307,7 +307,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, TestChain100Setup)
         size_t coins_in_background{0};
         size_t coins_missing_from_background{0};
 
-        for (CChainState* chainstate : chainman.GetAll()) {
+        for (Chainstate* chainstate : chainman.GetAll()) {
             BOOST_TEST_MESSAGE("Checking coins in " << chainstate->ToString());
             CCoinsViewCache& coinscache = chainstate->CoinsTip();
             bool is_background = chainstate != &chainman.ActiveChainstate();
@@ -350,7 +350,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
 {
     ChainstateManager& chainman = *Assert(m_node.chainman);
     CTxMemPool& mempool = *m_node.mempool;
-    CChainState& cs1 = chainman.ActiveChainstate();
+    Chainstate& cs1 = chainman.ActiveChainstate();
 
     int num_indexes{0};
     int num_assumed_valid{0};
@@ -362,7 +362,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
     CBlockIndex* assumed_tip{WITH_LOCK(chainman.GetMutex(), return chainman.ActiveChain().Tip())};
 
     auto reload_all_block_indexes = [&]() {
-        for (CChainState* cs : chainman.GetAll()) {
+        for (Chainstate* cs : chainman.GetAll()) {
             LOCK(::cs_main);
             cs->UnloadBlockIndex();
             BOOST_CHECK(cs->setBlockIndexCandidates.empty());
@@ -397,7 +397,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
 
     BOOST_CHECK_EQUAL(expected_assumed_valid, num_assumed_valid);
 
-    CChainState& cs2 = WITH_LOCK(::cs_main,
+    Chainstate& cs2 = WITH_LOCK(::cs_main,
         return chainman.InitializeChainstate(&mempool, *m_node.evodb, m_node.chain_helper, GetRandHash()));
 
     reload_all_block_indexes();
