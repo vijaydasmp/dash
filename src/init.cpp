@@ -2064,14 +2064,14 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                                               /*coins_db_in_memory=*/false,
                                               /*dash_dbs_in_memory=*/false,
                                               /*bls_threads=*/[&args]() -> int8_t {
-                                                  int8_t threads = args.GetIntArg("-parbls", llmq::DEFAULT_BLSCHECK_THREADS);
+                                                  int threads = args.GetIntArg("-parbls", llmq::DEFAULT_BLSCHECK_THREADS);
                                                   if (threads <= 0) {
                                                       // -parbls=0 means autodetect (number of cores - 1 validator threads)
                                                       // -parbls=-n means "leave n cores free" (number of cores - n - 1 validator threads)
                                                       threads += GetNumCores();
                                                   }
                                                   // Subtract 1 because the main thread counts towards the par threads
-                                                  return std::clamp<int8_t>(threads - 1, 0, llmq::MAX_BLSCHECK_THREADS);
+                                                  return static_cast<int8_t>(std::clamp(threads - 1, 0, int{llmq::MAX_BLSCHECK_THREADS}));
                                               }(),
                                               llmq::DEFAULT_WORKER_COUNT,
                                               args.GetIntArg("-maxrecsigsage", llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE),
