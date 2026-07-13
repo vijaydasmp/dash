@@ -322,8 +322,23 @@ ChainTestingSetup::~ChainTestingSetup()
 void ChainTestingSetup::LoadVerifyActivateChainstate()
 {
     auto& chainman{*Assert(m_node.chainman)};
-    auto maybe_load_error = LoadChainstate(fReindex.load(),
-                                           chainman,
+    node::ChainstateLoadOptions options;
+    options.mempool = Assert(m_node.mempool.get());
+    options.block_tree_db_in_memory = m_block_tree_db_in_memory;
+    options.coins_db_in_memory = m_coins_db_in_memory;
+    options.dash_dbs_in_memory = true;
+    options.reindex = node::fReindex;
+    options.reindex_chainstate = m_args.GetBoolArg("-reindex-chainstate", false);
+    options.prune = node::fPruneMode;
+    options.bls_threads = llmq::DEFAULT_BLSCHECK_THREADS;
+    options.worker_count = llmq::DEFAULT_WORKER_COUNT;
+    options.max_recsigs_age = llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE;
+    options.check_blocks = m_args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS);
+    options.check_level = m_args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL);
+    options.notify_bls_state = [](bool bls_state) {
+        LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
+    };
+    auto [status, error] = LoadChainstate(chainman,
                                            *Assert(m_node.mn_metaman.get()),
                                            *Assert(m_node.sporkman.get()),
                                            *Assert(m_node.chainlocks.get()),
@@ -332,34 +347,18 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
                                            m_node.dmnman,
                                            m_node.evodb,
                                            m_node.llmq_ctx,
-                                           Assert(m_node.mempool.get()),
                                            Assert(m_node.args)->GetDataDirNet(),
-                                           fPruneMode,
-                                           m_args.GetBoolArg("-reindex-chainstate", false),
-                                           m_cache_sizes.block_tree_db,
-                                           m_cache_sizes.coins_db,
-                                           m_cache_sizes.coins,
-                                           m_block_tree_db_in_memory,
-                                           m_coins_db_in_memory,
-                                           /*dash_dbs_in_memory=*/true,
-                                           llmq::DEFAULT_BLSCHECK_THREADS,
-                                           llmq::DEFAULT_WORKER_COUNT,
-                                           llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE);
-    assert(!maybe_load_error.has_value());
+                                           m_cache_sizes,
+                                           options);
+    assert(status == node::ChainstateLoadStatus::SUCCESS);
 
     m_node.govman = std::make_unique<CGovernanceManager>(*m_node.mn_metaman, *m_node.chainman, *m_node.chain_helper->superblocks, *m_node.dmnman, *m_node.mn_sync);
 
-    auto maybe_verify_error = VerifyLoadedChainstate(
+    std::tie(status, error) = VerifyLoadedChainstate(
         chainman,
         *Assert(m_node.evodb.get()),
-        fReindex.load(),
-        m_args.GetBoolArg("-reindex-chainstate", false),
-        m_args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS),
-        m_args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL),
-        [](bool bls_state) {
-            LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
-        });
-    assert(!maybe_verify_error.has_value());
+        options);
+    assert(status == node::ChainstateLoadStatus::SUCCESS);
 
     BlockValidationState state;
     if (!chainman.ActiveChainstate().ActivateBestChain(state)) {
@@ -442,13 +441,22 @@ TestingSetup::~TestingSetup()
     DashChainstateSetupClose(m_node);
 }
 
-TestChain100Setup::TestChain100Setup(const std::string& chain_name, const std::vector<const char*>& extra_args)
-    : TestChainSetup{100, chain_name, extra_args}
+TestChain100Setup::TestChain100Setup(
+        const std::string& chain_name,
+        const std::vector<const char*>& extra_args,
+        const bool coins_db_in_memory,
+        const bool block_tree_db_in_memory)
+    : TestChainSetup{100, chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
 }
 
-TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name, const std::vector<const char*>& extra_args)
-    : TestingSetup{chain_name, extra_args}
+TestChainSetup::TestChainSetup(
+        int num_blocks,
+        const std::string& chain_name,
+        const std::vector<const char*>& extra_args,
+        const bool coins_db_in_memory,
+        const bool block_tree_db_in_memory)
+    : TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
     SetMockTime(1598887952);
     constexpr std::array<unsigned char, 32> vchKey = {
@@ -509,7 +517,7 @@ void TestChainSetup::mineBlocks(int num_blocks)
 CBlock TestChainSetup::CreateAndProcessBlock(
     const std::vector<CMutableTransaction>& txns,
     const CScript& scriptPubKey,
-    CChainState* chainstate)
+    Chainstate* chainstate)
 {
     if (!chainstate) {
         chainstate = &Assert(m_node.chainman)->ActiveChainstate();
@@ -525,7 +533,7 @@ CBlock TestChainSetup::CreateAndProcessBlock(
 CBlock TestChainSetup::CreateBlock(
     const std::vector<CMutableTransaction>& txns,
     const CScript& scriptPubKey,
-    CChainState& chainstate)
+    Chainstate& chainstate)
 {
     CBlock block = BlockAssembler(chainstate, m_node, nullptr).CreateNewBlock(scriptPubKey)->block;
 
