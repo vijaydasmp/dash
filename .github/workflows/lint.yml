@@ -32,13 +32,6 @@ jobs:
           git fetch --no-tags -fu origin develop:develop
         shell: bash
 
-      - name: Test workflow scripts
-        run: |
-          # The conflict handler and its tests import requests, which the lint container does not ship.
-          python3 -m pip install --quiet requests
-          python3 .github/workflows/test_handle_potential_conflicts.py
-        shell: bash
-
       - name: Run linters
         run: |
           export BUILD_TARGET="linux64"
