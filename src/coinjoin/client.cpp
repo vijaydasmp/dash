@@ -331,9 +331,7 @@ void CCoinJoinClientManager::CheckTimeout()
 
     LOCK(cs_deqsessions);
     for (auto& session : deqSessions) {
-        if (session.CheckTimeout()) {
-            strAutoDenomResult = _("Session timed out.");
-        }
+        session.CheckTimeout();
     }
 }
 
@@ -611,40 +609,33 @@ bool CCoinJoinClientManager::CheckAutomaticBackup()
 
     switch (nWalletBackups) {
     case 0:
-        strAutoDenomResult = _("Automatic backups disabled") + Untranslated(", ") + _("no mixing available.");
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- Automatic backups disabled, no mixing available.\n");
         stopMixing();
         m_wallet->nKeysLeftSinceAutoBackup = 0; // no backup, no "keys since last backup"
         return false;
     case -1:
         // Automatic backup failed, nothing else we can do until user fixes the issue manually.
-        // There is no way to bring user attention in daemon mode, so we just update status and
+        // There is no way to bring user attention in daemon mode, so we just
         // keep spamming if debug is on.
-        strAutoDenomResult = _("ERROR! Failed to create automatic backup") + Untranslated(", ") + _("see debug.log for details.");
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- ERROR! Failed to create automatic backup, see debug.log for details.\n");
         return false;
     case -2:
         // We were able to create automatic backup but keypool was not replenished because wallet is locked.
-        // There is no way to bring user attention in daemon mode, so we just update status and
+        // There is no way to bring user attention in daemon mode, so we just
         // keep spamming if debug is on.
-        strAutoDenomResult = _("WARNING! Failed to replenish keypool, please unlock your wallet to do so.") + Untranslated(", ") + _("see debug.log for details.");
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- WARNING! Failed to replenish keypool, please unlock your wallet to do so, see debug.log for details.\n");
         return false;
     }
 
     if (m_wallet->nKeysLeftSinceAutoBackup < COINJOIN_KEYS_THRESHOLD_STOP) {
         // We should never get here via mixing itself but probably something else is still actively using keypool
-        strAutoDenomResult = strprintf(_("Very low number of keys left: %d") + Untranslated(", ") +
-                                           _("no mixing available."),
-                                       m_wallet->nKeysLeftSinceAutoBackup);
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- Very low number of keys left: %d, no mixing available.\n", m_wallet->nKeysLeftSinceAutoBackup);
         // It's getting really dangerous, stop mixing
         stopMixing();
         return false;
     } else if (m_wallet->nKeysLeftSinceAutoBackup < COINJOIN_KEYS_THRESHOLD_WARNING) {
         // Low number of keys left, but it's still more or less safe to continue
-        strAutoDenomResult = strprintf(_("Very low number of keys left: %d"), m_wallet->nKeysLeftSinceAutoBackup);
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- Very low number of keys left: %d\n", m_wallet->nKeysLeftSinceAutoBackup);
 
         if (fCreateAutoBackups) {
             WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- Trying to create new backup.\n");
@@ -658,8 +649,7 @@ bool CCoinJoinClientManager::CheckAutomaticBackup()
                 }
                 if (!errorString.original.empty()) {
                     // Things are really broken
-                    strAutoDenomResult = _("ERROR! Failed to create automatic backup") + Untranslated(": ") + errorString;
-                    WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- %s\n", strAutoDenomResult.original);
+                    WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::CheckAutomaticBackup -- ERROR! Failed to create automatic backup: %s\n", errorString.original);
                     return false;
                 }
             }
@@ -864,12 +854,12 @@ bool CCoinJoinClientManager::DoAutomaticDenominating(ChainstateManager& chainman
     if (!CCoinJoinClientOptions::IsEnabled() || !isMixing()) return false;
 
     if (!m_mn_sync.IsBlockchainSynced()) {
-        strAutoDenomResult = _("Can't mix while sync in progress.");
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::DoAutomaticDenominating -- Can't mix while sync in progress.\n");
         return false;
     }
 
     if (!fDryRun && m_wallet->IsLocked(true)) {
-        strAutoDenomResult = _("Wallet is locked.");
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::DoAutomaticDenominating -- Wallet is locked.\n");
         return false;
     }
 
@@ -898,8 +888,7 @@ bool CCoinJoinClientManager::DoAutomaticDenominating(ChainstateManager& chainman
         if (!CheckAutomaticBackup()) return false;
 
         if (WaitForAnotherBlock()) {
-            strAutoDenomResult = _("Last successful action was too recent.");
-            WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::DoAutomaticDenominating -- %s\n", strAutoDenomResult.original);
+            WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::DoAutomaticDenominating -- Last successful action was too recent.\n");
             return false;
         }
 
@@ -1133,9 +1122,7 @@ void CCoinJoinClientManager::ProcessPendingDsaRequest(CConnman& connman)
     AssertLockNotHeld(cs_deqsessions);
     LOCK(cs_deqsessions);
     for (auto& session : deqSessions) {
-        if (session.ProcessPendingDsaRequest(connman)) {
-            strAutoDenomResult = _("Mixing in progress…");
-        }
+        session.ProcessPendingDsaRequest(connman);
     }
 }
 

@@ -172,7 +172,6 @@ private:
 
     int nCachedLastSuccessBlock{0};
     int nMinBlocksToWait{1}; // how many blocks to wait for after one successful mixing tx in non-multisession mode
-    bilingual_str strAutoDenomResult;
 
     // Keep track of current block height
     int nCachedBlockHeight{0};
