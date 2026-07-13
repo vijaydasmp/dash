@@ -171,7 +171,8 @@ private:
     std::deque<CCoinJoinClientSession> deqSessions GUARDED_BY(cs_deqsessions);
 
     int nCachedLastSuccessBlock{0};
-    int nMinBlocksToWait{1}; // how many blocks to wait for after one successful mixing tx in non-multisession mode
+    // how many blocks to wait for after one successful mixing tx in non-multisession mode
+    static constexpr int nMinBlocksToWait{1};
 
     // Keep track of current block height
     int nCachedBlockHeight{0};
