@@ -2258,6 +2258,66 @@ class DashTestFramework(BitcoinTestFramework):
 
         return new_quorum
 
+    def mine_until_mns_confirmed_for_next_dkg(self):
+        """Advance the chain until the next non-rotating DKG cycle can select members.
+
+        Members are picked from the masternode list of the work block, which sits
+        WORK_DIFF_DEPTH (8) blocks below the cycle's base block, and only masternodes
+        that already carry a confirmedHash there are eligible. Masternodes registered
+        shortly before a cycle are still unconfirmed at its work block, so that cycle
+        would select nobody and produce no quorum at all. Skip such cycles by mining
+        to the next base block, one whole cycle at a time.
+
+        A work block above the tip is checked at the tip instead: masternodes are
+        registered before this runs and a confirmedHash is never unset again, so
+        whatever is confirmed at the tip stays confirmed at any later work block.
+        """
+        node = self.nodes[0]
+        dkg_interval = 24
+        work_diff_depth = 8
+        expected_mns = {mn.proTxHash for mn in self.mninfo}
+        # Confirmation takes nMasternodeMinimumConfirmations (1 on regtest) blocks after
+        # registration, so at most two cycles of headroom are needed: registration can
+        # fall just below a base block, leaving the cycle after it still unconfirmed.
+        for attempt in range(3):
+            height = node.getblockcount()
+            next_base_height = height + dkg_interval - (height % dkg_interval)
+            work_height = min(height, next_base_height - work_diff_depth)
+            # A masternode missing from the work block's list is as unselectable as an
+            # unconfirmed one, so require every masternode to be present and confirmed.
+            confirmed_mns = {mn['proRegTxHash'] for mn in node.protx('diff', 1, work_height)['mnList']
+                             if int(mn['confirmedHash'], 16) != 0}
+            if expected_mns.issubset(confirmed_mns):
+                return
+            assert attempt < 2, f"masternodes are still unconfirmed at work block {work_height}"
+            self.log.info(f"Skipping DKG cycle with base height={next_base_height}: not all "
+                          f"masternodes are confirmed at its work block {work_height}")
+            self.bump_mocktime(1)
+            self.generate(node, next_base_height - height)
+
+    def mine_quorum_single_member(self):
+        """Mine a single-member (llmq_size == 1) quorum and return its hash.
+
+        mine_quorum can't be reused for these: a one-member DKG has no
+        inter-member connections or probes, so its phase and connection waits
+        never complete.
+        """
+        node = self.nodes[0]
+        quorums = node.quorum('list')['llmq_test']
+
+        skip_count = 24 - (node.getblockcount() % 24)
+        if skip_count != 0:
+            self.bump_mocktime(1)
+            self.generate(node, skip_count)
+        time.sleep(1)
+        self.generate(node, 30)
+        new_quorums_list = node.quorum('list')['llmq_test']
+
+        self.log.info(f"Test Quorums at height={node.getblockcount()} : {new_quorums_list}")
+        assert new_quorums_list != quorums
+
+        return (set(new_quorums_list) - set(quorums)).pop()
+
     def mine_cycle_quorum(self):
         spork21_active = self.nodes[0].spork('show')['SPORK_21_QUORUM_ALL_CONNECTED'] <= 1
         spork23_active = self.nodes[0].spork('show')['SPORK_23_QUORUM_POSE'] <= 1
