@@ -4,7 +4,6 @@
 
 #include <test/util/setup_common.h>
 
-#include <chainlock/handler.h>
 #include <chainparams.h>
 #include <clientversion.h>
 #include <consensus/merkle.h>
@@ -16,11 +15,9 @@
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 #include <llmq/context.h>
-#include <masternode/payments.h>
 #include <mempool_args.h>
 #include <messagesigner.h>
 #include <netbase.h>
-#include <node/miner.h>
 #include <node/transaction.h>
 #include <policy/policy.h>
 #include <pow.h>
@@ -715,6 +712,7 @@ void FuncMNPaymentMultiplicityV24Boundary(TestChainSetup& setup)
     // Start in the pre-v24 window: v19 active (basic BLS scheme) so we can register a v2 MN, but
     // v24 -- and thus strict multiplicity matching -- not yet active.
     BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), consensus, Consensus::DEPLOYMENT_V19));
+    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), consensus, Consensus::DEPLOYMENT_MN_RR));
     BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE(!bls::bls_legacy_scheme.load());
 
@@ -814,53 +812,20 @@ void FuncMNPaymentMultiplicityV24Boundary(TestChainSetup& setup)
         return std::nullopt;
     };
 
-    // At this height the subsidy-only Evo masternode reward is odd. Derive the smallest fee that
-    // makes it even, then let BlockAssembler distribute that fee so the 50/50 owner and operator
-    // outputs collide immediately. A fresh fee transaction is needed for each sibling pair.
-    auto create_duplicate_block = [&]() -> std::pair<CBlock, CTxOut> {
-        const CBlockIndex* tip = tip_index();
-        const MnRewardEra era = GetMnRewardEraAfter(tip, chainman);
-        BOOST_REQUIRE(era == MnRewardEra::EvoReward);
-        const CAmount block_subsidy = GetBlockSubsidyInner(tip->nBits, tip->nHeight, consensus, /*fV20Active=*/true);
-        const CAmount platform_reward = PlatformShare(GetMasternodePayment(tip->nHeight + 1, block_subsidy, consensus, era));
-        auto payee_reward = [&](CAmount fee) {
-            return GetMasternodePayment(tip->nHeight + 1, block_subsidy + fee, consensus, era) - platform_reward;
-        };
-        BOOST_REQUIRE((payee_reward(/*fee=*/0) & 1) != 0);
-        CAmount fee{1};
-        while ((payee_reward(fee) & 1) != 0)
-            ++fee;
-        BOOST_REQUIRE_EQUAL(fee, 1);
-
-        CMutableTransaction fee_tx;
-        WITH_LOCK(::cs_main,
-                  FundTransaction(chainman.ActiveChain(), fee_tx, utxos, coinbase_pk, 1 * COIN, setup.coinbaseKey));
-        BOOST_REQUIRE(fee_tx.vout.back().nValue > fee);
-        fee_tx.vout.back().nValue -= fee;
-        SignTransaction(*setup.m_node.mempool, fee_tx, setup.coinbaseKey);
-
-        auto& mempool = *setup.m_node.mempool;
-        // Bypass fee policy while preserving the miner's InstantSend safety check.
-        constexpr int64_t ISLOCK_SAFETY_DELAY{601};
-        setup.m_node.clhandler->UpdateTxFirstSeenMap({fee_tx.GetHash()}, tip->GetMedianTimePast() - ISLOCK_SAFETY_DELAY);
-        {
-            LOCK2(::cs_main, mempool.cs);
-            mempool.addUnchecked(TestMemPoolEntryHelper{}.Fee(fee).SpendsCoinbase(true).FromTx(fee_tx));
+    // Mine until a block's (pre-operator) masternode reward is even: only then does the 50%
+    // operator share equal the single owner share, so the owner and operator outputs -- both
+    // paying shared_script -- collide into two identical coinbase outputs. The reward is constant
+    // within a subsidy/reallocation epoch, so this can take up to a full epoch; intermediate
+    // blocks are processed to advance the chain.
+    auto mine_until_duplicate = [&]() -> std::pair<CBlock, CTxOut> {
+        for (int i = 0; i < 2000; ++i) {
+            CBlock good = setup.CreateBlock({}, coinbase_pk, chainman.ActiveChainstate());
+            if (auto dup = find_duplicate(good)) return {good, *dup};
+            BOOST_REQUIRE(chainman.ProcessNewBlock(std::make_shared<CBlock>(good), /*force_processing=*/true, nullptr));
+            sync_dmn_tip();
         }
-
-        node::BlockAssembler::Options options;
-        options.blockMinFeeRate = CFeeRate{0};
-        CBlock good = node::BlockAssembler(chainman.ActiveChainstate(), setup.m_node, &mempool, options)
-                          .CreateNewBlock(coinbase_pk)
-                          ->block;
-        BOOST_REQUIRE(
-            std::ranges::any_of(good.vtx, [&](const CTransactionRef& tx) { return tx->GetHash() == fee_tx.GetHash(); }));
-        const auto dup = find_duplicate(good);
-        BOOST_REQUIRE(dup.has_value());
-        good.hashMerkleRoot = BlockMerkleRoot(good);
-        while (!CheckProofOfWork(good.GetHash(), good.nBits, consensus))
-            ++good.nNonce;
-        return {good, *dup};
+        BOOST_REQUIRE_MESSAGE(false, "expected owner/operator collision to yield a duplicate coinbase output");
+        return {}; // unreachable, BOOST_REQUIRE above aborts the test
     };
 
     // Build the "merge cheat" sibling of `good`: drop one of the two identical outputs and fold
@@ -896,7 +861,7 @@ void FuncMNPaymentMultiplicityV24Boundary(TestChainSetup& setup)
 
     // ---- Pre-v24: legacy existence-only matching ACCEPTS the merge cheat (masternode underpaid).
     {
-        const auto [good, dup] = create_duplicate_block();
+        const auto [good, dup] = mine_until_duplicate();
         // The collision must be reached while v24 is still pending, otherwise this phase would be
         // testing post-v24 behaviour by accident.
         BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
@@ -912,11 +877,12 @@ void FuncMNPaymentMultiplicityV24Boundary(TestChainSetup& setup)
         sync_dmn_tip();
     }
     BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), consensus, Consensus::DEPLOYMENT_MN_RR));
 
     // ---- Post-v24: strict multiplicity matching REJECTS the same merge (two expected outputs, one
     // distinct actual). Rejection is observed as the tip not advancing.
     {
-        const auto [good, dup] = create_duplicate_block();
+        const auto [good, dup] = mine_until_duplicate();
         const CBlock merged = build_merge_cheat(good, dup);
         const uint256 tip_before = tip_hash();
         chainman.ProcessNewBlock(std::make_shared<CBlock>(merged), /*force_processing=*/true, nullptr);
@@ -1568,7 +1534,7 @@ struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
     TestChainV24SignalBeforeV19Setup() :
         TestChainSetup(494, CBaseChainParams::REGTEST,
                        {"-testactivationheight=v19@500", "-testactivationheight=v20@500",
-                        "-testactivationheight=mn_rr@500", "-vbparams=v24:0:9999999999:510:1:1:1:5:0"},
+                        "-testactivationheight=mn_rr@511", "-vbparams=v24:0:9999999999:510:1:1:1:5:0"},
                        /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true,
                        uint256S("0x083fa179797ea7e5893198ff1b6eab632526c2eeb6f0ca6c42fcac9cb9bad366"))
     {
@@ -1579,16 +1545,17 @@ struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
     }
 };
 
-// Advance the shared v24 chain just far enough that v19/v20/mn_rr are active while v24 remains
-// held in LOCKED_IN by its minimum activation height. The boundary test needs this short state:
-// basic-BLS registrations are valid, but strict payment multiplicity is not active yet.
+// Advance the shared v24 chain just far enough that v19/v20 are active while v24 remains held in
+// LOCKED_IN by its minimum activation height. Delaying mn_rr until the block after v24 keeps the
+// subsidy-only masternode reward even on both sides of the boundary, so the duplicate-payment
+// helper does not need to mine to the next subsidy epoch.
 struct TestChainV24PendingSetup : public TestChainV24SignalBeforeV19Setup {
     TestChainV24PendingSetup()
     {
         const CScript coinbase_pk = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
         auto& chainman = *Assert(m_node.chainman);
         auto& dmnman = *Assert(m_node.dmnman);
-        // Mine just enough to activate v19/v20/mn_rr (height 500) while keeping v24 pending.
+        // Mine just enough to activate v19/v20 (height 500) while keeping v24 and mn_rr pending.
         for (int i = 0; i < 20 && WITH_LOCK(::cs_main, return !DeploymentActiveAfter(chainman.ActiveChain().Tip(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)); ++i) {
             CreateAndProcessBlock({}, coinbase_pk);
             dmnman.UpdatedBlockTip(WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()));
