@@ -30,7 +30,7 @@ void BaseIndex::FatalErrorImpl(const std::string& message)
 {
     SetMiscWarning(Untranslated(message));
     LogPrintf("*** %s\n", message);
-    AbortError(_("A fatal internal error occurred, see debug.log for details"));
+    InitError(_("A fatal internal error occurred, see debug.log for details"));
     StartShutdown();
 }
 
