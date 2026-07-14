@@ -155,7 +155,7 @@ static bool AppInit(NodeContext& node, int argc, char* argv[])
 #endif
     try
     {
-        if (!CheckDataDirOption()) {
+        if (!CheckDataDirOption(args)) {
             return InitError(Untranslated(strprintf("Specified data directory \"%s\" does not exist.\n", args.GetArg("-datadir", ""))));
         }
         if (!args.ReadConfigFiles(error, true)) {

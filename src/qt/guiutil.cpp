@@ -592,7 +592,7 @@ void openDebugLogfile()
 
 void openConfigfile()
 {
-    fs::path pathConfig = GetConfigFile(gArgs.GetPathArg("-conf", BITCOIN_CONF_FILENAME));
+    fs::path pathConfig = gArgs.GetConfigFilePath();
 
     /* Open dash.conf with the associated application */
     if (fs::exists(pathConfig)) {
