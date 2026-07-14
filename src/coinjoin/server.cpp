@@ -246,7 +246,7 @@ void CCoinJoinServer::ProcessDSSIGNFINALTX(CNode& peer, CDataStream& vRecv)
         }
     }
 
-    const size_t max_txins{size_t(CoinJoin::GetMaxPoolParticipants()) * COINJOIN_ENTRY_MAX_SIZE};
+    const size_t max_txins{CoinJoin::GetMaxPoolInputOutputCount()};
     std::vector<CTxIn> vecTxIn;
     // Reject an over-cap count through this peer-local ERR_MAXIMUM path before a
     // single CTxIn is decoded or allocated. A count above the generic MAX_SIZE cap
@@ -610,11 +610,12 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         return false;
     }
 
-    if (entry.fHasOversizedTxOut || entry.vecTxOut.size() > COINJOIN_ENTRY_MAX_SIZE) {
-        const size_t txout_size{entry.fHasOversizedTxOut ? COINJOIN_ENTRY_MAX_SIZE + 1 : entry.vecTxOut.size()};
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: too many outputs! %d/%d\n", __func__,
-                 static_cast<int>(txout_size), static_cast<int>(COINJOIN_ENTRY_MAX_SIZE));
+    if (entry.vecTxDSIn.size() > COINJOIN_ENTRY_MAX_SIZE || entry.vecTxOut.size() > COINJOIN_ENTRY_MAX_SIZE) {
+        LogPrint(BCLog::COINJOIN, /* Continued */
+                 "CCoinJoinServer::%s -- ERROR: too many inputs or outputs! inputs=%s/%s, outputs=%s/%s\n", __func__,
+                 entry.vecTxDSIn.size(), COINJOIN_ENTRY_MAX_SIZE, entry.vecTxOut.size(), COINJOIN_ENTRY_MAX_SIZE);
         nMessageIDRet = ERR_MAXIMUM;
+
         CTransactionRef txCollateralToConsume;
         {
             LOCK(cs_coinjoin);
@@ -634,13 +635,6 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
     if (!CoinJoin::IsCollateralValid(m_chainman, m_isman, mempool, *entry.txCollateral)) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: collateral not valid!\n", __func__);
         nMessageIDRet = ERR_INVALID_COLLATERAL;
-        return false;
-    }
-
-    if (entry.vecTxDSIn.size() > COINJOIN_ENTRY_MAX_SIZE) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: too many inputs! %d/%d\n", __func__, entry.vecTxDSIn.size(), COINJOIN_ENTRY_MAX_SIZE);
-        nMessageIDRet = ERR_MAXIMUM;
-        ConsumeCollateral(entry.txCollateral);
         return false;
     }
 

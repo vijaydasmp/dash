@@ -50,6 +50,15 @@ static constexpr int COINJOIN_SIGNING_TIMEOUT = 15;
 
 static constexpr size_t COINJOIN_ENTRY_MAX_SIZE = 9;
 
+namespace CoinJoin {
+/// Get the minimum/maximum number of participants for the pool
+int GetMinPoolParticipants();
+int GetMaxPoolParticipants();
+
+/// Maximum number of inputs or outputs across a full pool
+inline size_t GetMaxPoolInputOutputCount() { return size_t(GetMaxPoolParticipants()) * COINJOIN_ENTRY_MAX_SIZE; }
+} // namespace CoinJoin
+
 // pool responses
 enum PoolMessage : int32_t {
     ERR_ALREADY_HAVE,
@@ -155,7 +164,6 @@ public:
     CTransactionRef txCollateral;
     // memory only
     CService addr;
-    bool fHasOversizedTxOut{false};
 
     CCoinJoinEntry() :
         txCollateral(MakeTransactionRef(CMutableTransaction{}))
@@ -178,24 +186,15 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s)
     {
-        fHasOversizedTxOut = false;
-
-        // Accept one input over the cap so AddEntry can apply the collateral
-        // penalty for an entry that is merely too large; anything bigger is
-        // rejected before any element is decoded.
-        if (!UnserializeVectorWithMaxSize(s, vecTxDSIn, COINJOIN_ENTRY_MAX_SIZE + 1)) {
+        const size_t max_count{CoinJoin::GetMaxPoolInputOutputCount()};
+        if (!UnserializeVectorWithMaxSize(s, vecTxDSIn, max_count)) {
             throw std::ios_base::failure("CCoinJoinEntry::vecTxDSIn size too large");
         }
 
         s >> txCollateral;
 
-        if (!UnserializeVectorWithMaxSize(s, vecTxOut, COINJOIN_ENTRY_MAX_SIZE)) {
-            // Outputs follow txCollateral on the wire, so an output count over the
-            // cap must not throw mid-entry: flag it and leave txCollateral intact
-            // so AddEntry can reject the entry with ERR_MAXIMUM and consume its
-            // collateral. A count above the generic MAX_SIZE cap is malformed and
-            // still throws from ReadCompactSize.
-            fHasOversizedTxOut = true;
+        if (!UnserializeVectorWithMaxSize(s, vecTxOut, max_count)) {
+            throw std::ios_base::failure("CCoinJoinEntry::vecTxOut size too large");
         }
     }
 
@@ -406,10 +405,6 @@ public:
 namespace CoinJoin
 {
     bilingual_str GetMessageByID(PoolMessage nMessageID);
-
-    /// Get the minimum/maximum number of participants for the pool
-    int GetMinPoolParticipants();
-    int GetMaxPoolParticipants();
 
     constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
 
