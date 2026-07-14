@@ -35,31 +35,32 @@
 #include <vector>
 
 namespace node {
-ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
-                                                     CMasternodeMetaMan& mn_metaman,
-                                                     CSporkManager& sporkman,
-                                                     chainlock::Chainlocks& chainlocks,
-                                                     const CMasternodeSync& mn_sync,
-                                                     std::unique_ptr<CChainstateHelper>& chain_helper,
-                                                     std::unique_ptr<CDeterministicMNManager>& dmnman,
-                                                     std::unique_ptr<CEvoDB>& evodb,
-                                                     std::unique_ptr<LLMQContext>& llmq_ctx,
-                                                     const fs::path& data_dir,
-                                                     const CacheSizes& cache_sizes,
-                                                     const ChainstateLoadOptions& options)
+ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSizes& cache_sizes,
+                                    const ChainstateLoadOptions& options, std::unique_ptr<CEvoDB>& evodb,
+                                    std::unique_ptr<CDeterministicMNManager>& dmnman, std::unique_ptr<LLMQContext>& llmq_ctx,
+                                    std::unique_ptr<CChainstateHelper>& chain_helper)
 {
+    assert(options.mn_metaman);
+    assert(options.sporkman);
+    assert(options.chainlocks);
+    assert(options.mn_sync);
+
+    const bool to_wipe_data = options.reindex || options.reindex_chainstate;
     auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
-        return options.reindex || options.reindex_chainstate || chainstate->CoinsTip().GetBestBlock().IsNull();
+        return to_wipe_data || chainstate->CoinsTip().GetBestBlock().IsNull();
     };
 
     LOCK(cs_main);
+
     evodb.reset();
-    evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = data_dir, .memory = options.dash_dbs_in_memory, .wipe = options.reindex || options.reindex_chainstate});
-    chainman.m_total_coinstip_cache = cache_sizes.coins;
-    chainman.m_total_coinsdb_cache = cache_sizes.coins_db;
+    // TODO: pass DbWrapperParams as options instead multiple params
+    evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data});
 
     dmnman.reset();
-    dmnman = std::make_unique<CDeterministicMNManager>(*evodb, mn_metaman);
+    dmnman = std::make_unique<CDeterministicMNManager>(*evodb, *options.mn_metaman);
+
+    chainman.m_total_coinstip_cache = cache_sizes.coins;
+    chainman.m_total_coinsdb_cache = cache_sizes.coins_db;
 
     // Load the fully validated chainstate.
     chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
@@ -75,17 +76,17 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
 
     // Initialize llmq_ctx and connection to mempool
     llmq_ctx.reset();
-    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, *evodb, sporkman, chainman,
-                                             util::DbWrapperParams{.path = data_dir, .memory = dash_dbs_in_memory, .wipe = fReset || fReindexChainState},
-                                             bls_threads, worker_count, max_recsigs_age);
-    if (mempool) {
-        mempool->ConnectManagers(dmnman.get(), llmq_ctx->isman.get());
+    llmq_ctx = std::make_unique<LLMQContext>(*dmnman, *evodb, *options.sporkman, chainman,
+                                             util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data},
+                                             options.bls_threads, options.worker_count, options.max_recsigs_age);
+    if (options.mempool) {
+        options.mempool->ConnectManagers(dmnman.get(), llmq_ctx->isman.get());
     }
 
-    // Initialize chain_helpper
+    // Initialize chain_helper
     chain_helper.reset();
-    chain_helper = std::make_unique<CChainstateHelper>(*evodb, *dmnman, mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
-                                                       *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), chainlocks,
+    chain_helper = std::make_unique<CChainstateHelper>(*evodb, *dmnman, *options.mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
+                                                       *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), *options.chainlocks,
                                                        *(llmq_ctx->qman));
 
     if (options.reindex) {
@@ -109,6 +110,8 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
 
     if (!chainman.BlockIndex().empty() &&
             !chainman.m_blockman.LookupBlockIndex(chainman.GetConsensus().hashGenesisBlock)) {
+        // If the loaded chain has a wrong genesis, bail out immediately
+        // (we're likely using a testnet datadir, or the other way around).
         return {ChainstateLoadStatus::FAILURE_INCOMPATIBLE_DB, _("Incorrect or no genesis block found. Wrong datadir for network?")};
     }
 
@@ -203,8 +206,8 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman,
     return {ChainstateLoadStatus::SUCCESS, {}};
 }
 
-ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB& evodb,
-                                            const ChainstateLoadOptions& options)
+ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, const ChainstateLoadOptions& options, CEvoDB& evodb,
+                                            std::function<void(bool)> notify_bls_state)
 {
     auto is_coinsview_empty = [&](Chainstate* chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return options.reindex || options.reindex_chainstate || chainstate->CoinsTip().GetBestBlock().IsNull();
@@ -223,7 +226,8 @@ ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB&
             const bool v19active{DeploymentActiveAfter(tip, chainman, Consensus::DEPLOYMENT_V19)};
             if (v19active) {
                 bls::bls_legacy_scheme.store(false);
-                if (options.notify_bls_state) options.notify_bls_state(bls::bls_legacy_scheme.load());
+                // TODO: remove notify_bls_state, it's alien and irrelevant once v19 activated
+                if (notify_bls_state) notify_bls_state(bls::bls_legacy_scheme.load());
             }
 
             if (!CVerifyDB().VerifyDB(
@@ -238,7 +242,7 @@ ChainstateLoadResult VerifyLoadedChainstate(ChainstateManager& chainman, CEvoDB&
             // Make sure we use the right scheme.
             if (v19active && bls::bls_legacy_scheme.load()) {
                 bls::bls_legacy_scheme.store(false);
-                if (options.notify_bls_state) options.notify_bls_state(bls::bls_legacy_scheme.load());
+                if (notify_bls_state) notify_bls_state(bls::bls_legacy_scheme.load());
             }
 
             if (options.check_level >= 3) {

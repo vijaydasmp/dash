@@ -2024,10 +2024,13 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
          */
         node.mn_sync = std::make_unique<CMasternodeSync>(std::make_unique<NodeSyncNotifierImpl>(*node.connman, *node.netfulfilledman));
 
-        bilingual_str strLoadError;
-
         node::ChainstateLoadOptions options;
         options.mempool = Assert(node.mempool.get());
+        options.mn_metaman = Assert(node.mn_metaman.get());
+        options.sporkman = Assert(node.sporkman.get());
+        options.chainlocks = Assert(node.chainlocks.get());
+        options.mn_sync = Assert(node.mn_sync.get());
+        options.data_dir = args.GetDataDirNet();
         options.reindex = node::fReindex;
         options.reindex_chainstate = fReindexChainState;
         options.prune = node::fPruneMode;
@@ -2042,7 +2045,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
             const int64_t adjusted_threads = std::clamp<int64_t>(threads, 1, int64_t{llmq::MAX_BLSCHECK_THREADS} + 1) - 1;
             return static_cast<int8_t>(adjusted_threads);
         }();
-        options.worker_count = llmq::DEFAULT_WORKER_COUNT;
         options.max_recsigs_age = args.GetIntArg("-maxrecsigsage", llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE);
         options.check_blocks = args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS);
         options.check_level = args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL);
@@ -2052,59 +2054,43 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                 _("Error reading from database, shutting down."),
                 "", CClientUIInterface::MSG_ERROR);
         };
-        options.notify_bls_state = [](bool bls_state) {
-            LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
-        };
 
         uiInterface.InitMessage(_("Loading block index…").translated);
         const auto load_block_index_start_time{SteadyClock::now()};
-        auto catch_exceptions = [](auto&& fn) -> node::ChainstateLoadResult {
+        auto catch_exceptions = [](auto&& f) {
             try {
-                return fn();
+                return f();
             } catch (const std::exception& e) {
                 LogPrintf("%s\n", e.what());
-                return {node::ChainstateLoadStatus::FAILURE, _("Error opening block database")};
+                return std::make_tuple(node::ChainstateLoadStatus::FAILURE, _("Error opening block database"));
             }
         };
-        auto [status, error] = catch_exceptions([&] {
-            return LoadChainstate(chainman,
-                                  *node.mn_metaman,
-                                  *node.sporkman,
-                                  *node.chainlocks,
-                                  *node.mn_sync,
-                                  node.chain_helper,
-                                  node.dmnman,
-                                  node.evodb,
-                                  node.llmq_ctx,
-                                  args.GetDataDirNet(),
-                                  cache_sizes,
-                                  options);
-        });
+        auto [status, error] = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, node.evodb, node.dmnman, node.llmq_ctx, node.chain_helper); });
         if (status == node::ChainstateLoadStatus::SUCCESS) {
             uiInterface.InitMessage(_("Verifying blocks…").translated);
             if (chainman.m_blockman.m_have_pruned && options.check_blocks > MIN_BLOCKS_TO_KEEP) {
                 LogWarning("pruned datadir may not have more than %d blocks; only checking available blocks\n",
                            MIN_BLOCKS_TO_KEEP);
             }
-            std::tie(status, error) = catch_exceptions([&] {
-                return VerifyLoadedChainstate(chainman, *Assert(node.evodb), options);
-            });
+            std::tie(status, error) = catch_exceptions([&]{ return VerifyLoadedChainstate(chainman, options, *Assert(node.evodb), [](bool bls_state) {
+                        LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
+                        });});
+            if (status == node::ChainstateLoadStatus::SUCCESS) {
+                fLoaded = true;
+                LogPrintf(" block index %15dms\n", Ticks<std::chrono::milliseconds>(SteadyClock::now() - load_block_index_start_time));
+            }
         }
-        if (status == node::ChainstateLoadStatus::SUCCESS) {
-            fLoaded = true;
-            LogPrintf(" block index %15dms\n", Ticks<std::chrono::milliseconds>(SteadyClock::now() - load_block_index_start_time));
-        } else if (status == node::ChainstateLoadStatus::FAILURE_INCOMPATIBLE_DB) {
+
+        if (status == node::ChainstateLoadStatus::FAILURE_INCOMPATIBLE_DB) {
             return InitError(error);
-        } else {
-            strLoadError = error;
         }
 
         if (!fLoaded && !ShutdownRequested()) {
             // first suggest a reindex
             if (!options.reindex) {
                 bool fRet = uiInterface.ThreadSafeQuestion(
-                    strLoadError + Untranslated(".\n\n") + _("Do you want to rebuild the block database now?"),
-                    strLoadError.original + ".\nPlease restart with -reindex or -reindex-chainstate to recover.",
+                    error + Untranslated(".\n\n") + _("Do you want to rebuild the block database now?"),
+                    error.original + ".\nPlease restart with -reindex or -reindex-chainstate to recover.",
                     "", CClientUIInterface::MSG_ERROR | CClientUIInterface::BTN_ABORT);
                 if (fRet) {
                     fReindex = true;
@@ -2114,7 +2100,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                     return false;
                 }
             } else {
-                return InitError(strLoadError);
+                return InitError(error);
             }
         }
     }
