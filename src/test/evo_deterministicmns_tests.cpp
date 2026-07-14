@@ -1521,33 +1521,6 @@ struct TestChainDIP3Setup : public TestChainDIP3BeforeActivationSetup {
     }
 };
 
-struct TestChainV19BeforeActivationSetup : public TestChainSetup {
-    TestChainV19BeforeActivationSetup();
-};
-
-struct TestChainV19Setup : public TestChainV19BeforeActivationSetup {
-    TestChainV19Setup()
-    {
-        const CScript coinbase_pk = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
-        // Activate V19
-        for (int i = 0; i < 5; ++i) {
-            CreateAndProcessBlock({}, coinbase_pk);
-        }
-        bool v19_just_activated{WITH_LOCK(::cs_main, return DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(), Consensus::DEPLOYMENT_V19) &&
-            !DeploymentActiveAt(*m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(), Consensus::DEPLOYMENT_V19))};
-        assert(v19_just_activated);
-    }
-};
-
-// 5 blocks earlier
-TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup() :
-    TestChainSetup(494, CBaseChainParams::REGTEST, {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"})
-{
-    bool v19_active{WITH_LOCK(::cs_main, return DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
-                                          Consensus::DEPLOYMENT_V19))};
-    assert(!v19_active);
-}
-
 struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
     TestChainV24SignalBeforeV19Setup() :
         TestChainSetup(494, CBaseChainParams::REGTEST,

@@ -217,6 +217,16 @@ struct TestChainSetup : public TestingSetup
     CKey coinbaseKey; // private/public key needed to spend coinbase transactions
 };
 
+/** Test chain stopped immediately before v19 activation at height 500. */
+struct TestChainV19BeforeActivationSetup : public TestChainSetup {
+    TestChainV19BeforeActivationSetup();
+};
+
+/** Test chain whose next block activates v19 at height 500. */
+struct TestChainV19Setup : public TestChainV19BeforeActivationSetup {
+    TestChainV19Setup();
+};
+
 /**
  * Testing fixture that pre-creates a 100-block REGTEST-mode block chain
  */

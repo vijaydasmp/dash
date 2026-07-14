@@ -498,6 +498,26 @@ TestChainSetup::TestChainSetup(
     }
 }
 
+TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup()
+    : TestChainSetup{494, CBaseChainParams::REGTEST,
+                     {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"}}
+{
+    assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
+                                                               Consensus::DEPLOYMENT_V19)));
+}
+
+TestChainV19Setup::TestChainV19Setup()
+{
+    const CScript coinbase_pk = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
+    for (int i = 0; i < 5; ++i) {
+        CreateAndProcessBlock({}, coinbase_pk);
+    }
+    assert(WITH_LOCK(::cs_main, return DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
+                                                              Consensus::DEPLOYMENT_V19) &&
+                                       !DeploymentActiveAt(*m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
+                                                           Consensus::DEPLOYMENT_V19)));
+}
+
 void TestChainSetup::mineBlocks(int num_blocks)
 {
     CScript scriptPubKey = GetScriptForRawPubKey(coinbaseKey.GetPubKey());

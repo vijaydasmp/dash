@@ -636,23 +636,6 @@ BOOST_AUTO_TEST_CASE(test_get_hash_consistency)
     BOOST_CHECK(hash1 == hash2);
 }
 
-namespace {
-struct TestChainV19Setup : public TestChainSetup {
-    TestChainV19Setup() :
-        TestChainSetup(494, CBaseChainParams::REGTEST,
-                       {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"})
-    {
-        const CScript coinbase_pk = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
-        // Mine up to the block just before V19 activation
-        for (int i = 0; i < 5; ++i) {
-            CreateAndProcessBlock({}, coinbase_pk);
-        }
-        assert(DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(), Consensus::DEPLOYMENT_V19) &&
-               !DeploymentActiveAt(*m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(), Consensus::DEPLOYMENT_V19));
-    }
-};
-} // namespace
-
 BOOST_AUTO_TEST_CASE(v19_boundary_validation_failure_restores_bls_scheme)
 {
     TestChainV19Setup setup;
