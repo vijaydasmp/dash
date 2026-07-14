@@ -21,6 +21,7 @@
 #include <util/vector.h>
 
 #include <functional>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -143,11 +144,11 @@ class CScript;
 
 struct TestChainSetup : public TestingSetup
 {
-    TestChainSetup(int num_blocks,
-                   const std::string& chain_name = CBaseChainParams::REGTEST,
-                   const std::vector<const char*>& extra_args = {},
-                   const bool coins_db_in_memory = true,
-                   const bool block_tree_db_in_memory = true);
+    /** @param expected_tip_hash Configuration-specific checkpoint overriding the height default. */
+    TestChainSetup(int num_blocks, const std::string& chain_name = CBaseChainParams::REGTEST,
+                   const std::vector<const char*>& extra_args = {}, const bool coins_db_in_memory = true,
+                   const bool block_tree_db_in_memory = true,
+                   const std::optional<uint256>& expected_tip_hash = std::nullopt);
     ~TestChainSetup();
 
     /**

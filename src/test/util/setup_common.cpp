@@ -450,13 +450,10 @@ TestChain100Setup::TestChain100Setup(
 {
 }
 
-TestChainSetup::TestChainSetup(
-        int num_blocks,
-        const std::string& chain_name,
-        const std::vector<const char*>& extra_args,
-        const bool coins_db_in_memory,
-        const bool block_tree_db_in_memory)
-    : TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
+TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name,
+                               const std::vector<const char*>& extra_args, const bool coins_db_in_memory,
+                               const bool block_tree_db_in_memory, const std::optional<uint256>& expected_tip_hash) :
+    TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
     SetMockTime(1598887952);
     constexpr std::array<unsigned char, 32> vchKey = {
@@ -492,9 +489,10 @@ TestChainSetup::TestChainSetup(
     {
         LOCK(::cs_main);
         auto hash = checkpoints.mapCheckpoints.find(num_blocks);
-        assert(
-            hash != checkpoints.mapCheckpoints.end() &&
-            m_node.chainman->ActiveChain().Tip()->GetBlockHash() == hash->second);
+        const uint256 actual_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+        assert(expected_tip_hash.has_value() || hash != checkpoints.mapCheckpoints.end());
+        const uint256& expected_hash = expected_tip_hash.has_value() ? *expected_tip_hash : hash->second;
+        assert(actual_hash == expected_hash);
     }
 }
 
