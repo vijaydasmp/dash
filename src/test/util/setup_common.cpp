@@ -496,9 +496,20 @@ TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name,
     }
 }
 
-TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup()
-    : TestChainSetup{494, CBaseChainParams::REGTEST,
-                     {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"}}
+namespace {
+// This is the lowest activation height that leaves enough mature pre-mined coinbases for all
+// consumers of the shared fixture. The DIP3 prerequisite is active before the v19 boundary work.
+constexpr int V19_ACTIVATION_HEIGHT{109};
+} // namespace
+
+TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup() :
+    TestChainSetup{V19_ACTIVATION_HEIGHT - 6,
+                   CBaseChainParams::REGTEST,
+                   {"-dip3params=100:500", "-testactivationheight=v19@109", "-testactivationheight=v20@109",
+                    "-testactivationheight=mn_rr@109"},
+                   /*coins_db_in_memory=*/true,
+                   /*block_tree_db_in_memory=*/true,
+                   uint256S("0x13adad9565d0ca558f5675c50e3828f4354d26b64de044ebc88686056f30faab")}
 {
     assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
                                                                Consensus::DEPLOYMENT_V19)));

@@ -218,12 +218,12 @@ struct TestChainSetup : public TestingSetup
     CKey coinbaseKey; // private/public key needed to spend coinbase transactions
 };
 
-/** Test chain stopped immediately before v19 activation at height 500. */
+/** Test chain stopped five blocks before v19 activation at height 109. */
 struct TestChainV19BeforeActivationSetup : public TestChainSetup {
     TestChainV19BeforeActivationSetup();
 };
 
-/** Test chain whose next block activates v19 at height 500. */
+/** Test chain whose next block activates v19 at height 109. */
 struct TestChainV19Setup : public TestChainV19BeforeActivationSetup {
     TestChainV19Setup();
 };
