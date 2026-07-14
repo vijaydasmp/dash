@@ -69,6 +69,7 @@
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 #include <flat-database.h>
+#include <governance/governance.h>
 #include <llmq/context.h>
 #include <llmq/signing.h>
 #include <masternode/meta.h>
@@ -397,6 +398,11 @@ TestingSetup::~TestingSetup()
     if (m_node.connman) {
         m_node.connman->Stop();
     }
+
+    // govman holds a reference to chain_helper->superblocks, so it must be
+    // reset before chain_helper is destroyed (matches PrepareShutdown ordering
+    // in init.cpp). Keep this defensive for fixtures that construct govman.
+    m_node.govman.reset();
 
     if (m_node.mempool) {
         m_node.mempool->DisconnectManagers();

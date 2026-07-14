@@ -14,7 +14,6 @@
 #include <rpc/blockchain.h>
 #include <sync.h>
 #include <test/util/chainstate.h>
-#include <test/util/index.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <timedata.h>
@@ -786,9 +785,6 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_evodb_snapshot_only_flush_restart, Sna
 
     ChainstateManager& restarted = this->SimulateNodeRestart(/*flush_chainstates=*/false);
     this->LoadVerifyActivateChainstate();
-    g_txindex = std::make_unique<TxIndex>(1 << 20, /*memory=*/true);
-    BOOST_REQUIRE(g_txindex->Start(restarted.ActiveChainstate()));
-    IndexWaitSynced(*g_txindex);
 
     BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::SNAPSHOT, snapshot_marker));
     BOOST_CHECK(m_node.evodb->VerifyBestBlock(EvoDbIdentity::NORMAL, normal_marker));
@@ -835,9 +831,6 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init_missing_evodb_marker, Sn
     WITH_LOCK(::cs_main, restarted.ResetChainstates());
     fs::remove_all(gArgs.GetDataDirNet() / "chainstate_snapshot");
     this->LoadVerifyActivateChainstate();
-    g_txindex = std::make_unique<TxIndex>(1 << 20, /*memory=*/true);
-    BOOST_REQUIRE(g_txindex->Start(restarted.ActiveChainstate()));
-    IndexWaitSynced(*g_txindex);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
