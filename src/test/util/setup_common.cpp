@@ -450,10 +450,13 @@ TestChain100Setup::TestChain100Setup(
 {
 }
 
-TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name,
-                               const std::vector<const char*>& extra_args, const bool coins_db_in_memory,
-                               const bool block_tree_db_in_memory, const std::optional<uint256>& expected_tip_hash) :
-    TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
+TestChainSetup::TestChainSetup(
+        int num_blocks,
+        const std::string& chain_name,
+        const std::vector<const char*>& extra_args,
+        const bool coins_db_in_memory,
+        const bool block_tree_db_in_memory)
+    : TestingSetup{chain_name, extra_args, coins_db_in_memory, block_tree_db_in_memory}
 {
     SetMockTime(1598887952);
     constexpr std::array<unsigned char, 32> vchKey = {
@@ -477,22 +480,25 @@ TestChainSetup::TestChainSetup(int num_blocks, const std::string& chain_name,
             {   98, uint256S("0x150e127929d578d8129b77a6cb7e2e343a1379aa3feaaa9cce59e0a645756a81") },
             /*TestChain100Setup=*/
             {  100, uint256S("0x6ffb83129c19ebdf1ae3771be6a67fe34b35f4c956326b9ba152fac1649f65ae") },
+            /*TestChainV19BeforeActivationSetup=*/
+            {  103, uint256S("0x13adad9565d0ca558f5675c50e3828f4354d26b64de044ebc88686056f30faab") },
+            /*TestChainDIP3BeforeActivationSetup=*/
+            {  107, uint256S("0x40233e79ab24bc7c3e5686ac2b63915e15e1b1deecc3d0919f7ec32a9433fdfb") },
             /*TestChainDIP3BeforeActivationSetup=*/
             {  430, uint256S("0x0bcefaa33fec56cd84d05d0e76cd6a78badcc20f627d91903646de6a07930a14") },
+            /*TestChainV24SignalBeforeV19Setup=*/
+            {  494, uint256S("0x083fa179797ea7e5893198ff1b6eab632526c2eeb6f0ca6c42fcac9cb9bad366") },
             /*TestChainBRRBeforeActivationSetup=*/
             {  497, uint256S("0x0857a9b5db51835b1c828f019f4c664b5fe6c28ac44a6d868436930f832d31e5") },
-            /*TestChainV19BeforeActivationSetup=*/
-            {  494, uint256S("0x44ee5c8a5e5cbd4437d63c54ddc1d40329be811b25c492fa901e11cdf408f905") },
         }
     };
 
     {
         LOCK(::cs_main);
         auto hash = checkpoints.mapCheckpoints.find(num_blocks);
-        const uint256 actual_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
-        assert(expected_tip_hash.has_value() || hash != checkpoints.mapCheckpoints.end());
-        const uint256& expected_hash = expected_tip_hash.has_value() ? *expected_tip_hash : hash->second;
-        assert(actual_hash == expected_hash);
+        assert(
+            hash != checkpoints.mapCheckpoints.end() &&
+            m_node.chainman->ActiveChain().Tip()->GetBlockHash() == hash->second);
     }
 }
 
@@ -508,8 +514,7 @@ TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup() :
                    {"-dip3params=100:500", "-testactivationheight=v19@109", "-testactivationheight=v20@109",
                     "-testactivationheight=mn_rr@109"},
                    /*coins_db_in_memory=*/true,
-                   /*block_tree_db_in_memory=*/true,
-                   uint256S("0x13adad9565d0ca558f5675c50e3828f4354d26b64de044ebc88686056f30faab")}
+                   /*block_tree_db_in_memory=*/true}
 {
     assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
                                                                Consensus::DEPLOYMENT_V19)));

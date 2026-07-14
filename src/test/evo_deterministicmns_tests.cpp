@@ -1516,8 +1516,7 @@ constexpr int DIP3_ACTIVATION_HEIGHT{109};
 struct TestChainDIP3BeforeActivationSetup : public TestChainSetup {
     TestChainDIP3BeforeActivationSetup() :
         TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, CBaseChainParams::REGTEST, {"-dip3params=109:500"},
-                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true,
-                       uint256S("0x40233e79ab24bc7c3e5686ac2b63915e15e1b1deecc3d0919f7ec32a9433fdfb"))
+                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true)
     {
     }
 };
@@ -1535,8 +1534,7 @@ struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
         TestChainSetup(494, CBaseChainParams::REGTEST,
                        {"-testactivationheight=v19@500", "-testactivationheight=v20@500",
                         "-testactivationheight=mn_rr@511", "-vbparams=v24:0:9999999999:510:1:1:1:5:0"},
-                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true,
-                       uint256S("0x083fa179797ea7e5893198ff1b6eab632526c2eeb6f0ca6c42fcac9cb9bad366"))
+                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true)
     {
         assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
                                       Consensus::DEPLOYMENT_V19)));
