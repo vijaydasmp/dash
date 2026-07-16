@@ -4,9 +4,9 @@
 
 #include <wallet/coinselection.h>
 
+#include <logging.h>
 #include <policy/feerate.h>
 #include <util/check.h>
-#include <util/system.h>
 #include <util/moneystr.h>
 
 #include <coinjoin/common.h>

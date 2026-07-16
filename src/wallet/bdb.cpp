@@ -5,6 +5,7 @@
 
 #include <compat/compat.h>
 #include <fs.h>
+#include <logging.h>
 #include <wallet/bdb.h>
 #include <wallet/db.h>
 

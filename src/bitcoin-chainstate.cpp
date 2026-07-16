@@ -13,6 +13,7 @@
 
 #include <chainlock/chainlock.h>
 #include <chainparams.h>
+#include <common/args.h>
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <evo/chainhelper.h>
@@ -27,7 +28,6 @@
 #include <scheduler.h>
 #include <script/sigcache.h>
 #include <spork.h>
-#include <util/system.h>
 #include <util/thread.h>
 #include <validation.h>
 #include <validationinterface.h>

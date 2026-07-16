@@ -7,9 +7,9 @@
 #include <index/addressindex.h>
 #include <index/spentindex.h>
 #include <index/timestampindex.h>
+#include <common/args.h>
 #include <index/txindex.h>
 #include <txdb.h>
-#include <util/system.h>
 
 namespace node {
 CacheSizes CalculateCacheSizes(const ArgsManager& args, size_t n_indexes)

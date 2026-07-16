@@ -7,13 +7,13 @@
 
 #include <coinjoin/client.h>
 #include <coinjoin/options.h>
+#include <common/args.h>
 #include <fs.h>
 #include <net.h>
 #include <interfaces/chain.h>
 #include <scheduler.h>
 #include <util/check.h>
 #include <util/string.h>
-#include <util/system.h>
 #include <util/translation.h>
 #include <wallet/context.h>
 #include <wallet/spend.h>

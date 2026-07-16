@@ -11,9 +11,10 @@
 
 #include <arith_uint256.h>
 #include <chainparamsseeds.h>
+#include <common/args.h>
 #include <consensus/merkle.h>
 #include <deploymentinfo.h>
-#include <util/system.h>
+#include <logging.h>
 #include <versionbits.h>
 
 #include <cassert>

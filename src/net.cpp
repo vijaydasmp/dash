@@ -15,6 +15,7 @@
 #include <addrman.h>
 #include <banman.h>
 #include <clientversion.h>
+#include <common/args.h>
 #include <compat/compat.h>
 #include <consensus/consensus.h>
 #include <crypto/sha256.h>
@@ -32,7 +33,6 @@
 #include <scheduler.h>
 #include <util/sock.h>
 #include <util/strencodings.h>
-#include <util/system.h>
 #include <util/thread.h>
 #include <util/threadinterrupt.h>
 #include <util/time.h>

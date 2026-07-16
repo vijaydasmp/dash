@@ -5,6 +5,7 @@
 #include <coinjoin/common.h>
 #include <coinjoin/options.h>
 #include <consensus/consensus.h>
+#include <common/args.h>
 #include <consensus/validation.h>
 #include <evo/dmn_types.h>
 #include <interfaces/chain.h>

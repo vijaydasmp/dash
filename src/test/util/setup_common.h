@@ -8,6 +8,7 @@
 
 #include <chainparamsbase.h>
 #include <fs.h>
+#include <common/args.h>
 #include <key.h>
 #include <node/caches.h>
 #include <node/context.h> // IWYU pragma: export
@@ -16,7 +17,6 @@
 #include <random.h>
 #include <util/check.h>
 #include <util/string.h>
-#include <util/system.h>
 #include <util/time.h>
 #include <util/vector.h>
 
