@@ -429,11 +429,11 @@ void PrepareShutdown(NodeContext& node)
                 chainstate->ResetCoinsViews();
             }
         }
-        node.chain_helper.reset();
-        node.llmq_ctx.reset();
         if (node.mempool) {
             node.mempool->DisconnectManagers();
         }
+        node.chain_helper.reset();
+        node.llmq_ctx.reset();
         node.dmnman.reset();
         node.evodb.reset();
     }

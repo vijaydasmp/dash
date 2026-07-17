@@ -395,11 +395,11 @@ TestingSetup::~TestingSetup()
         m_node.connman->Stop();
     }
 
-    m_node.chain_helper.reset();
-    m_node.llmq_ctx.reset();
     if (m_node.mempool) {
         m_node.mempool->DisconnectManagers();
     }
+    m_node.chain_helper.reset();
+    m_node.llmq_ctx.reset();
     m_node.dmnman.reset();
 }
 

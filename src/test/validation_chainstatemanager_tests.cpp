@@ -62,10 +62,10 @@ static void DashChainstateSetupClose(node::NodeContext& node)
     if (node.clhandler) {
         node.clhandler->Stop();
     }
-    node.chain_helper.reset();
     if (node.mempool) {
         node.mempool->DisconnectManagers();
     }
+    node.chain_helper.reset();
     node.llmq_ctx.reset();
 }
 
