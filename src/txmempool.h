@@ -827,6 +827,23 @@ public:
      */
     bool existsProviderTxConflict(const CTransaction &tx) const;
 
+    /**
+     * Does another in-flight transaction already claim this transaction's operator key under the
+     * *other* BLS encoding?
+     *
+     * mapProTxBlsPubKeyHashes is keyed by CBLSLazyPublicKey::GetHash(), which is scheme-sensitive,
+     * so existsProviderTxConflict() above compares operator keys per encoding rather than per key
+     * and cannot see this.
+     *
+     * This is mempool policy and is intentionally invoked unconditionally (not gated on the
+     * deployment that makes cross-scheme reuse a consensus error). Gating it would leave a pair
+     * admitted before activation resident afterwards: block assembly does not revalidate special
+     * transactions cumulatively, so both would still be selected and the resulting block rejected,
+     * stalling an honest miner. Policy may be stricter than consensus here, since a node that rejects
+     * the second transaction still accepts a block containing it.
+     */
+    bool existsProviderTxCrossSchemeConflict(const CTransaction& tx) const;
+
     size_t DynamicMemoryUsage() const;
 
     /** Adds a transaction to the unbroadcast set */

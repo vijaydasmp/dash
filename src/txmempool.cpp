@@ -1375,6 +1375,59 @@ TxMempoolInfo CTxMemPool::info(const uint256& hash) const
     return GetInfo(i);
 }
 
+bool CTxMemPool::existsProviderTxCrossSchemeConflict(const CTransaction& tx) const
+{
+    LOCK(cs);
+
+    // Probe both encodings of `pubkey` and report a conflict if any in-flight transaction other than
+    // `self_protx`'s own already claims it. mapProTxBlsPubKeyHashes maps the scheme-sensitive key
+    // hash to a transaction hash, not to a masternode, so resolving ownership means decoding the
+    // conflicting transaction's payload.
+    auto probe = [&](const CBLSLazyPublicKey& key, const uint256& self_protx) EXCLUSIVE_LOCKS_REQUIRED(cs) {
+        AssertLockHeld(cs);
+        const CBLSPublicKey& pubkey{key.Get()};
+        if (!pubkey.IsValid()) return false;
+        for (const bool legacy_scheme : {true, false}) {
+            CBLSLazyPublicKey wrapped;
+            wrapped.Set(pubkey, legacy_scheme);
+            auto it = mapProTxBlsPubKeyHashes.find(wrapped.GetHash());
+            if (it == mapProTxBlsPubKeyHashes.end()) continue;
+            auto txit = mapTx.find(it->second);
+            if (txit == mapTx.end()) continue;
+            if (txit->GetTx().GetHash() == tx.GetHash()) continue; // ourselves
+            if (!self_protx.IsNull() && txit->GetTx().nType == TRANSACTION_PROVIDER_UPDATE_REGISTRAR) {
+                // The same masternode's own in-flight registrar update is not a conflict.
+                if (const auto other = GetTxPayload<CProUpRegTx>(txit->GetTx());
+                    other && other->proTxHash == self_protx) {
+                    continue;
+                }
+            }
+            return true;
+        }
+        return false;
+    };
+
+    if (tx.nType == TRANSACTION_PROVIDER_REGISTER) {
+        const auto opt_proTx = GetTxPayload<CProRegTx>(tx);
+        if (!opt_proTx) return true; // can't decode payload == conflict, as elsewhere here
+        return probe(opt_proTx->pubKeyOperator, uint256());
+    }
+    if (tx.nType == TRANSACTION_PROVIDER_UPDATE_REGISTRAR) {
+        const auto opt_proTx = GetTxPayload<CProUpRegTx>(tx);
+        if (!opt_proTx) return true;
+        // Only probe when the operator key is actually changing, matching the consensus checks. An
+        // update keeping its own key cannot create a duplicate, and probing it anyway would let one
+        // member of an existing cross-scheme pair block the other's unrelated registrar updates.
+        auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
+        if (auto dmn = dmnman->GetListAtChainTip().GetMN(opt_proTx->proTxHash);
+            dmn && opt_proTx->pubKeyOperator == dmn->pdmnState->pubKeyOperator) {
+            return false;
+        }
+        return probe(opt_proTx->pubKeyOperator, opt_proTx->proTxHash);
+    }
+    return false;
+}
+
 bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
     auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
 

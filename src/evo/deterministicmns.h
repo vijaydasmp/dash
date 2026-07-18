@@ -443,6 +443,33 @@ public:
         return GetMN(p->first);
     }
 
+    /**
+     * Is this operator public key already held by a masternode other than `self`, under *either* BLS
+     * encoding?
+     *
+     * mnUniquePropertyMap is keyed by GetUniquePropertyHash(), which serializes its argument, and a
+     * BLS key serializes differently under the legacy and basic schemes. So one public key sits in
+     * one of two possible slots and a single lookup sees only one of them, which is why operator key
+     * uniqueness is otherwise enforced per encoding rather than per key. There are exactly two
+     * schemes, so probing both is O(1) rather than a scan.
+     *
+     * Both slots are probed even when one resolves to `self`: where a cross-scheme duplicate pair
+     * already exists, returning early on a self-match would miss the other member.
+     *
+     * Pass uint256() as `self` to exclude nothing.
+     */
+    [[nodiscard]] bool HasOperatorKeyUnderAnyScheme(const CBLSPublicKey& pubkey, const uint256& self) const
+    {
+        for (const bool legacy_scheme : {true, false}) {
+            CBLSLazyPublicKey wrapped;
+            wrapped.Set(pubkey, legacy_scheme);
+            if (!HasUniqueProperty(wrapped)) continue;
+            const auto holder = GetUniquePropertyMN(wrapped);
+            if (holder && holder->proTxHash != self) return true;
+        }
+        return false;
+    }
+
     // Compare two masternode lists for equality, ignoring non-deterministic members.
     // Non-deterministic members (nTotalRegisteredCount, internalId) can differ between
     // nodes due to different sync histories, but don't affect consensus validity.

@@ -384,6 +384,15 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
             }
             dmn->pdmnState = dmnState;
 
+            // CheckProRegTx ran against pindexPrev, so transactions in this same block are invisible
+            // to each other and two of them could claim one operator key under different encodings.
+            // Re-probe the list as rebuilt so far. AddMN() reports a duplicate by throwing, which
+            // would escape block assembly, so reject cleanly here instead.
+            if (is_v24_deployed &&
+                newList.HasOperatorKeyUnderAnyScheme(dmn->pdmnState->pubKeyOperator.Get(), /*self=*/uint256())) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-protx-dup-key");
+            }
+
             newList.AddMN(dmn);
 
             if (debugLogs) {
@@ -502,6 +511,17 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
             } else {
                 newState->scriptPayout = opt_proTx->scriptPayout;
                 newState->payouts.clear();
+            }
+
+            // As in the registration path: CheckProUpRegTx ran against pindexPrev, so a second
+            // transaction in this same block claiming the same key under the other encoding is
+            // invisible to it. Same key-change scoping as that check -- an update keeping its own key
+            // cannot create a duplicate. UpdateMN() reports duplicates by throwing, which would
+            // escape block assembly, so reject cleanly here instead.
+            if (is_v24_deployed && !(opt_proTx->pubKeyOperator == dmn->pdmnState->pubKeyOperator) &&
+                newList.HasOperatorKeyUnderAnyScheme(opt_proTx->pubKeyOperator.Get(),
+                                                     /*self=*/opt_proTx->proTxHash)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-protx-dup-key");
             }
 
             newList.UpdateMN(opt_proTx->proTxHash, newState);
@@ -1126,6 +1146,15 @@ bool CheckProRegTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> pin
             return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
         }
 
+        // The check above only sees the operator key under the encoding this payload happens to use,
+        // so it misses a key an existing masternode holds under the other one. A ProRegTx never
+        // proves ownership of the operator key, so that gap lets anyone claim a masternode's key.
+        // Nothing is excluded here: a duplicate key is never allowed, even for a ProTx replacing an
+        // existing masternode.
+        if (is_v24_active && mnList.HasOperatorKeyUnderAnyScheme(opt_ptx->pubKeyOperator.Get(), /*self=*/uint256())) {
+            return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
+        }
+
         // never allow duplicate platformNodeIds for EvoNodes
         if (opt_ptx->nType == MnType::Evo) {
             if (mnList.HasUniqueProperty(opt_ptx->platformNodeID)) {
@@ -1285,6 +1314,17 @@ bool CheckProUpRegTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> p
         if (opt_ptx->proTxHash != otherDmn->proTxHash) {
             return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
         }
+    }
+
+    // As above, but for the key under its other encoding, which the check above cannot see. Only
+    // when the key is actually changing: an update that keeps its own key cannot create a new
+    // duplicate, and probing it anyway would let a cross-scheme pair formed before activation
+    // permanently block that masternode's registrar updates unless it rotated its key -- making an
+    // old squat more harmful rather than less.
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_V24) &&
+        !(opt_ptx->pubKeyOperator == dmn->pdmnState->pubKeyOperator) &&
+        mnList.HasOperatorKeyUnderAnyScheme(opt_ptx->pubKeyOperator.Get(), /*self=*/opt_ptx->proTxHash)) {
+        return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
     }
 
     if (!DeploymentDIP0003Enforced(pindexPrev->nHeight, Params().GetConsensus())) {
