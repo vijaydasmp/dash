@@ -1530,7 +1530,7 @@ BOOST_AUTO_TEST_CASE(proupreg_version_handling_before_v24)
     FuncProUpRegTxVersionHandlingBeforeV24(setup);
 }
 
-BOOST_AUTO_TEST_CASE(proupreg_v3_on_legacy_rejected)
+BOOST_AUTO_TEST_CASE(proupreg_v3_on_legacy_valid)
 {
     TestChainV24SignalBeforeV19Setup setup;
     FuncProUpRegTxV3OnLegacyValid(setup);
