@@ -196,7 +196,7 @@ static const char* BITCOIN_PID_FILENAME = "dashd.pid";
 
 static fs::path GetPidFile(const ArgsManager& args)
 {
-    return AbsPathForConfigVal(args.GetPathArg("-pid", BITCOIN_PID_FILENAME));
+    return AbsPathForConfigVal(args, args.GetPathArg("-pid", BITCOIN_PID_FILENAME));
 }
 
 [[nodiscard]] static bool CreatePidFile(const ArgsManager& args)
@@ -1110,7 +1110,7 @@ std::set<BlockFilterType> g_enabled_filter_types;
     std::terminate();
 };
 
-bool AppInitBasicSetup(const ArgsManager& args)
+bool AppInitBasicSetup(const ArgsManager& args, std::atomic<int>& exit_status)
 {
     // ********************************************************* Step 1: setup
 #ifdef _MSC_VER
@@ -1124,7 +1124,7 @@ bool AppInitBasicSetup(const ArgsManager& args)
     // Enable heap terminate-on-corruption
     HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
 #endif
-    if (!InitShutdownState()) {
+    if (!InitShutdownState(exit_status)) {
         return InitError(Untranslated("Initializing wait-for-shutdown state failed."));
     }
 

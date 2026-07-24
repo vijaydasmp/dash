@@ -387,28 +387,6 @@ fs::path ArgsManager::GetBackupsDirPath()
 
     return fs::absolute(GetPathArg("-walletbackupsdir"));
 }
-
-void ArgsManager::EnsureDataDir() const
-{
-    /**
-     * "/wallets" subdirectories are created in all **new**
-     * datadirs, because wallet code will create new wallets in the "wallets"
-     * subdirectory only if exists already, otherwise it will create them in
-     * the top-level datadir where they could interfere with other files.
-     * Wallet init code currently avoids creating "wallets" directories itself
-     * for backwards compatibility, but this be changed in the future and
-     * wallet code here could go away (#16220).
-     */
-    auto path{GetDataDir(false)};
-    if (!fs::exists(path)) {
-        fs::create_directories(path / "wallets");
-    }
-    path = GetDataDir(true);
-    if (!fs::exists(path)) {
-        fs::create_directories(path / "wallets");
-    }
-}
-
 void ArgsManager::ClearPathCache()
 {
     LOCK(cs_args);
@@ -450,25 +428,6 @@ std::vector<std::string> ArgsManager::GetArgs(const std::string& strArg) const
 bool ArgsManager::IsArgSet(const std::string& strArg) const
 {
     return !GetSetting(strArg).isNull();
-}
-
-bool ArgsManager::InitSettings(std::string& error)
-{
-    EnsureDataDir();
-    if (!GetSettingsPath()) {
-        return true; // Do nothing if settings file disabled.
-    }
-
-    std::vector<std::string> errors;
-    if (!ReadSettingsFile(&errors)) {
-        error = strprintf("Failed loading settings file:\n%s\n", MakeUnorderedList(errors));
-        return false;
-    }
-    if (!WriteSettingsFile(&errors)) {
-        error = strprintf("Failed saving settings file:\n%s\n", MakeUnorderedList(errors));
-        return false;
-    }
-    return true;
 }
 
 bool ArgsManager::GetSettingsPath(fs::path* filepath, bool temp, bool backup) const
@@ -854,15 +813,15 @@ fs::path GetBackupsDir()
     return gArgs.GetBackupsDirPath();
 }
 
-bool CheckDataDirOption()
+bool CheckDataDirOption(const ArgsManager& args)
 {
-    const fs::path datadir{gArgs.GetPathArg("-datadir")};
+    const fs::path datadir{args.GetPathArg("-datadir")};
     return datadir.empty() || fs::is_directory(fs::absolute(datadir));
 }
 
-fs::path GetConfigFile(const fs::path& configuration_file_path)
+fs::path GetConfigFile(const ArgsManager& args, const fs::path& configuration_file_path)
 {
-    return AbsPathForConfigVal(configuration_file_path, /*net_specific=*/false);
+    return AbsPathForConfigVal(args, configuration_file_path, /*net_specific=*/false);
 }
 
 static bool GetConfigOptions(std::istream& stream, const std::string& filepath, std::string& error, std::vector<std::pair<std::string, std::string>>& options, std::list<SectionInfo>& sections)
@@ -955,7 +914,7 @@ bool ArgsManager::ReadConfigStream(std::istream& stream, const std::string& file
 
 fs::path ArgsManager::GetConfigFilePath() const
 {
-    return GetConfigFile(GetPathArg("-conf", BITCOIN_CONF_FILENAME));
+    return GetConfigFile(*this, GetPathArg("-conf", BITCOIN_CONF_FILENAME));
 }
 
 bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
@@ -1014,7 +973,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             const size_t default_includes = add_includes({});
 
             for (const std::string& conf_file_name : conf_file_names) {
-                std::ifstream conf_file_stream{GetConfigFile(fs::PathFromString(conf_file_name))};
+                std::ifstream conf_file_stream{GetConfigFile(*this, fs::PathFromString(conf_file_name))};
                 if (conf_file_stream.good()) {
                     if (!ReadConfigStream(conf_file_stream, conf_file_name, error, ignore_invalid_keys)) {
                         return false;
@@ -1041,7 +1000,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
         }
     } else {
         // Create an empty dash.conf if it does not exist
-        std::ofstream configFile{GetConfigFile(conf_path), std::ios_base::app};
+        std::ofstream configFile{GetConfigFile(*this, conf_path), std::ios_base::app};
         if (!configFile.good())
             return false;
         configFile.close();
@@ -1049,8 +1008,8 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
     }
 
     // If datadir is changed in .conf file:
-    gArgs.ClearPathCache();
-    if (!CheckDataDirOption()) {
+    ClearPathCache();
+    if (!CheckDataDirOption(*this)) {
         error = strprintf("specified data directory \"%s\" does not exist.", GetArg("-datadir", ""));
         return false;
     }
@@ -1259,12 +1218,12 @@ int64_t GetStartupTime()
     return nStartupTime;
 }
 
-fs::path AbsPathForConfigVal(const fs::path& path, bool net_specific)
+fs::path AbsPathForConfigVal(const ArgsManager& args, const fs::path& path, bool net_specific)
 {
     if (path.is_absolute()) {
         return path;
     }
-    return fsbridge::AbsPathJoin(net_specific ? gArgs.GetDataDirNet() : gArgs.GetDataDirBase(), path);
+    return fsbridge::AbsPathJoin(net_specific ? args.GetDataDirNet() : args.GetDataDirBase(), path);
 }
 
 void ScheduleBatchPriority()

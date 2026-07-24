@@ -77,7 +77,7 @@ static fs::path GetAuthCookieFile(bool temp=false)
     if (temp) {
         arg += ".tmp";
     }
-    return AbsPathForConfigVal(arg);
+    return AbsPathForConfigVal(gArgs, arg);
 }
 
 static bool g_generated_cookie = false;

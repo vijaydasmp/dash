@@ -38,6 +38,7 @@
 extern int nWalletBackups;
 extern const std::string gCoinJoinName;
 
+class ArgsManager;
 class UniValue;
 
 // Application startup time (used for uptime calculation)
@@ -59,8 +60,8 @@ bool error(const char* fmt, const Args&... args)
 void PrintExceptionContinue(const std::exception_ptr pex, const char* pszExceptionOrigin);
 
 // Return true if -datadir option points to a valid directory or is not specified.
-bool CheckDataDirOption();
-fs::path GetConfigFile(const fs::path& configuration_file_path);
+bool CheckDataDirOption(const ArgsManager& args);
+fs::path GetConfigFile(const ArgsManager& args, const fs::path& configuration_file_path);
 #ifndef WIN32
 std::string ShellEscape(const std::string& arg);
 #endif
@@ -72,11 +73,12 @@ void runCommand(const std::string& strCommand);
  * Most paths passed as configuration arguments are treated as relative to
  * the datadir if they are not absolute.
  *
+ * @param args Parsed arguments and settings.
  * @param path The path to be conditionally prefixed with datadir.
  * @param net_specific Use network specific datadir variant
  * @return The normalized path.
  */
-fs::path AbsPathForConfigVal(const fs::path& path, bool net_specific = true);
+fs::path AbsPathForConfigVal(const ArgsManager& args, const fs::path& path, bool net_specific = true);
 
 inline bool IsSwitchChar(char c)
 {
@@ -414,13 +416,6 @@ protected:
     std::optional<unsigned int> GetArgFlags(const std::string& name) const;
 
     /**
-     * Read and update settings file with saved settings. This needs to be
-     * called after SelectParams() because the settings file location is
-     * network-specific.
-     */
-    bool InitSettings(std::string& error);
-
-    /**
      * Get settings file path, or return false if read-write settings were
      * disabled with -nosettings.
      */
@@ -458,12 +453,6 @@ protected:
      * useful for troubleshooting.
      */
     void LogArgs() const;
-
-    /**
-     * If datadir does not exist, create it along with wallets/
-     * subdirectory(s).
-     */
-    void EnsureDataDir() const;
 
 private:
     /**
