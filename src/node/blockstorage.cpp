@@ -9,12 +9,12 @@
 #include <clientversion.h>
 #include <consensus/validation.h>
 #include <flatfile.h>
-#include <fs.h>
 #include <hash.h>
 #include <pow.h>
 #include <shutdown.h>
 #include <streams.h>
 #include <undo.h>
+#include <util/fs.h>
 #include <util/system.h>
 #include <validation.h>
 #include <walletinitinterface.h>
