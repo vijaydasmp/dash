@@ -144,6 +144,12 @@ public:
     CTransactionBuilderTestSetup() :
         wallet{std::make_unique<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args, CreateMockWalletDatabase())}
     {
+        // NOTE: minRelayTxFee is a global other suites mutate without restoring the
+        // default (transaction_tests leaves it at DUST_RELAY_TX_FEE), which makes the
+        // feerate GetTallyItem() asks for lower than the minimum and fails every
+        // CreateTransaction() call below. Boost shuffles test order in CI, so pin it
+        // here for every test using this fixture instead of per test.
+        minRelayTxFee = CFeeRate(DEFAULT_MIN_RELAY_TX_FEE);
         context.args = &m_args;
         context.chain = m_node.chain.get();
         context.coinjoin_loader = m_node.coinjoin_loader.get();
@@ -205,7 +211,9 @@ public:
             CTransactionRef tx;
             {
                 auto res = CreateTransaction(*wallet, {{GetScriptForDestination(tallyItem.txdest), nAmount, false}}, nChangePosRet, coinControl);
-                BOOST_REQUIRE(res);
+                // Report why it failed, a bare "critical check res has failed" says nothing
+                BOOST_REQUIRE_MESSAGE(res, strprintf("CreateTransaction(%d) failed: %s", nAmount,
+                                                     util::ErrorString(res).original));
                 tx = res->tx;
                 nChangePosRet = res->change_pos;
             }
@@ -310,7 +318,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderT
 
         cj_man.AddPendingObservation({outpointTimeout, outpointInMempool});
         BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 2);
-        SetMockTime(nStart + CCoinJoinClientManager::PENDING_OBSERVATION_TIMEOUT_SECONDS + 1);
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
 
         // The timeout never fires while the chain is still catching up: the spending
         // transaction could be sitting in a block we have not downloaded yet
@@ -341,6 +349,51 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderT
         BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointUserLocked)));
         SetMockTime(0);
     }));
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_reload_tests, CTransactionBuilderTestSetup)
+{
+    // 0.100001 DASH, a valid CoinJoin denomination
+    constexpr CAmount nDenomAmount{10000100};
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount});
+    const COutPoint outpointPending = tallyItem.outpoints[0];
+
+    const int64_t nStart{GetTime()};
+    SetMockTime(nStart);
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        cj_man.AddPendingObservation({outpointPending});
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+    }));
+    BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+
+    // Drop the client manager and create a fresh one for the same wallet: it has to pick
+    // the pending observation back up from the wallet database, the way it would after a
+    // restart, otherwise the persisted lock would be left with nothing to release it
+    m_node.cj_walletman->removeWallet(wallet->GetName());
+    m_node.cj_walletman->addWallet(wallet);
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        // The record is read lazily, on the first check
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+
+        m_node.mn_sync->SwitchToNextAsset();
+        BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
+
+        // The grace period was restored along with the entry rather than restarted: the
+        // terminal timeout is measured from when the session completed, not from reload
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT - 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+    }));
+    SetMockTime(0);
 }
 
 BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTestSetup)
