@@ -1027,6 +1027,24 @@ void CTxMemPool::removeProTxConflicts(const CTransaction &tx)
         }
         if (!proTx.collateralOutpoint.hash.IsNull()) {
             removeProTxCollateralConflicts(tx, proTx.collateralOutpoint);
+            // Replacement of a live MN via external-collateral reuse: drop any
+            // mempool updates that still target the proTxHash being replaced.
+            // removeProTxSpentCollateralConflicts only covers spends, not reuse.
+            if (auto dmn = m_dmnman.GetListAtChainTip().GetMNByCollateral(proTx.collateralOutpoint)) {
+                // Can't use equal_range + erase loop: removeRecursive may invalidate iterators.
+                while (true) {
+                    auto it = mapProTxRefs.find(dmn->proTxHash);
+                    if (it == mapProTxRefs.end()) {
+                        break;
+                    }
+                    auto conflictIt = mapTx.find(it->second);
+                    if (conflictIt != mapTx.end()) {
+                        removeRecursive(conflictIt->GetTx(), MemPoolRemovalReason::CONFLICT);
+                    } else {
+                        mapProTxRefs.erase(it);
+                    }
+                }
+            }
         } else {
             removeProTxCollateralConflicts(tx, COutPoint(tx_hash, proTx.collateralOutpoint.n));
         }
@@ -1450,6 +1468,14 @@ bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
                 // there is another tx that spends the collateral
                 return true;
             }
+            // A replacement ProRegTx deletes the live MN backed by this collateral. Any
+            // in-mempool update that still targets that MN's proTxHash would then fail
+            // BuildNewListFromBlock with bad-protx-hash if both were mined in one block.
+            if (auto dmn = m_dmnman.GetListAtChainTip().GetMNByCollateral(proTx.collateralOutpoint)) {
+                if (mapProTxRefs.find(dmn->proTxHash) != mapProTxRefs.end()) {
+                    return true;
+                }
+            }
         }
         return false;
     } else if (tx.nType == TRANSACTION_PROVIDER_UPDATE_SERVICE) {
@@ -1470,6 +1496,12 @@ bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
                 return true;
             }
         }
+        // Conflict with a replacement ProRegTx that reuses this MN's external collateral.
+        if (auto dmn = m_dmnman.GetListAtChainTip().GetMN(opt_proTx->proTxHash)) {
+            if (mapProTxCollaterals.count(dmn->collateralOutpoint)) {
+                return true;
+            }
+        }
     } else if (tx.nType == TRANSACTION_PROVIDER_UPDATE_REGISTRAR) {
         const auto opt_proTx = GetTxPayload<CProUpRegTx>(tx);
         if (!opt_proTx) {
@@ -1483,6 +1515,10 @@ bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
         if (!dmn) {
             LogPrint(BCLog::MEMPOOL, "%s: ERROR: Masternode is not in the list, proTxHash: %s\n", __func__, proTx.proTxHash.ToString());
             return true; // i.e. failed to find validated ProTx == conflict
+        }
+        // Conflict with a replacement ProRegTx that reuses this MN's external collateral.
+        if (mapProTxCollaterals.count(dmn->collateralOutpoint)) {
+            return true;
         }
         // only allow one operator key change in the mempool
         if (dmn->pdmnState->pubKeyOperator != proTx.pubKeyOperator) {
@@ -1505,6 +1541,10 @@ bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
         if (!dmn) {
             LogPrint(BCLog::MEMPOOL, "%s: ERROR: Masternode is not in the list, proTxHash: %s\n", __func__, proTx.proTxHash.ToString());
             return true; // i.e. failed to find validated ProTx == conflict
+        }
+        // Conflict with a replacement ProRegTx that reuses this MN's external collateral.
+        if (mapProTxCollaterals.count(dmn->collateralOutpoint)) {
+            return true;
         }
         // only allow one operator key change in the mempool
         if (dmn->pdmnState->pubKeyOperator.Get() != CBLSPublicKey()) {
