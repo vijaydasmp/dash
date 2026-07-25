@@ -1483,17 +1483,66 @@ struct TestChainDIP3Setup : public TestChainDIP3BeforeActivationSetup {
     }
 };
 
-struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
-    TestChainV24SignalBeforeV19Setup() :
-        TestChainSetup(494, CBaseChainParams::REGTEST,
-                       {"-testactivationheight=v19@500", "-testactivationheight=v20@500",
-                        "-testactivationheight=mn_rr@511", "-vbparams=v24:0:9999999999:510:1:1:1:5:0"},
-                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true)
+struct TestMNChainSetup : public TestChainSetup {
+    TestMNChainSetup(int num_blocks, const std::vector<const char*>& extra_args) :
+        TestChainSetup(num_blocks, CBaseChainParams::REGTEST, extra_args,
+                       /*coins_db_in_memory=*/true, /*block_tree_db_in_memory=*/true),
+        chainman(*Assert(m_node.chainman)),
+        dmnman(*Assert(m_node.dmnman)),
+        utxos(BuildSimpleUtxoMap(m_coinbase_txns)),
+        coinbase_pk(GetScriptForRawPubKey(coinbaseKey.GetPubKey()))
     {
-        assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
-                                      Consensus::DEPLOYMENT_V19)));
-        assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), *m_node.chainman,
-                                      Consensus::DEPLOYMENT_V24)));
+    }
+
+    const CBlockIndex* Tip() const
+    {
+        return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip());
+    }
+
+    bool IsV19Active() const
+    {
+        return DeploymentActiveAfter(Tip(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19);
+    }
+
+    bool IsV24Active() const
+    {
+        return DeploymentActiveAfter(Tip(), chainman, Consensus::DEPLOYMENT_V24);
+    }
+
+    void ProcessBlock(const std::vector<CMutableTransaction>& txs = {})
+    {
+        CreateAndProcessBlock(txs, coinbase_pk);
+        dmnman.UpdatedBlockTip(Tip());
+    }
+
+    void MineToV19()
+    {
+        while (!IsV19Active()) {
+            ProcessBlock();
+        }
+    }
+
+    void MineToV24()
+    {
+        for (int i = 0; i < 2000 && !IsV24Active(); ++i) {
+            ProcessBlock();
+        }
+    }
+
+    ChainstateManager& chainman;
+    CDeterministicMNManager& dmnman;
+    SimpleUTXOMap utxos;
+    const CScript coinbase_pk;
+};
+
+struct TestChainV24SignalBeforeV19Setup : public TestMNChainSetup {
+    TestChainV24SignalBeforeV19Setup() :
+        TestMNChainSetup(494,
+                         {"-testactivationheight=v19@500", "-testactivationheight=v20@500",
+                          "-testactivationheight=mn_rr@511", "-vbparams=v24:0:9999999999:510:1:1:1:5:0"})
+    {
+        assert(!IsV19Active());
+        assert(!IsV24Active());
     }
 };
 
@@ -1504,16 +1553,12 @@ struct TestChainV24SignalBeforeV19Setup : public TestChainSetup {
 struct TestChainV24PendingSetup : public TestChainV24SignalBeforeV19Setup {
     TestChainV24PendingSetup()
     {
-        const CScript coinbase_pk = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
-        auto& chainman = *Assert(m_node.chainman);
-        auto& dmnman = *Assert(m_node.dmnman);
         // Mine just enough to activate v19/v20 (height 500) while keeping v24 and mn_rr pending.
-        for (int i = 0; i < 20 && WITH_LOCK(::cs_main, return !DeploymentActiveAfter(chainman.ActiveChain().Tip(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)); ++i) {
-            CreateAndProcessBlock({}, coinbase_pk);
-            dmnman.UpdatedBlockTip(WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()));
+        for (int i = 0; i < 20 && !IsV19Active(); ++i) {
+            ProcessBlock();
         }
-        assert(WITH_LOCK(::cs_main, return DeploymentActiveAfter(chainman.ActiveChain().Tip(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)));
-        assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(chainman.ActiveChain().Tip(), chainman, Consensus::DEPLOYMENT_V24)));
+        assert(IsV19Active());
+        assert(!IsV24Active());
         assert(!bls::bls_legacy_scheme.load());
     }
 };
@@ -1551,16 +1596,13 @@ static void CheckListRoundTrips(CDeterministicMNManager& dmnman, const std::stri
     BOOST_CHECK_MESSAGE(live.IsEqual(reloaded), what << ": live list diverges from its serialized form");
 }
 
-void FuncMigrationRejectedWhenKeySquatted(TestChainSetup& setup)
+void FuncMigrationRejectedWhenKeySquatted(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
 
     // Victim A: legacy, holding operator key K.
     CKey owner_key_a;
@@ -1568,15 +1610,11 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainSetup& setup)
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key);
     const auto proTxHashA = tx_reg_a.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
 
     // Reach v19, register squatter B holding K basic-encoded (accepted pre-v24), then activate v24.
-    while (!DeploymentActiveAfter(tip_index(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV19();
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     CKey owner_key_b;
     owner_key_b.MakeNewKey(true);
@@ -1599,15 +1637,11 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainSetup& setup)
         SetTxPayload(tx_reg_b, pro_reg_b);
         SignTransaction(tx_reg_b, spent, setup.coinbaseKey);
     }
-    setup.CreateAndProcessBlock({tx_reg_b}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_b});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(tx_reg_b.GetHash()));
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // (a) A's service-update migration is rejected cleanly.
@@ -1657,30 +1691,23 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainSetup& setup)
     }
 };
 
-void FuncProUpServTxMigratesLegacy(TestChainSetup& setup)
+void FuncProUpServTxMigratesLegacy(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key;
     CBLSSecretKey operator_key;
     auto tx_reg = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key,
                                  operator_key);
     const auto proTxHash = tx_reg.GetHash();
-    setup.CreateAndProcessBlock({tx_reg}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg});
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // A BasicBLS service update migrates a legacy masternode in place: it keeps the same operator
     // key (re-encoded to the basic scheme), raises the version, and is NOT PoSe-banned -- no key
@@ -1694,8 +1721,7 @@ void FuncProUpServTxMigratesLegacy(TestChainSetup& setup)
                                                val_state, /*check_sigs=*/true),
                               "migration ProUpServTx rejected: " << val_state.GetRejectReason());
     }
-    setup.CreateAndProcessBlock({tx}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx});
 
     const auto dmn = dmnman.GetListAtChainTip().GetMN(proTxHash);
     BOOST_REQUIRE(dmn);
@@ -1776,29 +1802,22 @@ BOOST_AUTO_TEST_CASE(proupserv_migrates_legacy)
 // is already BasicBLS, so the round-3 guard (which keys off old_version == LegacyBLS) does not fire,
 // and the v1-payload key is placed into a v2 state. Assert the final key's scheme matches its version
 // and the list round-trips.
-void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainSetup& setup)
+void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key;
     CBLSSecretKey operator_key_old;
     auto tx_reg = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key,
                                  operator_key_old);
     const auto proTxHash = tx_reg.GetHash();
-    setup.CreateAndProcessBlock({tx_reg}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CBLSSecretKey key1, key2;
@@ -1885,29 +1904,22 @@ void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainSetup& setup)
     }
 };
 
-void FuncSameMnSameBlockMigrationConsistent(TestChainSetup& setup)
+void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key;
     CBLSSecretKey operator_key_old;
     auto tx_reg = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key,
                                  operator_key_old);
     const auto proTxHash = tx_reg.GetHash();
-    setup.CreateAndProcessBlock({tx_reg}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // Both rotate to the SAME new key, one legacy-encoded at v1, one basic-encoded at v2.
@@ -1965,31 +1977,25 @@ void FuncSameMnSameBlockMigrationConsistent(TestChainSetup& setup)
     BOOST_CHECK(reloaded.GetMN(proTxHash)->pdmnState->pubKeyOperator.Get() == operator_key_new.GetPublicKey());
 };
 
-void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainSetup& setup)
+void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
+    const auto& coinbase_pk = setup.coinbase_pk;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
 
     CKey owner_key_a;
     CBLSSecretKey operator_key_a;
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key_a);
     const auto proTxHashA = tx_reg_a.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
 
     // Reach v19 but stop short of v24: this is where the pair gets admitted.
-    while (!DeploymentActiveAfter(tip_index(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV19();
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     CKey owner_key_b;
     owner_key_b.MakeNewKey(true);
@@ -2015,8 +2021,7 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainSetup& setup)
         SignTransaction(tx_reg_b, spent, setup.coinbaseKey);
     }
     const auto proTxHashB = tx_reg_b.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_b}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_b});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(proTxHashB));
 
     CBLSSecretKey contested;
@@ -2042,11 +2047,8 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainSetup& setup)
     }
 
     // Activate v24 with the surviving transaction still resident.
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // tx_a is the valid, non-conflicting claim: it must still be resident, not evicted at activation.
     auto& mempool = *Assert(setup.m_node.mempool.get());
@@ -2068,30 +2070,23 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainSetup& setup)
     BOOST_CHECK_MESSAGE(selected_tx_a, "the valid surviving special transaction was not selected into the template");
 };
 
-void FuncSameBlockCrossSchemeKeyPairRejected(TestChainSetup& setup)
+void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
 
     CKey owner_key_a;
     CBLSSecretKey operator_key_a;
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key_a);
     const auto proTxHashA = tx_reg_a.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2118,8 +2113,7 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainSetup& setup)
         SignTransaction(tx_reg_b, spent, setup.coinbaseKey);
     }
     const auto proTxHashB = tx_reg_b.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_b}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_b});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(proTxHashB));
 
     CBLSSecretKey contested;
@@ -2169,16 +2163,13 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainSetup& setup)
     BOOST_CHECK_EQUAL(block_state.GetRejectReason(), "bad-protx-dup-key");
 };
 
-void FuncMempoolRejectsCrossSchemeKeyRace(TestChainSetup& setup)
+void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
 
     // MN-A stays legacy; MN-B is registered basic after v24. Both keep their own keys for now.
     CKey owner_key_a;
@@ -2186,14 +2177,10 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainSetup& setup)
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key_a);
     const auto proTxHashA = tx_reg_a.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2220,8 +2207,7 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainSetup& setup)
         SignTransaction(tx_reg_b, spent, setup.coinbaseKey);
     }
     const auto proTxHashB = tx_reg_b.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_b}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_b});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(proTxHashB));
 
     // The contested key: held by nobody yet, so both updates below pass their consensus checks.
@@ -2263,16 +2249,13 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainSetup& setup)
     }
 };
 
-void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
+void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
 
     // MN-A registers pre-v19: legacy scheme, and stays legacy.
     CKey owner_key_a;
@@ -2280,14 +2263,10 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key_a);
     const auto proTxHashA = tx_reg_a.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE(!bls::bls_legacy_scheme.load());
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
@@ -2316,8 +2295,7 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
         SignTransaction(tx_reg_b, spent, setup.coinbaseKey);
     }
     const auto proTxHashB = tx_reg_b.GetHash();
-    setup.CreateAndProcessBlock({tx_reg_b}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_b});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(proTxHashB));
 
     auto build_upreg = [&](const uint256& protx_hash, const CKey& owner_key, const CBLSPublicKey& op_pubkey,
@@ -2358,22 +2336,18 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
     }
 };
 
-void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
+void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key_a;
     CBLSSecretKey operator_key;
     auto tx_reg_a = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key_a,
                                    operator_key);
-    setup.CreateAndProcessBlock({tx_reg_a}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg_a});
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(tx_reg_a.GetHash())->pdmnState->pubKeyOperator.IsLegacy());
 
     int port{20000};
@@ -2407,11 +2381,8 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
                              chainman.ActiveChainstate().CoinsTip(), chainman, st, /*check_sigs=*/true);
     };
 
-    while (!DeploymentActiveAfter(tip_index(), chainman.GetConsensus(), Consensus::DEPLOYMENT_V19)) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV19();
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // Non-retroactivity: before v24 the squat is still accepted, exactly as on develop today.
     {
@@ -2421,11 +2392,8 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainSetup& setup)
                                                       << st.GetRejectReason());
     }
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // The main post-v24 vector: reuse the legacy masternode's key, basic-encoded.
     {
@@ -2568,29 +2536,23 @@ void FuncPreV24BehaviourUnchanged(TestChainSetup& setup)
     CheckListRoundTrips(dmnman, "pre-v24 after same-key ProUpRegTx");
 };
 
-void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainSetup& setup)
+void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
+    const auto& coinbase_pk = setup.coinbase_pk;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key;
     CBLSSecretKey operator_key;
     auto tx_reg = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key,
                                  operator_key);
     const auto proTxHash = tx_reg.GetHash();
-    setup.CreateAndProcessBlock({tx_reg}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // A cross-scheme squatter ProRegTx: it reuses the legacy masternode's operator key basic-encoded.
@@ -2646,29 +2608,22 @@ void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainSetup& setup)
     }
 };
 
-void FuncProUpRegTxMigratesLegacySameKey(TestChainSetup& setup)
+void FuncProUpRegTxMigratesLegacySameKey(TestChainV24SignalBeforeV19Setup& setup)
 {
-    auto& chainman = *Assert(setup.m_node.chainman.get());
-    auto& dmnman = *Assert(setup.m_node.dmnman);
-    auto tip_index    = [&] { return WITH_LOCK(::cs_main, return chainman.ActiveChain().Tip()); };
-    auto sync_dmn_tip = [&] { dmnman.UpdatedBlockTip(tip_index()); };
-    const CScript coinbase_pk = GetScriptForRawPubKey(setup.coinbaseKey.GetPubKey());
+    auto& chainman = setup.chainman;
+    auto& dmnman = setup.dmnman;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
-    auto utxos = BuildSimpleUtxoMap(setup.m_coinbase_txns);
+    auto& utxos = setup.utxos;
     CKey owner_key;
     CBLSSecretKey operator_key;
     auto tx_reg = CreateProRegTx(chainman, utxos, 19999, GenerateRandomAddress(), setup.coinbaseKey, owner_key,
                                  operator_key);
     const auto proTxHash = tx_reg.GetHash();
-    setup.CreateAndProcessBlock({tx_reg}, coinbase_pk);
-    sync_dmn_tip();
+    setup.ProcessBlock({tx_reg});
 
-    for (int i = 0; i < 2000 && !DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24); ++i) {
-        setup.CreateAndProcessBlock({}, coinbase_pk);
-        sync_dmn_tip();
-    }
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    setup.MineToV24();
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     auto build_upreg = [&](const CBLSPublicKey& op_pubkey, uint16_t version) {
@@ -2688,8 +2643,7 @@ void FuncProUpRegTxMigratesLegacySameKey(TestChainSetup& setup)
                                                   /*check_sigs=*/true),
                                   "same-key migration rejected: " << val_state.GetRejectReason());
         }
-        setup.CreateAndProcessBlock({tx}, coinbase_pk);
-        sync_dmn_tip();
+        setup.ProcessBlock({tx});
         const auto dmn = dmnman.GetListAtChainTip().GetMN(proTxHash);
         BOOST_REQUIRE(dmn);
         BOOST_CHECK_EQUAL(dmn->pdmnState->nVersion, ProTxVersion::BasicBLS);
@@ -2718,8 +2672,7 @@ void FuncProUpRegTxMigratesLegacySameKey(TestChainSetup& setup)
                                                   /*check_sigs=*/true),
                                   "new-key rotation rejected: " << val_state.GetRejectReason());
         }
-        setup.CreateAndProcessBlock({tx}, coinbase_pk);
-        sync_dmn_tip();
+        setup.ProcessBlock({tx});
         const auto dmn = dmnman.GetListAtChainTip().GetMN(proTxHash);
         BOOST_REQUIRE(dmn);
         BOOST_CHECK(!dmn->pdmnState->pubKeyOperator.IsLegacy());
