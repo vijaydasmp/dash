@@ -231,10 +231,6 @@ public:
 
     void UpdatedSuccessBlock();
 
-    //! How long to keep waiting for the finalized mixing transaction before
-    //! double-checking chain/mempool spentness and potentially releasing the inputs
-    static constexpr int64_t PENDING_OBSERVATION_TIMEOUT_SECONDS{60 * 60};
-
     /// Keep the given successfully mixed inputs locked (persistently) until the wallet
     /// observes a transaction spending them
     void AddPendingObservation(const std::vector<COutPoint>& outpoints) EXCLUSIVE_LOCKS_REQUIRED(!cs_pending_obs);
@@ -246,7 +242,7 @@ public:
     void UpdatedBlockTip(const CBlockIndex* pindex);
 
     void DoMaintenance(ChainstateManager& chainman, CConnman& connman, const CTxMemPool& mempool)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions, !cs_pending_obs);
+        EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
     // interfaces::CoinJoin::Client overrides
     void disableAutobackups() override { fCreateAutoBackups = false; }

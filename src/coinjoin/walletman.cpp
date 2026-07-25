@@ -120,16 +120,19 @@ CJWalletManagerImpl::~CJWalletManagerImpl()
 
 void CJWalletManagerImpl::Schedule(CConnman& connman, CScheduler& scheduler)
 {
-    if (!m_relay_txes) {
-        // Mixing needs transaction relay, so no CoinJoin activity is scheduled here.
-        // Inputs of a session which completed before an earlier shutdown are a different
-        // matter: their locks were persisted and are restored with the wallet, so the
-        // check which releases them once their spend is observed (or once they time out)
-        // has to keep running even in block-only mode - nothing else would ever unlock them.
-        scheduler.scheduleEvery(std::bind(&CJWalletManagerImpl::CheckPendingObservations, this),
-                                std::chrono::minutes{1});
-        return;
-    }
+    // Inputs of a successfully completed session stay locked until the finalized mixing
+    // transaction is observed and those locks are persisted, so they are restored with
+    // the wallet. Releasing them has to keep running independently of mixing itself:
+    // even with CoinJoin disabled, mixing stopped or transaction relay unavailable
+    // (block-only mode, where nothing below is scheduled at all) nothing else would ever
+    // unlock them. NOTE: no CJWalletManager exists on a masternode (see init.cpp), a
+    // wallet with pending observations opened there keeps its inputs locked until it is
+    // opened on a regular node again or the user unlocks them via `lockunspent`.
+    scheduler.scheduleEvery(std::bind(&CJWalletManagerImpl::CheckPendingObservations, this), std::chrono::minutes{1});
+
+    // Mixing needs transaction relay
+    if (!m_relay_txes) return;
+
     scheduler.scheduleEvery(std::bind(&CJWalletManagerImpl::DoMaintenance, this, std::ref(connman)),
                             std::chrono::seconds{1});
 }
