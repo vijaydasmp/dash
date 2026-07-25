@@ -515,6 +515,55 @@ BOOST_AUTO_TEST_CASE(bls_verify_contribution_share_null_vvec_tests)
     FuncVerifyContributionShareNullVvec(false);
 }
 
+// Regression: an empty verification-vector set must not break the
+// promise held by AsyncVerifyContributionShares.
+//
+// Pre-fix reproduction (unpatched tree, 2026-07-25):
+//   ./src/test/test_dash --run_test=bls_tests/v022_empty_vvecs_repro
+// with a temporary test that called VerifyContributionShares(validId, {}, {})
+// threw:
+//   std::future_error: "The associated promise has been destructed prior to the
+//   associated state becoming ready." (std::future_errc::broken_promise)
+// In production that exception is thrown from VerifyPendingContributions on the
+// DKG phase-handler thread (NetDKG::PhaseHandlerThread only catches
+// AbortPhaseException), so util::TraceThread rethrows and std::terminate aborts
+// dashd. Sibling helpers AsyncBuildQuorumVerificationVector / AsyncAggregateHelper
+// already short-circuit empty input; this path did not.
+//
+// Post-fix contract: return an empty result vector (no throw).
+void FuncVerifyContributionSharesEmptyVvecs(const bool legacy_scheme)
+{
+    bls::bls_legacy_scheme.store(legacy_scheme);
+
+    CBLSWorker worker;
+    worker.Start(1);
+
+    const CBLSId id{uint256::ONE};
+    BOOST_REQUIRE(id.IsValid());
+
+    std::vector<BLSVerificationVectorPtr> vvecs; // empty
+    std::vector<CBLSSecretKey> skShares;         // empty
+
+    // Must return gracefully (empty result) instead of destroying the promise.
+    const auto result = worker.VerifyContributionShares(id, vvecs, skShares);
+    BOOST_CHECK(result.empty());
+
+    // Same for the non-aggregated path (batchCount default is 1 and would also
+    // schedule zero per-entry work without the empty-input guard).
+    const auto result_no_agg = worker.VerifyContributionShares(id, vvecs, skShares,
+                                                               /*parallel=*/true,
+                                                               /*aggregated=*/false);
+    BOOST_CHECK(result_no_agg.empty());
+
+    worker.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(bls_verify_contribution_shares_empty_vvecs_tests)
+{
+    FuncVerifyContributionSharesEmptyVvecs(true);
+    FuncVerifyContributionSharesEmptyVvecs(false);
+}
+
 // A dummy BLS object that satisfies the minimal interface expected by CBLSLazyWrapper.
 class DummyBLS
 {
