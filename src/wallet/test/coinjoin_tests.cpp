@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <test/util/setup_common.h>
+#include <test/util/txmempool.h>
 
 #include <coinjoin/client.h>
 #include <coinjoin/coinjoin.h>
@@ -11,14 +12,18 @@
 #include <coinjoin/util.h>
 #include <consensus/amount.h>
 #include <interfaces/coinjoin.h>
+#include <masternode/sync.h>
 #include <node/context.h>
 #include <util/system.h>
 #include <util/translation.h>
 #include <policy/settings.h>
+#include <util/time.h>
 #include <validation.h>
+#include <txmempool.h>
 #include <wallet/context.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
+#include <wallet/walletdb.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -223,6 +228,120 @@ public:
         return tallyItem;
     }
 };
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderTestSetup)
+{
+    // 0.100001 DASH, a valid CoinJoin denomination
+    constexpr CAmount nDenomAmount{10000100};
+    BOOST_REQUIRE(CoinJoin::IsDenominatedAmount(nDenomAmount));
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount, nDenomAmount, nDenomAmount, nDenomAmount});
+    const COutPoint outpointUserLocked = tallyItem.outpoints[0];
+    const COutPoint outpointPending = tallyItem.outpoints[1];
+    const COutPoint outpointTimeout = tallyItem.outpoints[2];
+    const COutPoint outpointInMempool = tallyItem.outpoints[3];
+
+    // A denominated coin the user locked themselves, e.g. via `lockunspent`
+    WITH_LOCK(wallet->cs_wallet, wallet->LockCoin(outpointUserLocked));
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        // A user-created lock is never adopted as a pending observation: it has no
+        // CoinJoin record backing it, so it is left strictly alone
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointUserLocked));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+
+        const int64_t nStart{GetTime()};
+        SetMockTime(nStart);
+        cj_man.AddPendingObservation({outpointPending});
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+
+        // Pending inputs are excluded from coin selection while unrelated inputs are not
+        {
+            LOCK(wallet->cs_wallet);
+            bool fFoundPending{false};
+            bool fFoundFree{false};
+            for (const auto& out : AvailableCoinsListUnspent(*wallet).all()) {
+                fFoundPending |= out.outpoint == outpointPending;
+                fFoundFree |= out.outpoint == outpointTimeout;
+            }
+            BOOST_CHECK(!fFoundPending);
+            BOOST_CHECK(fFoundFree);
+        }
+
+        // The pending set is mirrored to the wallet database so it survives a restart
+        {
+            std::map<COutPoint, int64_t> persisted;
+            WalletBatch batch(wallet->GetDatabase());
+            BOOST_REQUIRE(batch.ReadCoinJoinPendingObs(persisted));
+            BOOST_CHECK_EQUAL(persisted.size(), 1);
+            BOOST_CHECK(persisted.count(outpointPending) > 0);
+            BOOST_CHECK_EQUAL(persisted.at(outpointPending), nStart);
+        }
+
+        // Nothing is released while the inputs remain unspent and the timeout has not passed
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+
+        // Once the wallet observes a transaction spending a pending input its lock is dropped
+        CMutableTransaction mtxSpend;
+        mtxSpend.vin.emplace_back(outpointPending);
+        mtxSpend.vout.emplace_back(nDenomAmount - 1000, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+        BOOST_REQUIRE(wallet->AddToWallet(MakeTransactionRef(mtxSpend), TxStateInMempool{}));
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+
+        // An input whose spending transaction sits in the mempool but has not reached the
+        // wallet yet must NOT be released: findCoins() reports it as unspent (it only
+        // knows outputs mempool transactions create, not the ones they spend), so the
+        // mempool has to be consulted separately
+        CMutableTransaction mtxMempool;
+        mtxMempool.vin.emplace_back(outpointInMempool);
+        mtxMempool.vout.emplace_back(nDenomAmount - 1000, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+        {
+            LOCK2(::cs_main, m_node.mempool->cs);
+            m_node.mempool->addUnchecked(TestMemPoolEntryHelper().FromTx(MakeTransactionRef(mtxMempool)));
+        }
+        BOOST_REQUIRE(m_node.mempool->isSpent(outpointInMempool));
+        BOOST_REQUIRE(WITH_LOCK(wallet->cs_wallet, return wallet->GetWalletTx(mtxMempool.GetHash())) == nullptr);
+
+        cj_man.AddPendingObservation({outpointTimeout, outpointInMempool});
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 2);
+        SetMockTime(nStart + CCoinJoinClientManager::PENDING_OBSERVATION_TIMEOUT_SECONDS + 1);
+
+        // The timeout never fires while the chain is still catching up: the spending
+        // transaction could be sitting in a block we have not downloaded yet
+        BOOST_REQUIRE(!m_node.mn_sync->IsBlockchainSynced());
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 2);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointTimeout)));
+
+        m_node.mn_sync->SwitchToNextAsset();
+        BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
+        cj_man.CheckPendingObservations(*m_node.mempool);
+
+        // Unspent everywhere - released (with a warning) after the terminal timeout
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointTimeout));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointTimeout)));
+        // Spent by an unconfirmed transaction the wallet has not recorded - kept locked
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointInMempool));
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointInMempool)));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+
+        // A manual unlock (e.g. via lockunspent) purges the pending entry
+        WITH_LOCK(wallet->cs_wallet, wallet->UnlockCoin(outpointInMempool));
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointInMempool));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+
+        // The user's own lock was never touched throughout
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointUserLocked)));
+        SetMockTime(0);
+    }));
+}
 
 BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTestSetup)
 {
