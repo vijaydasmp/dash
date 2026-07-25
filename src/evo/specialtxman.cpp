@@ -1187,6 +1187,15 @@ bool CheckProUpServTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> 
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-protx-hash");
     }
 
+    // Mirror BuildNewListFromBlock: nType must be valid and must match the registered MN.
+    // Without these checks a mempool-accepted ProUpServTx can make CreateNewBlock fail.
+    if (opt_ptx->nType != dmn->nType) {
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-protx-type-mismatch");
+    }
+    if (!IsValidMnType(opt_ptx->nType)) {
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-protx-type");
+    }
+
     if (!IsVersionChangeValid(pindexPrev, dmn->pdmnState->nVersion, opt_ptx->nVersion, chainman, state)) {
         // pass the state returned by the function above
         return false;
