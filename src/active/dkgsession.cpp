@@ -146,6 +146,14 @@ void ActiveDKGSession::VerifyPendingContributions()
         dkgManager.WriteEncryptedContributions(params.type, m_quorum_base_block_index, m->dmn->proTxHash, *vecEncryptedContributions[idx]);
     }
 
+    // All pending members may have been marked bad (e.g. double contributions)
+    // after they were enqueued. The pre-filter empty check above does not catch
+    // that; skip the BLS worker call rather than relying on its empty-input guard.
+    if (memberIndexes.empty()) {
+        pendingContributionVerifications.clear();
+        return;
+    }
+
     auto result = blsWorker.VerifyContributionShares(myId, vvecs, skContributions);
     if (result.size() != memberIndexes.size()) {
         logger.Batch("VerifyContributionShares returned result of size %d but size %d was expected, something is wrong", result.size(), memberIndexes.size());
