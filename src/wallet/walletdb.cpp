@@ -38,6 +38,7 @@ const std::string BESTBLOCK_NOMERKLE{"bestblock_nomerkle"};
 const std::string BESTBLOCK{"bestblock"};
 const std::string CRYPTED_KEY{"ckey"};
 const std::string CRYPTED_HDCHAIN{"chdchain"};
+const std::string COINJOIN_PENDING_OBS{"cj_pending_obs"};
 const std::string COINJOIN_SALT{"cj_salt"};
 const std::string CSCRIPT{"cscript"};
 const std::string DEFAULTKEY{"defaultkey"};
@@ -224,6 +225,16 @@ bool WalletBatch::ReadCoinJoinSalt(uint256& salt, bool fLegacy)
 bool WalletBatch::WriteCoinJoinSalt(const uint256& salt)
 {
     return WriteIC(DBKeys::COINJOIN_SALT, salt);
+}
+
+bool WalletBatch::ReadCoinJoinPendingObs(std::map<COutPoint, int64_t>& pending_obs)
+{
+    return m_batch->Read(std::string(DBKeys::COINJOIN_PENDING_OBS), pending_obs);
+}
+
+bool WalletBatch::WriteCoinJoinPendingObs(const std::map<COutPoint, int64_t>& pending_obs)
+{
+    return WriteIC(DBKeys::COINJOIN_PENDING_OBS, pending_obs);
 }
 
 bool WalletBatch::WriteGovernanceObject(const Governance::Object& obj)
@@ -778,7 +789,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                    strType != DBKeys::MINVERSION && strType != DBKeys::ACENTRY &&
                    strType != DBKeys::VERSION && strType != DBKeys::SETTINGS &&
                    strType != DBKeys::PRIVATESEND_SALT && strType != DBKeys::COINJOIN_SALT &&
-                   strType != DBKeys::FLAGS) {
+                   strType != DBKeys::COINJOIN_PENDING_OBS && strType != DBKeys::FLAGS) {
             wss.m_unknown_records++;
         }
     } catch (const std::exception& e) {

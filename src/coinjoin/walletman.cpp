@@ -73,6 +73,7 @@ private:
     std::map<const std::string, std::unique_ptr<CCoinJoinClientManager>> m_wallet_manager_map GUARDED_BY(cs_wallet_manager_map);
 
     void DoMaintenance(CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(!cs_wallet_manager_map);
+    void CheckPendingObservations() EXCLUSIVE_LOCKS_REQUIRED(!cs_wallet_manager_map);
 
     [[nodiscard]] MessageProcessingResult ProcessDSQueue(NodeId from, CConnman& connman, std::string_view msg_type,
                                                          CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_ProcessDSQueue, !cs_wallet_manager_map);
@@ -119,7 +120,16 @@ CJWalletManagerImpl::~CJWalletManagerImpl()
 
 void CJWalletManagerImpl::Schedule(CConnman& connman, CScheduler& scheduler)
 {
-    if (!m_relay_txes) return;
+    if (!m_relay_txes) {
+        // Mixing needs transaction relay, so no CoinJoin activity is scheduled here.
+        // Inputs of a session which completed before an earlier shutdown are a different
+        // matter: their locks were persisted and are restored with the wallet, so the
+        // check which releases them once their spend is observed (or once they time out)
+        // has to keep running even in block-only mode - nothing else would ever unlock them.
+        scheduler.scheduleEvery(std::bind(&CJWalletManagerImpl::CheckPendingObservations, this),
+                                std::chrono::minutes{1});
+        return;
+    }
     scheduler.scheduleEvery(std::bind(&CJWalletManagerImpl::DoMaintenance, this, std::ref(connman)),
                             std::chrono::seconds{1});
 }
@@ -202,6 +212,15 @@ void CJWalletManagerImpl::DoMaintenance(CConnman& connman)
     LOCK(cs_wallet_manager_map);
     for (auto& [_, clientman] : m_wallet_manager_map) {
         clientman->DoMaintenance(m_chainman, connman, m_mempool);
+    }
+}
+
+void CJWalletManagerImpl::CheckPendingObservations()
+{
+    if (ShutdownRequested()) return;
+    LOCK(cs_wallet_manager_map);
+    for (auto& [_, clientman] : m_wallet_manager_map) {
+        clientman->CheckPendingObservations(m_mempool);
     }
 }
 
