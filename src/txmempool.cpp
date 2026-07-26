@@ -937,39 +937,41 @@ void CTxMemPool::removeProTxCollateralConflicts(const CTransaction &tx, const CO
     }
 }
 
+void CTxMemPool::removeProTxReferences(const uint256& proTxHash)
+{
+    // Can't use equal_range here as every call to removeRecursive might invalidate iterators
+    AssertLockHeld(cs);
+    while (true) {
+        auto it = mapProTxRefs.find(proTxHash);
+        if (it == mapProTxRefs.end()) {
+            break;
+        }
+        auto conflictIt = mapTx.find(it->second);
+        if (conflictIt != mapTx.end()) {
+            removeRecursive(conflictIt->GetTx(), MemPoolRemovalReason::CONFLICT);
+        } else {
+            // Should not happen as we track referencing TXs in addUnchecked/removeUnchecked.
+            // But lets be on the safe side and not run into an endless loop...
+            LogPrint(BCLog::MEMPOOL, "%s: ERROR: found invalid TX ref in mapProTxRefs, proTxHash=%s, txHash=%s\n", __func__, proTxHash.ToString(), it->second.ToString());
+            mapProTxRefs.erase(it);
+        }
+    }
+}
+
 void CTxMemPool::removeProTxSpentCollateralConflicts(const CTransaction &tx)
 {
     // Remove TXs that refer to a MN for which the collateral was spent
-    auto removeSpentCollateralConflict = [&](const uint256& proTxHash) EXCLUSIVE_LOCKS_REQUIRED(cs) {
-        // Can't use equal_range here as every call to removeRecursive might invalidate iterators
-        AssertLockHeld(cs);
-        while (true) {
-            auto it = mapProTxRefs.find(proTxHash);
-            if (it == mapProTxRefs.end()) {
-                break;
-            }
-            auto conflictIt = mapTx.find(it->second);
-            if (conflictIt != mapTx.end()) {
-                removeRecursive(conflictIt->GetTx(), MemPoolRemovalReason::CONFLICT);
-            } else {
-                // Should not happen as we track referencing TXs in addUnchecked/removeUnchecked.
-                // But lets be on the safe side and not run into an endless loop...
-                LogPrint(BCLog::MEMPOOL, "%s: ERROR: found invalid TX ref in mapProTxRefs, proTxHash=%s, txHash=%s\n", __func__, proTxHash.ToString(), it->second.ToString());
-                mapProTxRefs.erase(it);
-            }
-        }
-    };
     auto mnList = m_dmnman.GetListAtChainTip();
     for (const auto& in : tx.vin) {
         auto collateralIt = mapProTxCollaterals.find(in.prevout);
         if (collateralIt != mapProTxCollaterals.end()) {
             // These are not yet mined ProRegTxs
-            removeSpentCollateralConflict(collateralIt->second);
+            removeProTxReferences(collateralIt->second);
         }
         auto dmn = mnList.GetMNByCollateral(in.prevout);
         if (dmn) {
             // These are updates referring to a mined ProRegTx
-            removeSpentCollateralConflict(dmn->proTxHash);
+            removeProTxReferences(dmn->proTxHash);
         }
     }
 }
@@ -1027,23 +1029,12 @@ void CTxMemPool::removeProTxConflicts(const CTransaction &tx)
         }
         if (!proTx.collateralOutpoint.hash.IsNull()) {
             removeProTxCollateralConflicts(tx, proTx.collateralOutpoint);
-            // Replacement of a live MN via external-collateral reuse: drop any
-            // mempool updates that still target the proTxHash being replaced.
-            // removeProTxSpentCollateralConflicts only covers spends, not reuse.
+            // A ProRegTx reusing an external collateral replaces the MN that collateral
+            // currently backs, so that MN ceases to exist. Drop any mempool update that
+            // still targets its proTxHash; such an update can never be mined afterwards.
+            // removeProTxSpentCollateralConflicts only covers collateral *spends*, not reuse.
             if (auto dmn = m_dmnman.GetListAtChainTip().GetMNByCollateral(proTx.collateralOutpoint)) {
-                // Can't use equal_range + erase loop: removeRecursive may invalidate iterators.
-                while (true) {
-                    auto it = mapProTxRefs.find(dmn->proTxHash);
-                    if (it == mapProTxRefs.end()) {
-                        break;
-                    }
-                    auto conflictIt = mapTx.find(it->second);
-                    if (conflictIt != mapTx.end()) {
-                        removeRecursive(conflictIt->GetTx(), MemPoolRemovalReason::CONFLICT);
-                    } else {
-                        mapProTxRefs.erase(it);
-                    }
-                }
+                removeProTxReferences(dmn->proTxHash);
             }
         } else {
             removeProTxCollateralConflicts(tx, COutPoint(tx_hash, proTx.collateralOutpoint.n));

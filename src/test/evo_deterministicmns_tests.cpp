@@ -1513,6 +1513,14 @@ void FuncTestMempoolProRegReplacementUpdateConflict(TestChainSetup& setup)
         testPool.addUnchecked(entry.FromTx(tx_up_serv));
         BOOST_CHECK_EQUAL(testPool.size(), 1U);
         BOOST_CHECK(testPool.existsProviderTxConflict(CTransaction(tx_reg_replace)));
+
+        // existsProviderTxConflict only gates our own acceptance; it cannot stop a miner from
+        // confirming the replacement. Once that block arrives, removeForBlock must evict the
+        // now-unmineable update, otherwise it lingers and stalls our own block assembly.
+        std::vector<CTransactionRef> connected{MakeTransactionRef(CMutableTransaction()),
+                                               MakeTransactionRef(tx_reg_replace)};
+        testPool.removeForBlock(connected, tip_height() + 1);
+        BOOST_CHECK_EQUAL(testPool.size(), 0U);
     }
 }
 
