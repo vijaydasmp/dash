@@ -564,6 +564,95 @@ BOOST_AUTO_TEST_CASE(bls_verify_contribution_shares_empty_vvecs_tests)
     FuncVerifyContributionSharesEmptyVvecs(false);
 }
 
+// Positive control accompanying the empty-input guard: the guard must not
+// change which contributions are ACCEPTED. Accepting an invalid share would
+// corrupt the recovered quorum key; rejecting an honest one would stall DKG.
+// Until now this property was only covered by src/bench/bls_dkg.cpp, which does
+// not run under `make check`, so a regression here was invisible to CI.
+//
+// QUORUM_SIZE is deliberately larger than ContributionVerifier's batch size of 8
+// so that the aggregated path builds more than one batch. Corrupting a share in
+// the first batch only must therefore (a) fail batch verification for that batch
+// and fall back to per-contribution verification, (b) identify exactly the
+// corrupted index, and (c) leave the untouched second batch accepted wholesale.
+// That is the property batch verification could silently break: an invalid share
+// must never be masked by the valid shares it is aggregated with.
+void FuncVerifyContributionSharesHonest(const bool legacy_scheme)
+{
+    bls::bls_legacy_scheme.store(legacy_scheme);
+
+    constexpr size_t QUORUM_SIZE{10}; // > batch size 8, so aggregation uses 2 batches
+    constexpr int THRESHOLD{6};
+
+    CBLSWorker worker;
+    worker.Start(4);
+
+    std::vector<CBLSId> ids;
+    ids.reserve(QUORUM_SIZE);
+    for (const size_t i : util::irange(QUORUM_SIZE)) {
+        uint256 id;
+        WriteLE64(id.begin(), i + 1);
+        ids.emplace_back(id);
+    }
+
+    // Every member runs GenerateContributions and broadcasts its vvec; member i's
+    // share for us (member 0) is skShares[i][0].
+    std::vector<BLSVerificationVectorPtr> vvecs;
+    std::vector<CBLSSecretKey> skContributions;
+    vvecs.reserve(QUORUM_SIZE);
+    skContributions.reserve(QUORUM_SIZE);
+    for ([[maybe_unused]] const size_t i : util::irange(QUORUM_SIZE)) {
+        BLSVerificationVectorPtr vvec;
+        std::vector<CBLSSecretKey> skShares;
+        BOOST_REQUIRE(worker.GenerateContributions(THRESHOLD, ids, vvec, skShares));
+        BOOST_REQUIRE(vvec != nullptr);
+        BOOST_REQUIRE_EQUAL(vvec->size(), size_t(THRESHOLD));
+        BOOST_REQUIRE_EQUAL(skShares.size(), QUORUM_SIZE);
+        vvecs.emplace_back(std::move(vvec));
+        skContributions.emplace_back(skShares[0]); // the share addressed to ids[0]
+    }
+
+    const CBLSId& myId = ids[0];
+
+    // 1. All-honest input must be accepted in full, on both code paths.
+    for (const bool aggregated : {true, false}) {
+        const auto result = worker.VerifyContributionShares(myId, vvecs, skContributions,
+                                                            /*parallel=*/true, aggregated);
+        BOOST_REQUIRE_EQUAL(result.size(), QUORUM_SIZE);
+        for (const size_t i : util::irange(QUORUM_SIZE)) {
+            BOOST_CHECK_MESSAGE(result[i], "honest contribution " << i << " rejected (aggregated="
+                                                                  << aggregated << ")");
+        }
+    }
+
+    // 2. Corrupt one share in the first batch. Batch verification of that batch
+    //    must fail and fall back to per-contribution verification, which must
+    //    blame exactly that index and nobody else. The second batch stays valid.
+    constexpr size_t kBadIdx{3};
+    auto corrupted = skContributions;
+    corrupted[kBadIdx].MakeNewKey(); // valid key, wrong value -> pk mismatch
+
+    for (const bool aggregated : {true, false}) {
+        const auto result = worker.VerifyContributionShares(myId, vvecs, corrupted,
+                                                            /*parallel=*/true, aggregated);
+        BOOST_REQUIRE_EQUAL(result.size(), QUORUM_SIZE);
+        for (const size_t i : util::irange(QUORUM_SIZE)) {
+            const bool expected = (i != kBadIdx);
+            BOOST_CHECK_MESSAGE(result[i] == expected,
+                                "index " << i << " expected " << expected << " got " << result[i]
+                                         << " (aggregated=" << aggregated << ")");
+        }
+    }
+
+    worker.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(bls_verify_contribution_shares_honest_tests)
+{
+    FuncVerifyContributionSharesHonest(true);
+    FuncVerifyContributionSharesHonest(false);
+}
+
 // A dummy BLS object that satisfies the minimal interface expected by CBLSLazyWrapper.
 class DummyBLS
 {
