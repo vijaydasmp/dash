@@ -14,6 +14,11 @@
 #include <variant>
 #include <vector>
 
+/** Misbehaviour score for an object message the peer was never asked for. Moderate rather than
+ *  fatal: a request expires after GetObjectInterval() (5s for MSG_CLSIG), so a peer answering our
+ *  GETDATA very late looks the same as one that was never asked. */
+static constexpr int UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE{10};
+
 struct MisbehavingError
 {
     int score;

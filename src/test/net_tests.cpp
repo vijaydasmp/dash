@@ -129,6 +129,45 @@ BOOST_AUTO_TEST_CASE(peer_requested_object_authorizes_and_erases_per_peer_state)
     SetMockTime(0s);
 }
 
+// GETDATA-only object types use the stricter PeerConsumeGetDataResponse, which -- unlike
+// PeerConsumeObjectRequest -- must reject a bare announcement. Otherwise a peer could authorise its
+// own payload by sending INV immediately followed by the object, before SendMessages ever turned
+// that announcement into a request.
+BOOST_AUTO_TEST_CASE(peer_getdata_response_requires_an_inflight_request)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    TestChainState& chainstate =
+        *static_cast<TestChainState*>(&m_node.chainman->ActiveChainstate());
+    chainstate.JumpOutOfIbd();
+
+    auto peer{MakeTestPeer(/*id=*/0)};
+    m_node.peerman->InitializeNode(*peer, NODE_NETWORK);
+
+    const CInv inv{MSG_SPORK, uint256S("04")};
+    ProcessInv(*m_node.peerman, *peer, inv);
+    // Announced but not yet requested: the looser check accepts this, the stricter one must not.
+    BOOST_CHECK(!WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
+    // The rejection left the candidate intact, so the GETDATA is still pending.
+    BOOST_CHECK_EQUAL(WITH_LOCK(::cs_main, return m_node.peerman->GetRequestedObjectCount(peer->GetId())), 1U);
+
+    // After SendMessages issues the GETDATA the announcement is REQUESTED and authorises once.
+    SetMockTime(GetTime<std::chrono::seconds>() + 61s);
+    m_node.peerman->SendMessages(peer.get());
+    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
+    BOOST_CHECK(!WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
+
+    // Never announced at all: rejected, and no trace left behind.
+    const CInv never_announced{MSG_SPORK, uint256S("05")};
+    BOOST_CHECK(!WITH_LOCK(::cs_main,
+                           return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), never_announced)));
+    BOOST_CHECK_EQUAL(WITH_LOCK(::cs_main, return m_node.peerman->GetRequestedObjectCount(peer->GetId())), 0U);
+
+    m_node.peerman->FinalizeNode(*peer);
+    chainstate.ResetIbd();
+    SetMockTime(0s);
+}
+
 BOOST_AUTO_TEST_CASE(cnode_simple_test)
 {
     NodeId id = 0;

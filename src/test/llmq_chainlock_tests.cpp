@@ -4,9 +4,18 @@
 
 #include <test/util/llmq_tests.h>
 #include <test/util/setup_common.h>
+#include <test/util/validation.h>
 
+#include <hash.h>
+#include <masternode/meta.h>
+#include <net.h>
+#include <net_processing.h>
+#include <netaddress.h>
+#include <spork.h>
 #include <streams.h>
 #include <util/strencodings.h>
+#include <validation.h>
+#include <version.h>
 
 #include <chainlock/chainlock.h>
 #include <chainlock/handler.h>
@@ -15,6 +24,8 @@
 #include <protocol.h>
 
 #include <boost/test/unit_test.hpp>
+
+#include <memory>
 
 using chainlock::ChainLockSig;
 using namespace llmq;
@@ -230,6 +241,145 @@ BOOST_FIXTURE_TEST_CASE(best_chainlock_is_already_have_after_seen_cache_eviction
     }
 
     BOOST_CHECK(m_node.clhandler->AlreadyHave(CInv{MSG_CLSIG, best_hash}));
+}
+
+namespace {
+//! Regtest spork key matching Params().SporkAddresses(), as used by the functional tests.
+constexpr const char* REGTEST_SPORK_PRIVKEY{"cP4EKFyJsHT39LDqgdcB43Y3YXjNyjb5Fuas1GQSeAtjnZWmZEQK"};
+
+std::unique_ptr<CNode> MakeClsigPeer(NodeId id)
+{
+    in_addr peer_in_addr{};
+    peer_in_addr.s_addr = htonl(0x0a000001 + id);
+    auto peer{std::make_unique<CNode>(id,
+                                      /*sock=*/nullptr,
+                                      /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
+                                      /*nKeyedNetGroupIn=*/0,
+                                      /*nLocalHostNonceIn=*/0,
+                                      /*addrBindIn=*/CAddress{},
+                                      /*addrNameIn=*/std::string{},
+                                      /*conn_type_in=*/ConnectionType::OUTBOUND_FULL_RELAY,
+                                      /*inbound_onion=*/false)};
+    peer->nVersion = PROTOCOL_VERSION;
+    peer->SetCommonVersion(PROTOCOL_VERSION);
+    peer->fSuccessfullyConnected = true;
+    return peer;
+}
+
+void SendMessage(PeerManager& peerman, CNode& peer, const std::string& msg_type, CDataStream&& payload)
+    EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
+{
+    std::atomic<bool> interrupt_dummy{false};
+    peerman.ProcessMessage(peer, msg_type, payload, GetTime<std::chrono::microseconds>(), interrupt_dummy);
+}
+
+void AnnounceInv(PeerManager& peerman, CNode& peer, const CInv& inv)
+    EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
+{
+    CDataStream inv_stream{SER_NETWORK, PROTOCOL_VERSION};
+    inv_stream << std::vector<CInv>{inv};
+    SendMessage(peerman, peer, NetMsgType::INV, std::move(inv_stream));
+}
+
+int MisbehaviorScore(PeerManager& peerman, const CNode& peer)
+{
+    CNodeStateStats stats;
+    BOOST_REQUIRE(peerman.GetNodeStateStats(peer.GetId(), stats));
+    return stats.m_misbehavior_score;
+}
+} // namespace
+
+// A CLSIG is only ever sent in reply to a GETDATA, so one that the peer neither announced nor was
+// asked for must be dropped before ProcessNewChainLock -- which would otherwise remember its hash
+// and do that work again for every distinct signature blob, at no cost to the sender.
+BOOST_FIXTURE_TEST_CASE(unrequested_clsig_is_dropped_and_scored, TestChain100Setup)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    // INV announcements for non-spork objects are only tracked outside IBD; the 100 mined blocks
+    // of this fixture already take us out of it.
+    BOOST_REQUIRE(!m_node.chainman->ActiveChainstate().IsInitialBlockDownload());
+
+    // Every Dash-specific message is offered to CMNAuth first, which asserts a loaded metadata
+    // manager. The fixture leaves it unloaded, so initialise an empty cache here.
+    BOOST_REQUIRE(m_node.mn_metaman->LoadCache(/*load_cache=*/false));
+
+    // The CLSIG branch in net_processing is gated on spork 19. The test fixture builds a bare
+    // CSporkManager, so wire up the regtest signer before setting the spork.
+    for (const auto& address : Params().SporkAddresses()) {
+        BOOST_REQUIRE(m_node.sporkman->SetSporkAddress(address));
+    }
+    BOOST_REQUIRE(m_node.sporkman->SetMinSporkKeys(Params().MinSporkKeys()));
+    BOOST_REQUIRE(m_node.sporkman->SetPrivKey(REGTEST_SPORK_PRIVKEY));
+    BOOST_REQUIRE(m_node.sporkman->UpdateSpork(SPORK_19_CHAINLOCKS_ENABLED, 0).has_value());
+    BOOST_REQUIRE(m_node.chainlocks->IsEnabled());
+
+    auto unsolicited_peer{MakeClsigPeer(/*id=*/41)};
+    auto announcing_peer{MakeClsigPeer(/*id=*/42)};
+    m_node.peerman->InitializeNode(*unsolicited_peer, NODE_NETWORK);
+    m_node.peerman->InitializeNode(*announcing_peer, NODE_NETWORK);
+
+    const auto unsolicited_clsig = CreateChainLock(200, GetTestBlockHash(41));
+    const CInv unsolicited_inv{MSG_CLSIG, ::SerializeHash(unsolicited_clsig)};
+
+    // Sent twice on purpose. Without the gate the first copy would still be scored (this chain is
+    // too short to resolve a signing quorum for height 200) but the second would hit the seen-cache
+    // dedup and cost the peer nothing -- so only charging for both proves the gate is what rejected
+    // them, and that an unsolicited peer cannot keep repeating the work for free.
+    for (int i = 0; i < 2; ++i) {
+        CDataStream unsolicited_payload{SER_NETWORK, PROTOCOL_VERSION};
+        unsolicited_payload << unsolicited_clsig;
+        SendMessage(*m_node.peerman, *unsolicited_peer, NetMsgType::CLSIG, std::move(unsolicited_payload));
+    }
+
+    // Never reached ProcessNewChainLock: the hash was not recorded in the seen cache, so the peer
+    // could not have displaced a genuine entry, and it was scored for each attempt.
+    BOOST_CHECK(!m_node.clhandler->AlreadyHave(unsolicited_inv));
+    BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *unsolicited_peer),
+                      2 * UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE);
+
+    // Announcing the CLSIG is NOT enough to authorise it. An INV creates a candidate immediately,
+    // but the GETDATA only goes out later from SendMessages, so accepting on the announcement alone
+    // would let a peer authorise its own payload by racing INV and payload back to back -- which
+    // costs it nothing and defeats the gate entirely.
+    const auto announced_clsig = CreateChainLock(201, GetTestBlockHash(42));
+    const CInv announced_inv{MSG_CLSIG, ::SerializeHash(announced_clsig)};
+
+    AnnounceInv(*m_node.peerman, *announcing_peer, announced_inv);
+    {
+        const int score_before_race = MisbehaviorScore(*m_node.peerman, *announcing_peer);
+        CDataStream raced_payload{SER_NETWORK, PROTOCOL_VERSION};
+        raced_payload << announced_clsig;
+        SendMessage(*m_node.peerman, *announcing_peer, NetMsgType::CLSIG, std::move(raced_payload));
+
+        BOOST_CHECK(!m_node.clhandler->AlreadyHave(announced_inv));
+        BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *announcing_peer),
+                          score_before_race + UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE);
+    }
+
+    // Once SendMessages has actually issued the GETDATA the same payload is authorised. The
+    // rejection above must not have consumed the candidate, or no GETDATA would go out at all.
+    SetMockTime(GetTime<std::chrono::seconds>() + 61s);
+    m_node.peerman->SendMessages(announcing_peer.get());
+    const int score_before = MisbehaviorScore(*m_node.peerman, *announcing_peer);
+
+    CDataStream announced_payload{SER_NETWORK, PROTOCOL_VERSION};
+    announced_payload << announced_clsig;
+    SendMessage(*m_node.peerman, *announcing_peer, NetMsgType::CLSIG, std::move(announced_payload));
+
+    BOOST_CHECK(m_node.clhandler->AlreadyHave(announced_inv));
+    // Exactly the pre-existing invalid-CLSIG penalty and nothing else. This fixture's chain is 100
+    // blocks, so a CLSIG at height 201 resolves to no signing quorum and ProcessNewChainLock scores
+    // 10 -- which is what proves the message got past the gate. Asserting the total exactly is what
+    // would catch the gate also charging an authorised peer.
+    BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *announcing_peer), score_before + 10);
+    // The authorisation was consumed, so a replay of the same CLSIG is now unsolicited.
+    BOOST_CHECK(!WITH_LOCK(::cs_main,
+                           return m_node.peerman->PeerConsumeGetDataResponse(announcing_peer->GetId(), announced_inv)));
+
+    m_node.peerman->FinalizeNode(*unsolicited_peer);
+    m_node.peerman->FinalizeNode(*announcing_peer);
+    SetMockTime(0s);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

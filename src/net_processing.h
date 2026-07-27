@@ -74,6 +74,12 @@ public:
      *  announcement, so a second call without a re-announcement in between returns false.
      *  Requires ::cs_main (see the PeerManagerImpl override). */
     virtual bool PeerConsumeObjectRequest(NodeId nodeid, const CInv& inv) = 0;
+    /** Consume this peer's in-flight GETDATA for the inv and return whether one existed. Stricter
+     *  than PeerConsumeObjectRequest: a bare announcement does not qualify, only a request we
+     *  actually sent. Use for object types that are only ever sent in reply to a GETDATA, so a peer
+     *  cannot authorise its own payload by announcing it first.
+     *  Requires ::cs_main (see the PeerManagerImpl override). */
+    virtual bool PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv) = 0;
     /** Delete all peers' announcements of the inv. Call once the object is accepted (AlreadyHave
      *  turns true), so it is not requested from anyone anymore.
      *  Requires ::cs_main (see the PeerManagerImpl override). */

@@ -593,6 +593,7 @@ public:
     bool PeerIsBanned(const NodeId node_id) override EXCLUSIVE_LOCKS_REQUIRED(cs_main, !m_peer_mutex);
     void PeerEraseObjectRequest(const NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     bool PeerConsumeObjectRequest(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    bool PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     void PeerForgetObjectRequest(const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     void PeerPushInventory(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     void PeerRelayInv(const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
@@ -3660,6 +3661,10 @@ MessageProcessingResult PeerManagerImpl::ProcessPlatformBanMessage(NodeId node, 
 
     LogPrintf("PLATFORMBAN -- hash: %s protx_hash: %s height: %d peer=%d\n", hash.ToString(), ban_msg.m_protx_hash.ToString(), ban_msg.m_requested_height, node);
 
+    // NOTE: deliberately no solicitation gate here, unlike the other GETDATA-only object types.
+    // PLATFORMBAN has no local ingress (no RPC, no internal producer): the originating Dash
+    // Platform node injects the ban by pushing the message straight to a Dash Core peer, so the
+    // first hop is always unsolicited by design. See p2p_platform_ban.py.
     MessageProcessingResult ret{};
     ret.m_to_erase = CInv{MSG_PLATFORM_BAN, hash};
 
@@ -5544,9 +5549,24 @@ void PeerManagerImpl::ProcessMessage(
             if (m_chainlocks.IsEnabled()) {
                 chainlock::ChainLockSig clsig;
                 vRecv >> clsig;
-                const uint256& hash = ::SerializeHash(clsig);
-                WITH_LOCK(::cs_main, m_object_request.ReceivedResponse(pfrom.GetId(), CInv{MSG_CLSIG, hash}));
-                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx->qman, hash), pfrom.GetId());
+                const CInv clsig_inv{MSG_CLSIG, ::SerializeHash(clsig)};
+                // A CLSIG is only ever sent in reply to a GETDATA (see ProcessGetData), so one we
+                // have no in-flight request for was never asked for. Drop it before
+                // ProcessNewChainLock, which exits without any penalty for a CLSIG at or below our
+                // best ChainLock -- and since every distinct signature blob hashes differently, an
+                // unsolicited peer could otherwise repeat that free work indefinitely. A bare
+                // announcement deliberately does not qualify: it would let the peer authorise its
+                // own payload by sending INV first. Consume after the spork gate so a CLSIG dropped
+                // while ChainLocks are disabled does not burn a later retransmit.
+                if (!WITH_LOCK(::cs_main, return PeerConsumeGetDataResponse(pfrom.GetId(), clsig_inv))) {
+                    LogPrint(BCLog::CHAINLOCKS, "CLSIG -- received unrequested CLSIG %s, peer=%d\n",
+                             clsig_inv.hash.ToString(), pfrom.GetId());
+                    Misbehaving(*peer, UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE, "unrequested clsig");
+                    return;
+                }
+                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx->qman,
+                                                                   clsig_inv.hash),
+                                   pfrom.GetId());
             }
             return; // CLSIG
         }
@@ -6617,6 +6637,11 @@ void PeerManagerImpl::PeerEraseObjectRequest(const NodeId nodeid, const CInv& in
 bool PeerManagerImpl::PeerConsumeObjectRequest(NodeId nodeid, const CInv& inv)
 {
     return m_object_request.ReceivedResponse(nodeid, inv);
+}
+
+bool PeerManagerImpl::PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv)
+{
+    return m_object_request.ReceivedRequestedResponse(nodeid, inv);
 }
 
 void PeerManagerImpl::PeerForgetObjectRequest(const CInv& inv)
