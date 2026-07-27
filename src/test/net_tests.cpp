@@ -15,6 +15,7 @@
 #include <serialize.h>
 #include <span.h>
 #include <streams.h>
+#include <test/util/net.h>
 #include <test/util/random.h>
 #include <test/util/validation.h>
 #include <timedata.h>
@@ -38,25 +39,6 @@ using namespace std::literals;
 BOOST_FIXTURE_TEST_SUITE(net_tests, RegTestingSetup)
 
 namespace {
-std::unique_ptr<CNode> MakeTestPeer(NodeId id)
-{
-    in_addr peer_in_addr{};
-    peer_in_addr.s_addr = htonl(0x01020304 + id);
-    auto peer{std::make_unique<CNode>(id,
-                                      /*sock=*/nullptr,
-                                      /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
-                                      /*nKeyedNetGroupIn=*/0,
-                                      /*nLocalHostNonceIn=*/0,
-                                      /*addrBindIn=*/CAddress{},
-                                      /*addrNameIn=*/std::string{},
-                                      /*conn_type_in=*/ConnectionType::OUTBOUND_FULL_RELAY,
-                                      /*inbound_onion=*/false)};
-    peer->nVersion = PROTOCOL_VERSION;
-    peer->SetCommonVersion(PROTOCOL_VERSION);
-    peer->fSuccessfullyConnected = true;
-    return peer;
-}
-
 void ProcessInv(PeerManager& peerman, CNode& peer, const CInv& inv)
     EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
 {

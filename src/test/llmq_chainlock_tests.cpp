@@ -3,8 +3,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <test/util/llmq_tests.h>
+#include <test/util/net.h>
 #include <test/util/setup_common.h>
-#include <test/util/validation.h>
 
 #include <hash.h>
 #include <masternode/meta.h>
@@ -247,25 +247,6 @@ namespace {
 //! Regtest spork key matching Params().SporkAddresses(), as used by the functional tests.
 constexpr const char* REGTEST_SPORK_PRIVKEY{"cP4EKFyJsHT39LDqgdcB43Y3YXjNyjb5Fuas1GQSeAtjnZWmZEQK"};
 
-std::unique_ptr<CNode> MakeClsigPeer(NodeId id)
-{
-    in_addr peer_in_addr{};
-    peer_in_addr.s_addr = htonl(0x0a000001 + id);
-    auto peer{std::make_unique<CNode>(id,
-                                      /*sock=*/nullptr,
-                                      /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
-                                      /*nKeyedNetGroupIn=*/0,
-                                      /*nLocalHostNonceIn=*/0,
-                                      /*addrBindIn=*/CAddress{},
-                                      /*addrNameIn=*/std::string{},
-                                      /*conn_type_in=*/ConnectionType::OUTBOUND_FULL_RELAY,
-                                      /*inbound_onion=*/false)};
-    peer->nVersion = PROTOCOL_VERSION;
-    peer->SetCommonVersion(PROTOCOL_VERSION);
-    peer->fSuccessfullyConnected = true;
-    return peer;
-}
-
 void SendMessage(PeerManager& peerman, CNode& peer, const std::string& msg_type, CDataStream&& payload)
     EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
 {
@@ -314,8 +295,8 @@ BOOST_FIXTURE_TEST_CASE(unrequested_clsig_is_dropped_and_scored, TestChain100Set
     BOOST_REQUIRE(m_node.sporkman->UpdateSpork(SPORK_19_CHAINLOCKS_ENABLED, 0).has_value());
     BOOST_REQUIRE(m_node.chainlocks->IsEnabled());
 
-    auto unsolicited_peer{MakeClsigPeer(/*id=*/41)};
-    auto announcing_peer{MakeClsigPeer(/*id=*/42)};
+    auto unsolicited_peer{MakeTestPeer(/*id=*/41)};
+    auto announcing_peer{MakeTestPeer(/*id=*/42)};
     m_node.peerman->InitializeNode(*unsolicited_peer, NODE_NETWORK);
     m_node.peerman->InitializeNode(*announcing_peer, NODE_NETWORK);
 

@@ -232,4 +232,8 @@ private:
 
 std::vector<NodeEvictionCandidate> GetRandomNodeEvictionCandidates(int n_candidates, FastRandomContext& random_context);
 
+/** Build a fully connected outbound peer with no socket, suitable for driving PeerManager message
+ *  handling directly. Each id gets a distinct address so that per-peer state stays separate. */
+std::unique_ptr<CNode> MakeTestPeer(NodeId id);
+
 #endif // BITCOIN_TEST_UTIL_NET_H

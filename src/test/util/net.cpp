@@ -15,6 +15,7 @@
 #include <serialize.h>
 #include <span.h>
 
+#include <memory>
 #include <vector>
 
 void ConnmanTestMsg::Handshake(CNode& node,
@@ -135,4 +136,23 @@ std::vector<NodeEvictionCandidate> GetRandomNodeEvictionCandidates(int n_candida
         });
     }
     return candidates;
+}
+
+std::unique_ptr<CNode> MakeTestPeer(NodeId id)
+{
+    in_addr peer_in_addr{};
+    peer_in_addr.s_addr = htonl(0x01020304 + id);
+    auto peer{std::make_unique<CNode>(id,
+                                      /*sock=*/nullptr,
+                                      /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
+                                      /*nKeyedNetGroupIn=*/0,
+                                      /*nLocalHostNonceIn=*/0,
+                                      /*addrBindIn=*/CAddress{},
+                                      /*addrNameIn=*/std::string{},
+                                      /*conn_type_in=*/ConnectionType::OUTBOUND_FULL_RELAY,
+                                      /*inbound_onion=*/false)};
+    peer->nVersion = PROTOCOL_VERSION;
+    peer->SetCommonVersion(PROTOCOL_VERSION);
+    peer->fSuccessfullyConnected = true;
+    return peer;
 }
