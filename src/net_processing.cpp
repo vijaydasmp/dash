@@ -5542,7 +5542,13 @@ void PeerManagerImpl::ProcessMessage(
             PostProcessMessage(m_cj_walletman->processMessage(pfrom, m_chainman.ActiveChainstate(), m_connman, m_mempool, msg_type, vRecv), pfrom.GetId());
         }
         PostProcessMessage(CMNAuth::ProcessMessage(pfrom, peer->m_their_services, m_connman, m_mn_metaman, m_nodeman, m_mn_sync, m_dmnman->GetListAtChainTip(), msg_type, vRecv), pfrom.GetId());
-        PostProcessMessage(m_llmq_ctx->quorum_block_processor->ProcessMessage(pfrom, msg_type, vRecv), pfrom.GetId());
+        PostProcessMessage(m_llmq_ctx->quorum_block_processor->ProcessMessage(
+                               pfrom, msg_type, vRecv,
+                               [this, &pfrom](const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!::cs_main) {
+                                   return WITH_LOCK(::cs_main,
+                                                    return PeerConsumeGetDataResponse(pfrom.GetId(), inv));
+                               }),
+                           pfrom.GetId());
         PostProcessMessage(ProcessPlatformBanMessage(pfrom.GetId(), msg_type, vRecv), pfrom.GetId());
 
         if (msg_type == NetMsgType::CLSIG) {
