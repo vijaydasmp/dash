@@ -482,6 +482,19 @@ void NetDKG::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStre
     const uint256 hash = hw.GetHash();
 
     const NodeId from = pfrom.GetId();
+
+    // DKG messages are only ever sent in reply to a GETDATA (see NetDKG::ProcessGetData), so one we
+    // have no in-flight request for was never asked for and must not reach the pending queues, where
+    // it would be retained until a worker gets around to verifying its signature. A bare
+    // announcement deliberately does not qualify: it would let the peer authorise its own payload by
+    // sending INV first.
+    const CInv inv{static_cast<uint32_t>(inv_type), hash};
+    if (!WITH_LOCK(::cs_main, return m_peer_manager->PeerConsumeGetDataResponse(from, inv))) {
+        LogPrint(BCLog::LLMQ_DKG, "NetDKG -- received unrequested %s %s, peer=%d\n", msg_type, hash.ToString(), from);
+        m_peer_manager->PeerMisbehaving(from, UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE, "unrequested DKG message");
+        return;
+    }
+
     const bool dispatched = m_qdkgsman.DoForHandler({llmqType, quorumIndex}, [&](CDKGSessionHandler& handler) {
         CDKGPendingMessages* pending = nullptr;
         switch (inv_type) {
@@ -499,7 +512,6 @@ void NetDKG::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStre
             break;
         }
         Assume(pending != nullptr);
-        WITH_LOCK(::cs_main, m_peer_manager->PeerEraseObjectRequest(from, CInv{static_cast<uint32_t>(inv_type), hash}));
         pending->PushPendingMessage(from, std::move(pm), hash);
     });
     if (!dispatched) {
