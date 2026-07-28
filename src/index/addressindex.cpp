@@ -352,7 +352,7 @@ bool AddressIndex::CustomRewind(const interfaces::BlockKey& current_tip, const i
 
                 // Remove spending activity from history
                 addressIndex.push_back(
-                    std::make_pair(CAddressIndexKey(address_type, address_bytes, pindex->nHeight, i + 1, txhash, j, true),
+                    std::make_pair(CAddressIndexKey(address_type, address_bytes, pindex->nHeight, i, txhash, j, true),
                                    prevout.nValue * -1));
 
                 // Restore to unspent index
