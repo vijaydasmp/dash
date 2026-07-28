@@ -41,6 +41,7 @@ from test_framework.util import (
     assert_equal,
     assert_greater_than,
     assert_greater_than_or_equal,
+    assert_raises_rpc_error,
     softfork_active,
 )
 from test_framework.segwit_addr import encode_platform_p2pkh
@@ -872,6 +873,12 @@ class AssetLocksTest(DashTestFramework):
         for checked_node in self.nodes:
             for txid in txids:
                 assert txid in checked_node.getblock(block_hash)['tx']
+
+        self.log.info("The wallet refuses to build a v2 asset lock the local mempool would reject")
+        self.restart_node(0, self.extra_args[0] + ["-acceptnonstdtxn=0"])
+        assert_raises_rpc_error(-6, "assetlocktx-version-2", node_wallet.sendtoaddress,
+                                encode_platform_p2pkh('tdash', hash160(pubkey)), 1)
+        self.restart_node(0, self.extra_args[0])
 
         self.restart_node(1, self.extra_args[1])
         self.connect_nodes(1, 0)

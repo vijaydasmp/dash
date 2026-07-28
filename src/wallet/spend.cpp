@@ -1117,6 +1117,15 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         return util::Error{_("Transaction too large")};
     }
 
+    // An asset lock for Platform recipients carries payload version 2, which is
+    // deliberately non-standard until Platform can process it. Returning such a
+    // transaction hands the caller a txid for something the local mempool drops on
+    // submission and that therefore never relays, so fail before it is committed.
+    if (std::string reason; opt_assetLockPayload && wallet.chain().isNonStandardSpecialTx(tx, reason)) {
+        return util::Error{strprintf(_("Transaction is non-standard (%s) and would not relay; sending to Platform "
+                                       "addresses currently requires a node started with -acceptnonstdtxn=1"), reason)};
+    }
+
     if (fee_needed > nFeeRet) {
         return util::Error{_("Fee needed > fee paid")};
     }
