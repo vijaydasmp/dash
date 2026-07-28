@@ -354,9 +354,15 @@ BOOST_FIXTURE_TEST_CASE(unrequested_clsig_is_dropped_and_scored, TestChain100Set
     // 10 -- which is what proves the message got past the gate. Asserting the total exactly is what
     // would catch the gate also charging an authorised peer.
     BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *announcing_peer), score_before + 10);
-    // The authorisation was consumed, so a replay of the same CLSIG is now unsolicited.
-    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(
-                                         announcing_peer->GetId(), announced_inv)) == GetDataResponse::UNREQUESTED);
+    // One GETDATA authorises exactly one answer. Both the in-flight request and the late-answer
+    // grace are spent, so a replay of the very payload we asked for is unsolicited again -- a peer
+    // must not be able to induce one request and then repeat the payload for free.
+    const int score_before_replay = MisbehaviorScore(*m_node.peerman, *announcing_peer);
+    CDataStream replayed_payload{SER_NETWORK, PROTOCOL_VERSION};
+    replayed_payload << announced_clsig;
+    SendMessage(*m_node.peerman, *announcing_peer, NetMsgType::CLSIG, std::move(replayed_payload));
+    BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *announcing_peer),
+                      score_before_replay + UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE);
 
     m_node.peerman->FinalizeNode(*unsolicited_peer);
     m_node.peerman->FinalizeNode(*announcing_peer);
