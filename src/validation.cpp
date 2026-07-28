@@ -3096,6 +3096,7 @@ CBlockIndex* Chainstate::FindMostWorkChain()
                     } else if (fConflictingChain) {
                         // We don't need data for conflciting blocks
                         pindexFailed->nStatus |= BLOCK_CONFLICT_CHAINLOCK;
+                        m_blockman.m_dirty_blockindex.insert(pindexFailed);
                     } else if (fMissingData) {
                         // If we're missing data, then add back to m_blocks_unlinked,
                         // so that if the block arrives in the future we can try adding
