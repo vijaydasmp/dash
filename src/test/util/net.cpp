@@ -14,8 +14,14 @@
 #include <random.h>
 #include <serialize.h>
 #include <span.h>
+#include <streams.h>
+#include <util/check.h>
+#include <util/time.h>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <string>
 #include <vector>
 
 void ConnmanTestMsg::Handshake(CNode& node,
@@ -155,4 +161,24 @@ std::unique_ptr<CNode> MakeTestPeer(NodeId id)
     peer->SetCommonVersion(PROTOCOL_VERSION);
     peer->fSuccessfullyConnected = true;
     return peer;
+}
+
+void SendMessage(PeerManager& peerman, CNode& peer, const std::string& msg_type, CDataStream&& payload)
+{
+    std::atomic<bool> interrupt_dummy{false};
+    peerman.ProcessMessage(peer, msg_type, payload, GetTime<std::chrono::microseconds>(), interrupt_dummy);
+}
+
+void AnnounceInv(PeerManager& peerman, CNode& peer, const CInv& inv)
+{
+    CDataStream inv_stream{SER_NETWORK, PROTOCOL_VERSION};
+    inv_stream << std::vector<CInv>{inv};
+    SendMessage(peerman, peer, NetMsgType::INV, std::move(inv_stream));
+}
+
+int MisbehaviorScore(PeerManager& peerman, const CNode& peer)
+{
+    CNodeStateStats stats;
+    Assert(peerman.GetNodeStateStats(peer.GetId(), stats));
+    return stats.m_misbehavior_score;
 }

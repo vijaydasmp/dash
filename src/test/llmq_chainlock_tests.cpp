@@ -246,28 +246,6 @@ BOOST_FIXTURE_TEST_CASE(best_chainlock_is_already_have_after_seen_cache_eviction
 namespace {
 //! Regtest spork key matching Params().SporkAddresses(), as used by the functional tests.
 constexpr const char* REGTEST_SPORK_PRIVKEY{"cP4EKFyJsHT39LDqgdcB43Y3YXjNyjb5Fuas1GQSeAtjnZWmZEQK"};
-
-void SendMessage(PeerManager& peerman, CNode& peer, const std::string& msg_type, CDataStream&& payload)
-    EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
-{
-    std::atomic<bool> interrupt_dummy{false};
-    peerman.ProcessMessage(peer, msg_type, payload, GetTime<std::chrono::microseconds>(), interrupt_dummy);
-}
-
-void AnnounceInv(PeerManager& peerman, CNode& peer, const CInv& inv)
-    EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
-{
-    CDataStream inv_stream{SER_NETWORK, PROTOCOL_VERSION};
-    inv_stream << std::vector<CInv>{inv};
-    SendMessage(peerman, peer, NetMsgType::INV, std::move(inv_stream));
-}
-
-int MisbehaviorScore(PeerManager& peerman, const CNode& peer)
-{
-    CNodeStateStats stats;
-    BOOST_REQUIRE(peerman.GetNodeStateStats(peer.GetId(), stats));
-    return stats.m_misbehavior_score;
-}
 } // namespace
 
 // A CLSIG is only ever sent in reply to a GETDATA, so one that the peer neither announced nor was
