@@ -39,6 +39,11 @@ using namespace std::literals;
 BOOST_FIXTURE_TEST_SUITE(net_tests, RegTestingSetup)
 
 namespace {
+GetDataResponse ConsumeGetDataResponse(PeerManager& peerman, const CNode& peer, const CInv& inv)
+{
+    return WITH_LOCK(::cs_main, return peerman.PeerConsumeGetDataResponse(peer.GetId(), inv));
+}
+
 void ProcessInv(PeerManager& peerman, CNode& peer, const CInv& inv)
     EXCLUSIVE_LOCKS_REQUIRED(NetEventsInterface::g_msgproc_mutex)
 {
@@ -126,23 +131,24 @@ BOOST_AUTO_TEST_CASE(peer_getdata_response_requires_an_inflight_request)
     auto peer{MakeTestPeer(/*id=*/0)};
     m_node.peerman->InitializeNode(*peer, NODE_NETWORK);
 
+    // MSG_SPORK is not a GETDATA-only type (see IsGetDataOnlyObject), so nothing here is ever
+    // softened to LATE and the strict in-flight requirement is visible on its own.
     const CInv inv{MSG_SPORK, uint256S("04")};
     ProcessInv(*m_node.peerman, *peer, inv);
     // Announced but not yet requested: the looser check accepts this, the stricter one must not.
-    BOOST_CHECK(!WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
+    BOOST_CHECK(ConsumeGetDataResponse(*m_node.peerman, *peer, inv) == GetDataResponse::UNREQUESTED);
     // The rejection left the candidate intact, so the GETDATA is still pending.
     BOOST_CHECK_EQUAL(WITH_LOCK(::cs_main, return m_node.peerman->GetRequestedObjectCount(peer->GetId())), 1U);
 
     // After SendMessages issues the GETDATA the announcement is REQUESTED and authorises once.
     SetMockTime(GetTime<std::chrono::seconds>() + 61s);
     m_node.peerman->SendMessages(peer.get());
-    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
-    BOOST_CHECK(!WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), inv)));
+    BOOST_CHECK(ConsumeGetDataResponse(*m_node.peerman, *peer, inv) == GetDataResponse::REQUESTED);
+    BOOST_CHECK(ConsumeGetDataResponse(*m_node.peerman, *peer, inv) == GetDataResponse::UNREQUESTED);
 
     // Never announced at all: rejected, and no trace left behind.
     const CInv never_announced{MSG_SPORK, uint256S("05")};
-    BOOST_CHECK(!WITH_LOCK(::cs_main,
-                           return m_node.peerman->PeerConsumeGetDataResponse(peer->GetId(), never_announced)));
+    BOOST_CHECK(ConsumeGetDataResponse(*m_node.peerman, *peer, never_announced) == GetDataResponse::UNREQUESTED);
     BOOST_CHECK_EQUAL(WITH_LOCK(::cs_main, return m_node.peerman->GetRequestedObjectCount(peer->GetId())), 0U);
 
     m_node.peerman->FinalizeNode(*peer);

@@ -355,8 +355,8 @@ BOOST_FIXTURE_TEST_CASE(unrequested_clsig_is_dropped_and_scored, TestChain100Set
     // would catch the gate also charging an authorised peer.
     BOOST_CHECK_EQUAL(MisbehaviorScore(*m_node.peerman, *announcing_peer), score_before + 10);
     // The authorisation was consumed, so a replay of the same CLSIG is now unsolicited.
-    BOOST_CHECK(!WITH_LOCK(::cs_main,
-                           return m_node.peerman->PeerConsumeGetDataResponse(announcing_peer->GetId(), announced_inv)));
+    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeGetDataResponse(
+                                         announcing_peer->GetId(), announced_inv)) == GetDataResponse::UNREQUESTED);
 
     m_node.peerman->FinalizeNode(*unsolicited_peer);
     m_node.peerman->FinalizeNode(*announcing_peer);

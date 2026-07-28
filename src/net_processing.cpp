@@ -26,6 +26,7 @@
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <random.h>
+#include <saltedhasher.h>
 #include <scheduler.h>
 #include <streams.h>
 #include <sync.h>
@@ -34,6 +35,7 @@
 #include <txmempool.h>
 #include <txorphanage.h>
 #include <txrequest.h>
+#include <unordered_lru_cache.h>
 #include <util/check.h>
 #include <util/std23.h>
 #include <util/strencodings.h>
@@ -92,6 +94,23 @@ static constexpr auto NONPREF_PEER_TX_DELAY{2s};
 /** How long to delay requesting objects from overloaded peers (see
  *  MAX_PEER_OBJECT_REQUEST_IN_FLIGHT). */
 static constexpr auto OVERLOADED_PEER_OBJECT_DELAY{2s};
+/** How many request intervals after sending a GETDATA an answer still counts as merely late rather
+ *  than unsolicited (see CNodeState::m_recent_object_requests).
+ *
+ *  Expressed in GetObjectInterval() rather than as a wall-clock constant, because that interval is
+ *  already this node's statement of how long it is willing to wait before asking someone else: one
+ *  interval to answer, one more before the answer stops counting as an answer. A peer lagging beyond
+ *  that is not slow, it is failing to serve what it advertised, and the object has long since been
+ *  fetched elsewhere. Keeping the two in the same currency also means they stay in step if the
+ *  per-type intervals are ever changed. */
+static constexpr int RECENT_OBJECT_REQUEST_TTL_INTERVALS{2};
+/** Memory ceiling for the per-peer record of GETDATA-only requests (see
+ *  CNodeState::m_recent_object_requests). RECENT_OBJECT_REQUEST_TTL governs how long an entry is
+ *  meant to live; this only stops the record growing without bound when a peer is asked for more
+ *  objects than this within that window. Evicting early costs the late-answer grace for the oldest
+ *  requests -- degrading them to the behaviour of the gate without this record -- never correctness,
+ *  so it does not have to be proved large enough for any particular burst. */
+static constexpr size_t MAX_RECENT_OBJECT_REQUESTS{256};
 /** How long to wait before downloading a transaction from an additional peer */
 static constexpr auto GETDATA_TX_INTERVAL{60s};
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
@@ -433,6 +452,18 @@ private:
 
 using PeerRef = std::shared_ptr<Peer>;
 
+/** A GETDATA we sent for a GETDATA-only object: which type we asked for, and when.
+ *
+ * The type has to be remembered rather than taken from the answer, because the type in an INV is
+ * whatever the peer said it was and is not bound to the payload until that payload arrives. A peer
+ * can announce the hash of a DKG message as MSG_CLSIG, collect our GETDATA, and then send the DKG
+ * message: the hashes match, so a record keyed on the hash alone would authorise it and would take
+ * its grace from the answer's type rather than the request's. */
+struct RequestedObject {
+    uint32_t m_inv_type{0};
+    std::chrono::microseconds m_time{0};
+};
+
 /**
  * Maintain validation-specific state about nodes, protected by cs_main, instead
  * by CNode's own locks. This simplifies asynchronous operation, where
@@ -516,6 +547,17 @@ struct CNodeState {
     //! A rolling bloom filter of all announced tx CInvs to this peer.
     CRollingBloomFilter m_recently_announced_invs = CRollingBloomFilter{INVENTORY_MAX_RECENT_RELAY, 0.000001};
 
+    //! The GETDATA-only objects (see IsGetDataOnlyObject) we have recently asked this peer for. The
+    //! tracker cannot answer "did we ever ask?" on its own: an announcement is erased once it
+    //! expires as the sole one for its hash, or once the object is accepted from anywhere.
+    //!
+    //! Only we ever add to this, so a peer cannot use it to authorise its own payload. An entry is
+    //! erased by the answer it authorises and ages out after RECENT_OBJECT_REQUEST_TTL_INTERVALS, so
+    //! one GETDATA buys exactly one accepted object, within a bounded window: a peer can neither
+    //! replay the payload it induced a request for, nor bank an unanswered request to spend later.
+    unordered_lru_cache<uint256, RequestedObject, StaticSaltedHasher, MAX_RECENT_OBJECT_REQUESTS>
+        m_recent_object_requests;
+
     CNodeState(bool is_inbound) : m_is_inbound(is_inbound) {}
 };
 
@@ -593,7 +635,7 @@ public:
     bool PeerIsBanned(const NodeId node_id) override EXCLUSIVE_LOCKS_REQUIRED(cs_main, !m_peer_mutex);
     void PeerEraseObjectRequest(const NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     bool PeerConsumeObjectRequest(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
-    bool PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    GetDataResponse PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     void PeerForgetObjectRequest(const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     void PeerPushInventory(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     void PeerRelayInv(const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
@@ -1530,6 +1572,30 @@ std::chrono::microseconds GetObjectInterval(int invType)
             return 10s;
         default:
             return GETDATA_TX_INTERVAL;
+    }
+}
+
+bool IsGetDataOnlyObject(int invType)
+{
+    // These object types only ever travel inv -> getdata -> object: the only places that send them
+    // are the GETDATA handlers (PeerManagerImpl::ProcessGetData and NetDKG::ProcessGetData), and no
+    // local producer pushes them. Receiving one we never asked for is therefore always unsolicited,
+    // which lets the handlers drop it before doing any work on the sender's behalf.
+    //
+    // Not every inv-driven type belongs here. QSIGREC (proactive relay to peers that sent
+    // QSENDRECSIGS), MSG_DSQ (SENDDSQUEUE), ISDLOCK (pushed alongside MERKLEBLOCK for BIP37 clients),
+    // SPORK (bulk push in reply to GETSPORKS) and PLATFORMBAN (injected by a Dash Platform node)
+    // all have a legitimate unsolicited-push path.
+    switch (invType) {
+        case MSG_CLSIG:
+        case MSG_QUORUM_FINAL_COMMITMENT:
+        case MSG_QUORUM_CONTRIB:
+        case MSG_QUORUM_COMPLAINT:
+        case MSG_QUORUM_JUSTIFICATION:
+        case MSG_QUORUM_PREMATURE_COMMITMENT:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -5546,7 +5612,8 @@ void PeerManagerImpl::ProcessMessage(
                                pfrom, msg_type, vRecv,
                                [this, &pfrom](const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!::cs_main) {
                                    return WITH_LOCK(::cs_main,
-                                                    return PeerConsumeGetDataResponse(pfrom.GetId(), inv));
+                                                    return PeerConsumeGetDataResponse(pfrom.GetId(), inv)) !=
+                                          GetDataResponse::UNREQUESTED;
                                }),
                            pfrom.GetId());
         PostProcessMessage(ProcessPlatformBanMessage(pfrom.GetId(), msg_type, vRecv), pfrom.GetId());
@@ -5557,14 +5624,15 @@ void PeerManagerImpl::ProcessMessage(
                 vRecv >> clsig;
                 const CInv clsig_inv{MSG_CLSIG, ::SerializeHash(clsig)};
                 // A CLSIG is only ever sent in reply to a GETDATA (see ProcessGetData), so one we
-                // have no in-flight request for was never asked for. Drop it before
-                // ProcessNewChainLock, which exits without any penalty for a CLSIG at or below our
-                // best ChainLock -- and since every distinct signature blob hashes differently, an
-                // unsolicited peer could otherwise repeat that free work indefinitely. A bare
-                // announcement deliberately does not qualify: it would let the peer authorise its
-                // own payload by sending INV first. Consume after the spork gate so a CLSIG dropped
-                // while ChainLocks are disabled does not burn a later retransmit.
-                if (!WITH_LOCK(::cs_main, return PeerConsumeGetDataResponse(pfrom.GetId(), clsig_inv))) {
+                // never asked this peer for was pushed at us. Drop it before ProcessNewChainLock,
+                // which exits without any penalty for a CLSIG at or below our best ChainLock -- and
+                // since every distinct signature blob hashes differently, an unsolicited peer could
+                // otherwise repeat that free work indefinitely. A bare announcement deliberately
+                // does not qualify: it would let the peer authorise its own payload by sending INV
+                // first. Authorise after the spork gate so a CLSIG dropped while ChainLocks are
+                // disabled does not burn a later retransmit.
+                if (WITH_LOCK(::cs_main, return PeerConsumeGetDataResponse(pfrom.GetId(), clsig_inv)) ==
+                    GetDataResponse::UNREQUESTED) {
                     LogPrint(BCLog::CHAINLOCKS, "CLSIG -- received unrequested CLSIG %s, peer=%d\n",
                              clsig_inv.hash.ToString(), pfrom.GetId());
                     Misbehaving(*peer, UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE, "unrequested clsig");
@@ -6604,6 +6672,13 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     vGetData.clear();
                 }
                 m_object_request.RequestedTx(pto->GetId(), inv, current_time + GetObjectInterval(inv.type));
+                if (IsGetDataOnlyObject(inv.type)) {
+                    // Remember that we asked, so that an answer arriving after the tracker entry is
+                    // gone -- expired, or erased because the object turned up elsewhere -- is not
+                    // mistaken for an unsolicited push. See GetDataResponse.
+                    state.m_recent_object_requests.insert(inv.hash,
+                                                          RequestedObject{inv.type, current_time});
+                }
             } else {
                 // We have already seen this object, no need to download. This is for belated
                 // announcements of objects which arrived via another peer; the tracker has no
@@ -6645,9 +6720,35 @@ bool PeerManagerImpl::PeerConsumeObjectRequest(NodeId nodeid, const CInv& inv)
     return m_object_request.ReceivedResponse(nodeid, inv);
 }
 
-bool PeerManagerImpl::PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv)
+GetDataResponse PeerManagerImpl::PeerConsumeGetDataResponse(NodeId nodeid, const CInv& inv)
 {
-    return m_object_request.ReceivedRequestedResponse(nodeid, inv);
+    CNodeState* state = State(nodeid);
+    if (m_object_request.ReceivedRequestedResponse(nodeid, inv)) {
+        // Answered on time. Spend the late-answer grace too, so the GETDATA cannot also pay for a
+        // replay of the same payload.
+        if (state != nullptr) state->m_recent_object_requests.erase(inv.hash);
+        return GetDataResponse::REQUESTED;
+    }
+    // No in-flight request. Before treating this as an unsolicited push, check whether we asked this
+    // peer for it at all: the tracker entry is gone once the request expires as the sole one for its
+    // hash, or once the object is accepted from any source. Neither means the peer misbehaved.
+    if (state != nullptr) {
+        RequestedObject requested;
+        if (state->m_recent_object_requests.get(inv.hash, requested)) {
+            // Grace is one answer per GETDATA: erase it whatever the outcome, so further copies are
+            // unsolicited again and a peer cannot replay the payload it induced a request for.
+            state->m_recent_object_requests.erase(inv.hash);
+            // Both the type and the window come from what we asked for, never from the answer: the
+            // peer chose the type it announced, so letting the answer name it would let a request
+            // for one object type authorise another, with that other type's grace.
+            if (requested.m_inv_type == inv.type &&
+                GetTime<std::chrono::microseconds>() - requested.m_time <=
+                    GetObjectInterval(requested.m_inv_type) * RECENT_OBJECT_REQUEST_TTL_INTERVALS) {
+                return GetDataResponse::LATE;
+            }
+        }
+    }
+    return GetDataResponse::UNREQUESTED;
 }
 
 void PeerManagerImpl::PeerForgetObjectRequest(const CInv& inv)

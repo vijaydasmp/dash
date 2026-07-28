@@ -73,8 +73,8 @@ MessageProcessingResult CQuorumBlockProcessor::ProcessMessage(const CNode& peer,
     CFinalCommitment qc;
     vRecv >> qc;
 
-    // A QFCOMMITMENT is only ever sent in reply to a GETDATA (see ProcessGetData), so one we have no
-    // in-flight request for was never asked for. Drop it up front: most of the checks below reject
+    // A QFCOMMITMENT is only ever sent in reply to a GETDATA (see ProcessGetData), so one we never
+    // asked this peer for was pushed at us. Drop it up front: most of the checks below reject
     // without scoring the peer -- deliberately, since we may just be lagging behind -- so an
     // unsolicited peer could otherwise repeat the block lookups and map probes indefinitely. A bare
     // announcement deliberately does not qualify: it would let the peer authorise its own payload by
