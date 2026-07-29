@@ -638,21 +638,30 @@ void CCoinJoinClientManager::AddPendingObservation(const std::vector<COutPoint>&
         m_pending_obs.emplace(outpoint, nNow);
     }
 
-    // NOTE: the record which owns these locks has to be written BEFORE the locks
-    // themselves. These are two separate writes and a crash in between must not leave
-    // persistently locked coins behind with nothing tracking them: nothing would ever
-    // release them again. The opposite order is self-healing, CheckPendingObservations()
-    // drops a pending entry as soon as it sees its coin is not locked.
-    bool fPersisted{batch.WriteCoinJoinPendingObs(m_pending_obs)};
+    // NOTE: the record which owns the locks and the persistent locks themselves are
+    // separate writes and each write is its own implicit transaction, so commit them in
+    // one explicit database transaction: a crash in between must neither leave
+    // persistently locked coins behind with nothing tracking them (nothing would ever
+    // release them again) nor persist the record without its locks (on restart the
+    // missing lock reads as a manual unlock, the entry is dropped and the input becomes
+    // selectable again while the finalized mixing transaction may still be in flight).
+    // If no transaction can be started, don't persist anything rather than risk exactly
+    // those partial states.
+    const bool fTxn{batch.TxnBegin()};
+    bool fPersisted{fTxn && batch.WriteCoinJoinPendingObs(m_pending_obs)};
     for (const auto& outpoint : outpoints) {
         // The coins are locked in memory already (see PrepareDenominate), this only
         // persists the lock so that a restart before the finalized transaction is
-        // observed cannot make the input available for selection again. Skip persisting
-        // it if the record above could not be written though, a persistent lock with
-        // nothing left to release it strands the input.
+        // observed cannot make the input available for selection again. Stop writing
+        // once anything failed, the transaction is aborted as a whole below.
         if (!m_wallet->LockCoin(outpoint, fPersisted ? &batch : nullptr)) fPersisted = false;
         WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- %s is locked until the finalized mixing transaction is observed\n",
                          __func__, outpoint.ToStringShort());
+    }
+    if (fPersisted) {
+        fPersisted = batch.TxnCommit();
+    } else if (fTxn) {
+        batch.TxnAbort();
     }
     if (!fPersisted) {
         // The in-memory lock still protects these inputs for as long as this process
