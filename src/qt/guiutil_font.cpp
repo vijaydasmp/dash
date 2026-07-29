@@ -748,17 +748,28 @@ void updateFonts()
             // Do not apply styling logic if ignored or handled separately
             continue;
         }
+        QFont font = w->font();
+        // A stylesheet rule such as `font-size: Npx` leaves the widget with a pixel-sized
+        // font, which reports no point size. Convert instead of assuming, and skip the
+        // widget outright if no size can be derived -- leaving one widget unscaled beats
+        // aborting, and substituting a default would resize a widget the stylesheet
+        // deliberately sized.
+        const std::optional<double> base_size{internal::effectivePointSize(font, w->logicalDpiY())};
+        if (!base_size) {
+            continue;
+        }
         ++nUpdatable;
 
-        QFont font = w->font();
-        assert(font.pointSize() > 0);
         font.setFamily(qApp->font().family());
         font.setWeight(g_font_registry.GetWeightNormal());
         font.setStyleName(qApp->font().styleName());
         font.setStyle(qApp->font().style());
 
-        // Insert/Get the default font size of the widget
-        auto itDefault = mapWidgetDefaultFontSizes.emplace(w, font.pointSize());
+        // Insert/Get the default font size of the widget. Seeded once per widget, so a
+        // later stylesheet re-apply cannot compound the scaling. Note this freezes a
+        // pixel-derived size at the DPI first seen; moving the window to a screen with a
+        // different DPI will not re-honour the stylesheet's pixel intent.
+        auto itDefault = mapWidgetDefaultFontSizes.emplace(w, *base_size);
 
         auto it = mapFontUpdates.find(w);
         if (it != mapFontUpdates.end()) {
