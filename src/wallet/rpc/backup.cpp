@@ -937,6 +937,11 @@ RPCHelpMan dumpwallet()
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
                     {
+                        {RPCResult::Type::STR, "dashcoreversion", "The Dash Core version that created the wallet dump"},
+                        {RPCResult::Type::NUM, "lastblockheight", "The height of the last block processed by the wallet"},
+                        {RPCResult::Type::STR_HEX, "lastblockhash", "The hash of the last block processed by the wallet"},
+                        {RPCResult::Type::NUM_TIME, "lastblocktime", "The time of the last block processed by the wallet, expressed in " + UNIX_EPOCH_TIME},
+                        {RPCResult::Type::NUM, "hdaccounts", /*optional=*/true, "The number of HD accounts contained in the wallet dump (only present if the wallet is HD)"},
                         {RPCResult::Type::NUM, "keys", "The number of keys contained in the wallet dump"},
                         {RPCResult::Type::STR, "filename", "The filename with full absolute path"},
                         {RPCResult::Type::STR, "warning", "A warning about not sharing the wallet dump with anyone"},
@@ -1992,8 +1997,8 @@ RPCHelpMan listdescriptors()
             {
                 {RPCResult::Type::OBJ, "", "", {
                     {RPCResult::Type::STR, "desc", "Descriptor string representation"},
-                    {RPCResult::Type::STR, "mnemonic", "The mnemonic for this descriptor wallet (BIP39, english words). Presented only if private=true and created with a mnemonic"},
-                    {RPCResult::Type::STR, "mnemonicpassphrase", "The mnemonic passphrase for this descriptor wallet (BIP39). Presented only if private=true and created with a mnemonic"},
+                    {RPCResult::Type::STR, "mnemonic", /*optional=*/true, "The mnemonic for this descriptor wallet (BIP39, english words). Presented only if private=true and created with a mnemonic"},
+                    {RPCResult::Type::STR, "mnemonicpassphrase", /*optional=*/true, "The mnemonic passphrase for this descriptor wallet (BIP39). Presented only if private=true and created with a mnemonic"},
                     {RPCResult::Type::NUM, "timestamp", "The creation time of the descriptor"},
                     {RPCResult::Type::BOOL, "active", "Whether this descriptor is currently used to generate new addresses"},
                     {RPCResult::Type::BOOL, "internal", /*optional=*/true, "True if this descriptor is used to generate change addresses. False if this descriptor is used to generate receiving addresses; defined only for active descriptors"},
