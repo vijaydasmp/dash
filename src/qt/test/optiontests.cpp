@@ -9,6 +9,7 @@
 #include <test/util/setup_common.h>
 #include <util/system.h>
 
+#include <QApplication>
 #include <QFont>
 #include <QLabel>
 #include <QSettings>
@@ -170,12 +171,15 @@ void OptionTests::effectivePointSize()
 
 void OptionTests::updateFontsWithPixelSizedWidget()
 {
-    // updateFonts() is a no-op until loadFonts() has run, and loadFonts() is process-global,
-    // non-idempotent state owned by AppTests. Skip rather than call it here so this test
-    // never depends on, or corrupts, another suite's state.
-    if (!GUIUtil::fontsLoaded()) {
-        QSKIP("Fonts are not loaded in this configuration; see AppTests::appTests().");
+    if (QApplication::platformName() == "minimal") {
+        QSKIP("AppTests cannot initialize fonts with the 'minimal' platform plugin.");
     }
+
+    // updateFonts() is a no-op until loadFonts() has run, and loadFonts() is process-global,
+    // non-idempotent state owned by AppTests. Treat missing initialization as a failure on
+    // supported platforms so the regression test cannot pass without exercising updateFonts().
+    QVERIFY2(GUIUtil::fontsLoaded(),
+             "GUIUtil::loadFonts() must succeed in AppTests::appTests() before OptionTests run.");
 
     QWidget host;
     QLabel* label{new QLabel(&host)};
