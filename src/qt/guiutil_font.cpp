@@ -26,6 +26,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -535,6 +536,25 @@ bool FontRegistry::IsValidWeight(const QFont::Weight& weight) const
 } // anonymous namespace
 
 namespace GUIUtil {
+
+namespace internal {
+std::optional<double> effectivePointSize(const QFont& font, int dpi_y)
+{
+    // Both accessors return a non-positive sentinel when the size was given in the other
+    // unit, and a font with no usable size at all reports non-positive from both. Compare
+    // against 0 rather than -1: the exact sentinel is not guaranteed (a box-engine fallback
+    // yields values such as -0.72).
+    if (const double point_size{font.pointSizeF()}; point_size > 0) {
+        return point_size;
+    }
+    if (const int pixel_size{font.pixelSize()}; pixel_size > 0 && dpi_y > 0) {
+        // Mirrors Qt's own pixel-to-point conversion in QFontDatabase::load(), including
+        // its guard against a non-positive DPI.
+        return pixel_size * 72.0 / dpi_y;
+    }
+    return std::nullopt;
+}
+} // namespace internal
 
 int defaultFontScale() { return DEFAULT_FONT_SCALE; }
 int defaultFontSize() { return DEFAULT_FONT_SIZE; }
