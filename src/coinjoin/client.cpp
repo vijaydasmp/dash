@@ -646,8 +646,10 @@ void CCoinJoinClientManager::AddPendingObservation(const std::vector<COutPoint>&
     // missing lock reads as a manual unlock, the entry is dropped and the input becomes
     // selectable again while the finalized mixing transaction may still be in flight).
     // If no transaction can be started, don't persist anything rather than risk exactly
-    // those partial states.
-    const bool fTxn{batch.TxnBegin()};
+    // those partial states. Likewise if the existing record could not be read
+    // (LoadPendingObservations() left m_pending_obs_loaded unset): overwriting it would
+    // permanently orphan the locks it still tracks.
+    const bool fTxn{m_pending_obs_loaded && batch.TxnBegin()};
     bool fPersisted{fTxn && batch.WriteCoinJoinPendingObs(m_pending_obs)};
     for (const auto& outpoint : outpoints) {
         // The coins are locked in memory already (see PrepareDenominate), this only
@@ -679,9 +681,26 @@ void CCoinJoinClientManager::LoadPendingObservations(wallet::WalletBatch& batch)
     AssertLockHeld(cs_pending_obs);
 
     if (m_pending_obs_loaded) return;
-    m_pending_obs_loaded = true;
     // Missing record simply means nothing was pending when we last shut down
-    if (!batch.ReadCoinJoinPendingObs(m_pending_obs)) return;
+    if (!batch.HasCoinJoinPendingObs()) {
+        m_pending_obs_loaded = true;
+        return;
+    }
+    // Read into a scratch map: a failed read of an existing record must not be mistaken
+    // for an empty one, or the persisted locks it tracks would be left with nothing to
+    // ever release them, and must not leave partially deserialized entries behind
+    // either. Not marking the state loaded retries the read on the next pass and, more
+    // importantly, keeps everything else from overwriting the record before its
+    // contents have been recovered.
+    std::map<COutPoint, int64_t> pending;
+    if (!batch.ReadCoinJoinPendingObs(pending)) {
+        LogPrintf("CCoinJoinClientManager::%s -- ERROR: failed to read the pending observation record, will retry\n",
+                  __func__);
+        return;
+    }
+    // Keep any entries added in memory while the record was unreadable
+    m_pending_obs.insert(pending.begin(), pending.end());
+    m_pending_obs_loaded = true;
     WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- loaded %d pending observation(s)\n", __func__,
                      m_pending_obs.size());
 }
@@ -771,7 +790,11 @@ void CCoinJoinClientManager::CheckPendingObservations(const CTxMemPool& mempool)
         }
         ++it;
     }
-    if (fChanged && !get_batch().WriteCoinJoinPendingObs(m_pending_obs)) {
+    // Never overwrite a record which could not be read (m_pending_obs_loaded unset),
+    // it may still track locks nothing else would ever release. An entry released
+    // above but left in such a record self-heals: once the record is readable again
+    // the entry reloads, its coin is no longer locked and it is dropped right here.
+    if (fChanged && m_pending_obs_loaded && !get_batch().WriteCoinJoinPendingObs(m_pending_obs)) {
         LogPrintf("CCoinJoinClientManager::%s -- ERROR: failed to persist %d pending observation(s)\n", __func__,
                   m_pending_obs.size());
     }

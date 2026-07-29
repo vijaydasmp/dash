@@ -227,6 +227,11 @@ bool WalletBatch::WriteCoinJoinSalt(const uint256& salt)
     return WriteIC(DBKeys::COINJOIN_SALT, salt);
 }
 
+bool WalletBatch::HasCoinJoinPendingObs()
+{
+    return m_batch->Exists(std::string(DBKeys::COINJOIN_PENDING_OBS));
+}
+
 bool WalletBatch::ReadCoinJoinPendingObs(std::map<COutPoint, int64_t>& pending_obs)
 {
     return m_batch->Read(std::string(DBKeys::COINJOIN_PENDING_OBS), pending_obs);
