@@ -15,7 +15,9 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QGuiApplication>
 #include <QPointer>
+#include <QScreen>
 #include <QStringView>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -149,11 +151,13 @@ std::unique_ptr<QFontDatabase> g_font_db{nullptr};
 //! loadFonts stores the SystemDefault font in g_default_font to be able to reference it later again
 std::unique_ptr<QFont> g_default_font{nullptr};
 
-//! Font scaling information for Qt classes
-std::map<std::string, int> mapClassFontUpdates{
-    {"QMenu", -1},
-    {"QMessageBox", -1},
-    {"QTipLabel", -1},
+//! Font scaling information for Qt classes. The base size is captured on the first pass;
+//! std::nullopt means "not captured yet", which a plain -1 could not express because that
+//! is also what a pixel-sized font reports as its point size.
+std::map<std::string, std::optional<double>> mapClassFontUpdates{
+    {"QMenu", std::nullopt},
+    {"QMessageBox", std::nullopt},
+    {"QTipLabel", std::nullopt},
 };
 
 //! Contains all widgets and its font attributes (weight, italic, size) with font changes due to GUIUtil::setFont
@@ -800,13 +804,20 @@ void updateFonts()
         it.first->setFont(it.second);
     }
 
-    // Scale the global font size for the classes in the map below
+    // Scale the global font size for the classes in the map below. These fonts belong to no
+    // widget, so the primary screen supplies the DPI for any pixel-to-point conversion.
+    const QScreen* primary_screen{QGuiApplication::primaryScreen()};
+    const int screen_dpi_y{primary_screen ? qRound(primary_screen->logicalDotsPerInchY()) : 0};
     for (auto& it : mapClassFontUpdates) {
         QFont fontClass = qApp->font(it.first.c_str());
-        if (it.second == -1) {
-            it.second = fontClass.pointSize();
+        if (!it.second) {
+            // Leave the entry uncaptured and retry on the next pass if the size is unusable.
+            it.second = internal::effectivePointSize(fontClass, screen_dpi_y);
+            if (!it.second) {
+                continue;
+            }
         }
-        double dSize = g_font_registry.GetScaledFontSize(it.second);
+        double dSize = g_font_registry.GetScaledFontSize(*it.second);
         if (fontClass.pointSizeF() != dSize) {
             fontClass.setPointSizeF(dSize);
             qApp->setFont(fontClass, it.first.c_str());
@@ -856,11 +867,9 @@ void setStyledHtml(QTextEdit* widget, const QString& html)
         base_size = it->second.base_size;
         it->second.html = html;
     } else {
-        // First registration, capture the widget's native font size
-        double widget_size{widget->font().pointSizeF()};
-        if (widget_size > 0) {
-            base_size = widget_size;
-        }
+        // First registration, capture the widget's native font size, converting it when the
+        // widget was sized in pixels. Falls back to DEFAULT_FONT_SIZE if no size is usable.
+        base_size = internal::effectivePointSize(widget->font(), widget->logicalDpiY()).value_or(base_size);
         mapTextEditStyleUpdates[widget] = {html, base_size};
     }
     setFontBodyHTML(widget, html, base_size);
