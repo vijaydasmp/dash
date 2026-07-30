@@ -131,9 +131,7 @@ BASE_SCRIPTS = [
     'feature_dip4_coinbasemerkleroots.py', # NOTE: needs dash_hash to pass
     'feature_mnehf.py', # NOTE: needs dash_hash to pass
     'feature_masternode_params.py', # NOTE: needs dash_hash to pass
-    'feature_governance.py --legacy-wallet',
     'feature_governance.py --descriptors',
-    'feature_governance_cl.py --legacy-wallet',
     'feature_governance_cl.py --descriptors',
     'rpc_verifyislock.py',
     'feature_notifications.py',
