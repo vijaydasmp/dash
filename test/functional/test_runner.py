@@ -109,7 +109,6 @@ BASE_SCRIPTS = [
     'mempool_persist.py --descriptors',
     'p2p_quorum_data.py',
     'p2p_instantsend.py',
-    'feature_multikeysporks.py',
     'feature_protx_version.py',
     'feature_asset_locks.py', # NOTE: needs dash_hash to pass
     'feature_llmq_connections.py', # NOTE: needs dash_hash to pass

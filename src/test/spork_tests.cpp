@@ -23,18 +23,17 @@ BOOST_AUTO_TEST_CASE(extreme_timestamps_are_handled_without_overflow)
     CKey key;
     key.MakeNewKey(/*fCompressed=*/true);
     BOOST_REQUIRE(sporkman.SetSporkAddress(EncodeDestination(PKHash{key.GetPubKey()})));
-    BOOST_REQUIRE(sporkman.SetMinSporkKeys(1));
 
     CSporkMessage future_spork;
     future_spork.nTimeSigned = std::numeric_limits<int64_t>::max();
-    BOOST_CHECK(!sporkman.GetValidSporkSigner(future_spork).has_value());
+    BOOST_REQUIRE(future_spork.Sign(key));
+    BOOST_CHECK(!sporkman.IsValidSpork(future_spork));
 
     CSporkMessage inactive_spork{SPORK_2_INSTANTSEND_ENABLED, std::numeric_limits<int64_t>::max(),
                                  GetAdjustedTime()};
     BOOST_REQUIRE(inactive_spork.Sign(key));
-    const auto signer{sporkman.GetValidSporkSigner(inactive_spork)};
-    BOOST_REQUIRE(signer.has_value());
-    BOOST_REQUIRE(sporkman.ProcessSpork(inactive_spork, *signer));
+    BOOST_REQUIRE(sporkman.IsValidSpork(inactive_spork));
+    BOOST_REQUIRE(sporkman.ProcessSpork(inactive_spork));
     BOOST_CHECK(!sporkman.IsSporkActive(SPORK_2_INSTANTSEND_ENABLED));
 }
 
