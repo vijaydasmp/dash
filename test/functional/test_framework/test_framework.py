@@ -1799,12 +1799,81 @@ class DashTestFramework(BitcoinTestFramework):
         for idx in range(0, self.mn_count):
             self.connect_nodes(self.mninfo[idx].nodeIdx, 0)
 
+    def restart_masternodes(self, mns=None, exclude=None, extra_args_cb=None, wait_block_count=None):
+        """Restart masternodes with parallel process start, serial reconnect.
+
+        Stop uses the stop_nodes pattern (signal all selected nodes, then wait).
+        Start + force_finish_mnsync use ThreadPoolExecutor like start_masternodes.
+        connect_nodes to the controller stays serial (parallel connect is unsafe).
+
+        :param mns: masternodes to restart, defaults to all self.mninfo
+        :param exclude: masternodes to skip
+        :param extra_args_cb: optional callable(mn) -> extra args list for start
+        :param wait_block_count: if set, wait for this height after start and
+            before force_finish_mnsync (needed when restarting with -reindex)
+        :return: list of restarted MasternodeInfo
+        """
+        if exclude is None:
+            exclude = []
+        # Preserve caller order but drop duplicates: some tests pass multiset
+        # concatenations of quorum membership lists (e.g. feature_llmq_data_recovery).
+        selected = []
+        seen = set()
+        for mn in (self.mninfo if mns is None else mns):
+            if mn in exclude or mn.nodeIdx in seen:
+                continue
+            seen.add(mn.nodeIdx)
+            selected.append(mn)
+        if not selected:
+            return selected
+
+        self.log.info("Restarting %d masternodes in parallel", len(selected))
+
+        # Issue stop RPCs first, then wait — same ordering as stop_nodes()
+        for mn in selected:
+            self.nodes[mn.nodeIdx].stop_node(wait_until_stopped=False)
+        for mn in selected:
+            self.nodes[mn.nodeIdx].wait_until_stopped()
+
+        def restart_one(mn: MasternodeInfo):
+            extra_args = None if extra_args_cb is None else extra_args_cb(mn)
+            if wait_block_count is None:
+                self.start_masternode(mn, extra_args=extra_args)
+                return
+            # With -reindex, wait for height before force_finish_mnsync.
+            self.start_node(
+                mn.nodeIdx,
+                extra_args=self._masternode_start_args(mn, extra_args=extra_args),
+            )
+            # Default-arg capture avoids late-binding of mn in the wait predicate.
+            self.wait_until(lambda mn=mn: mn.get_node(self).getblockcount() >= wait_block_count)
+            force_finish_mnsync(mn.get_node(self))
+
+        executor = ThreadPoolExecutor(max_workers=20)
+        try:
+            jobs = [executor.submit(restart_one, mn) for mn in selected]
+            for job in jobs:
+                job.result()
+        finally:
+            executor.shutdown(wait=True)
+
+        # Connect serially to the controller only.
+        for mn in selected:
+            self.connect_nodes(mn.nodeIdx, 0)
+        return selected
+
     def start_masternode(self, mninfo: MasternodeInfo, extra_args=None):
+        self.start_node(
+            mninfo.nodeIdx,
+            extra_args=self._masternode_start_args(mninfo, extra_args=extra_args),
+        )
+        force_finish_mnsync(mninfo.get_node(self))
+
+    def _masternode_start_args(self, mninfo: MasternodeInfo, extra_args=None):
         args = ['-masternodeblsprivkey=%s' % mninfo.keyOperator] + self.extra_args[mninfo.nodeIdx]
         if extra_args is not None:
             args += extra_args
-        self.start_node(mninfo.nodeIdx, extra_args=args)
-        force_finish_mnsync(mninfo.get_node(self))
+        return args
 
     def dynamically_start_masternode(self, mnidx, extra_args=None):
         args = []
