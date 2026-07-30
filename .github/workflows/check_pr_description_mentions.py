@@ -129,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     try:
         body = read_body(args)
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         print(f"error: failed to read PR body: {exc}", file=sys.stderr)
         return 1
     return check_body(body)
