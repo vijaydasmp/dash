@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 The Dash Core developers
+# Distributed under the MIT software license, see the accompanying
+# file COPYING or http://www.opensource.org/licenses/mit-license.php.
+"""Test wallet-dependent Dash RPC paths.
+
+Covers the wallet-mode-divergent surface of Dash-specific RPCs so that
+consensus-heavy tests (feature_governance.py, feature_governance_cl.py,
+feature_dip3_deterministicmns.py) only need to run in a single wallet mode:
+
+- gobject prepare (wallet-funded collateral), list-prepared, submit
+- gobject vote-many and vote-alias (CheckWalletOwnsKey/IsMine and
+  CWallet::SignGovernanceVote -> SignMessage SPKM dispatch)
+- protx register_fund (wallet-funded collateral)
+- protx register_prepare + signmessage + register_submit (external
+  collateral signing path)
+- protx update_service and protx update_registrar
+
+This test runs in both --legacy-wallet and --descriptors modes.
+"""
+
+from test_framework.governance import prepare_object
+from test_framework.messages import uint256_to_string
+from test_framework.test_framework import (
+    DashTestFramework,
+    MasternodeInfo,
+)
+from test_framework.util import assert_equal, p2p_port, softfork_active
+
+
+class WalletDashRPCsTest(DashTestFramework):
+    def add_options(self, parser):
+        self.add_wallet_options(parser)
+
+    def set_test_params(self):
+        self.set_dash_test_params(3, 2)
+
+    def prepare_unstarted_mn(self, idx) -> MasternodeInfo:
+        mn = MasternodeInfo(evo=False, legacy=(not softfork_active(self.nodes[0], 'v19')))
+        mn.generate_addresses(self.nodes[0])
+        mn.set_params(nodePort=p2p_port(idx))
+        return mn
+
+    def confirm_tx(self, txid):
+        assert txid in self.nodes[0].getrawmempool()
+        self.bump_mocktime(1)
+        block_hash = self.generate(self.nodes[0], 1)[0]
+        assert txid in self.nodes[0].getblock(block_hash)["tx"]
+
+    def run_test(self):
+        # There are no quorums in this test, so txes can never be InstantSend-locked
+        # and would not be mined until they are 10 minutes old. Disable InstantSend
+        # to make them mineable right away.
+        self.nodes[0].sporkupdate("SPORK_2_INSTANTSEND_ENABLED", 4070908800)
+        self.wait_for_sporks_same()
+
+        self.test_gobject_wallet_paths()
+        self.test_protx_register_fund()
+        self.test_protx_register_external()
+        self.test_protx_update_service()
+        self.test_protx_update_registrar()
+
+    def test_gobject_wallet_paths(self):
+        node = self.nodes[0]
+        self.log.info("Test gobject prepare (wallet collateral funding)")
+        assert_equal(len(node.gobject("list-prepared")), 0)
+        proposal_time = self.mocktime
+        payout_address = node.getnewaddress()
+        prepared = prepare_object(node, 1, uint256_to_string(0), proposal_time, 1, "wallet_test_proposal", 1, payout_address)
+        self.confirm_tx(prepared["collateralHash"])
+        # Governance collateral needs GOVERNANCE_FEE_CONFIRMATIONS (6) confirmations
+        self.bump_mocktime(5)
+        self.generate(node, 5)
+
+        self.log.info("Test gobject list-prepared and submit")
+        assert_equal(len(node.gobject("list-prepared")), 1)
+        assert_equal(len(node.gobject("list")), 0)
+        proposal_hash = node.gobject("submit", "0", 1, proposal_time, prepared["hex"], prepared["collateralHash"])
+        assert_equal(len(node.gobject("list")), 1)
+        self.wait_until(lambda: len(self.mninfo[0].get_node(self).gobject("list")) == 1, timeout=10)
+
+        self.log.info("Test gobject vote-alias and vote-many (wallet vote signing)")
+        node.gobject("vote-alias", proposal_hash, "funding", "no", self.mninfo[0].proTxHash)
+        # The repeated vote for mninfo[0] is rejected due to the vote rate limit,
+        # so vote-many only adds votes for the remaining masternodes
+        node.gobject("vote-many", proposal_hash, "funding", "yes")
+        assert_equal(node.gobject("get", proposal_hash)["FundingResult"]["YesCount"], self.mn_count - 1)
+        assert_equal(node.gobject("get", proposal_hash)["FundingResult"]["NoCount"], 1)
+        assert_equal(node.gobject("count")["votes"], self.mn_count)
+
+        self.log.info("Make sure wallet-signed votes are accepted by other nodes")
+        mn_node = self.mninfo[0].get_node(self)
+        self.wait_until(lambda: mn_node.gobject("get", proposal_hash)["FundingResult"]["YesCount"] == self.mn_count - 1, timeout=10)
+        self.wait_until(lambda: mn_node.gobject("get", proposal_hash)["FundingResult"]["NoCount"] == 1, timeout=10)
+
+    def test_protx_register_fund(self):
+        node = self.nodes[0]
+        self.log.info("Test protx register_fund (wallet-funded collateral)")
+        self.fund_mn = self.prepare_unstarted_mn(len(self.nodes) + 1)
+        node.sendtoaddress(self.fund_mn.fundsAddr, self.fund_mn.get_collateral_value() + 0.001)
+        self.bump_mocktime(1)
+        self.generate(node, 1)
+        txid = self.fund_mn.register_fund(node, submit=True)
+        assert txid is not None
+        self.confirm_tx(txid)
+        vout = self.fund_mn.get_collateral_vout(node, txid)
+        self.fund_mn.set_params(proTxHash=txid, collateral_txid=txid, collateral_vout=vout)
+        assert txid in node.protx("list", "registered")
+        assert_equal(node.protx("info", txid)["collateralAddress"], self.fund_mn.collateral_address)
+        assert "%s-%d" % (txid, vout) in node.masternode("list")
+
+    def test_protx_register_external(self):
+        node = self.nodes[0]
+        self.log.info("Test protx register_prepare + signmessage + register_submit (external collateral)")
+        mn = self.prepare_unstarted_mn(len(self.nodes) + 2)
+        collateral_txid = node.sendtoaddress(mn.collateral_address, mn.get_collateral_value())
+        node.sendtoaddress(mn.fundsAddr, 0.001)
+        self.bump_mocktime(1)
+        self.generate(node, 1)
+        collateral_vout = mn.get_collateral_vout(node, collateral_txid)
+        mn.set_params(collateral_txid=collateral_txid, collateral_vout=collateral_vout)
+
+        command = "register_prepare_legacy" if mn.legacy else "register_prepare"
+        prepared = node.protx(command, collateral_txid, collateral_vout, f'127.0.0.1:{mn.nodePort}',
+                              mn.ownerAddr, mn.pubKeyOperator, mn.votingAddr, 0, mn.rewards_address, mn.fundsAddr)
+        assert_equal(prepared["collateralAddress"], mn.collateral_address)
+        signature = node.signmessage(prepared["collateralAddress"], prepared["signMessage"])
+        protx_hash = node.protx("register_submit", prepared["tx"], signature)
+        mn.set_params(proTxHash=protx_hash)
+        self.confirm_tx(protx_hash)
+        assert protx_hash in node.protx("list", "registered")
+        assert_equal(node.protx("info", protx_hash)["collateralHash"], collateral_txid)
+        assert "%s-%d" % (collateral_txid, collateral_vout) in node.masternode("list")
+
+    def test_protx_update_service(self):
+        node = self.nodes[0]
+        self.log.info("Test protx update_service")
+        mn = self.fund_mn
+        node.sendtoaddress(mn.fundsAddr, 0.001)
+        self.bump_mocktime(1)
+        self.generate(node, 1)
+        new_address = f'127.0.0.2:{mn.nodePort}'
+        txid = mn.update_service(node, submit=True, addrs_core_p2p=[new_address])
+        assert txid is not None
+        self.confirm_tx(txid)
+        assert_equal(node.protx("info", mn.proTxHash)["state"]["addresses"]["core_p2p"][0], new_address)
+
+    def test_protx_update_registrar(self):
+        node = self.nodes[0]
+        self.log.info("Test protx update_registrar (owner key wallet signing)")
+        mn = self.fund_mn
+        node.sendtoaddress(mn.fundsAddr, 0.001)
+        self.bump_mocktime(1)
+        self.generate(node, 1)
+        old_state = node.protx("info", mn.proTxHash)["state"]
+        new_voting_address = node.getnewaddress()
+        assert old_state["votingAddress"] != new_voting_address
+        txid = mn.update_registrar(node, submit=True, pubKeyOperator="", votingAddr=new_voting_address,
+                                   rewards_address="", fundsAddr=mn.fundsAddr)
+        assert txid is not None
+        self.confirm_tx(txid)
+        new_state = node.protx("info", mn.proTxHash)["state"]
+        assert_equal(new_state["votingAddress"], new_voting_address)
+        assert_equal(new_state["payoutAddress"], old_state["payoutAddress"])
+
+
+if __name__ == '__main__':
+    WalletDashRPCsTest().main()

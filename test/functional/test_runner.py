@@ -146,6 +146,8 @@ BASE_SCRIPTS = [
     'wallet_import_rescan.py --legacy-wallet',
     'wallet_backup.py --legacy-wallet',
     'wallet_backup.py --descriptors',
+    'wallet_dash_rpcs.py --legacy-wallet',
+    'wallet_dash_rpcs.py --descriptors',
     'p2p_tx_download.py',
     'wallet_avoidreuse.py --legacy-wallet',
     'wallet_avoidreuse.py --descriptors',
