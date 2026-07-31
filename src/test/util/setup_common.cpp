@@ -320,7 +320,7 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
     assert(status == node::ChainstateLoadStatus::SUCCESS);
 
     std::tie(status, error) = VerifyLoadedChainstate(chainman, options, *Assert(m_node.evodb), [](bool bls_state) {
-            LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
+            LogPrintf("LoadVerifyActivateChainstate: bls_legacy_scheme=%d\n", bls_state);
         });
     assert(status == node::ChainstateLoadStatus::SUCCESS);
 

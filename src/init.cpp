@@ -429,6 +429,8 @@ void PrepareShutdown(NodeContext& node)
                 chainstate->ResetCoinsViews();
             }
         }
+        // The mempool holds raw pointers to dmnman and llmq_ctx->isman, so it has to
+        // let go of them before either manager is destroyed.
         if (node.mempool) {
             node.mempool->DisconnectManagers();
         }
@@ -2073,7 +2075,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                            MIN_BLOCKS_TO_KEEP);
             }
             std::tie(status, error) = catch_exceptions([&]{ return VerifyLoadedChainstate(chainman, options, *Assert(node.evodb), [](bool bls_state) {
-                        LogPrintf("%s: bls_legacy_scheme=%d\n", __func__, bls_state);
+                        LogPrintf("AppInitMain: bls_legacy_scheme=%d\n", bls_state);
                         });});
             if (status == node::ChainstateLoadStatus::SUCCESS) {
                 fLoaded = true;

@@ -6,6 +6,7 @@
 #define BITCOIN_NODE_CHAINSTATE_H
 
 #include <llmq/options.h>
+#include <util/fs.h>
 #include <validation.h>
 
 #include <cstdint>
@@ -26,9 +27,6 @@ class CTxMemPool;
 struct LLMQContext;
 
 namespace chainlock { class Chainlocks; }
-namespace fs {
-class path;
-} // namespace fs
 
 namespace node {
 

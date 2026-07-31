@@ -22,7 +22,6 @@
 #include <validation.h>
 #include <validationinterface.h>
 
-#include <chainlock/handler.h>
 #include <evo/evodb.h>
 #include <llmq/blockprocessor.h>
 #include <llmq/signing.h>
@@ -59,9 +58,6 @@ static void DashChainstateSetup(ChainstateManager& chainman,
 
 static void DashChainstateSetupClose(node::NodeContext& node)
 {
-    if (node.clhandler) {
-        node.clhandler->Stop();
-    }
     if (node.mempool) {
         node.mempool->DisconnectManagers();
     }
