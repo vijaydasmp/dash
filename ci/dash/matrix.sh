@@ -33,7 +33,11 @@ elif [ "$BUILD_TARGET" = "linux64_sqlite" ]; then
 elif [ "$BUILD_TARGET" = "linux64_tsan" ]; then
   source ./ci/test/00_setup_env_native_tsan.sh
 elif [ "$BUILD_TARGET" = "linux64_ubsan" ]; then
-  source ./ci/test/00_setup_env_native_ubsan.sh
+  # TODO: remove it when #7503 will get merged. That's a temporary workaround to check asan on CI
+  # Compatibility for pull_request_target workflows that still request the legacy target.
+  # Their default-branch container setup does not grant SYS_PTRACE.
+  export ASAN_OPTIONS="detect_leaks=0:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1"
+  source ./ci/test/00_setup_env_native_asan.sh
 elif [ "$BUILD_TARGET" = "linux64_valgrind" ]; then
   source ./ci/test/00_setup_env_native_valgrind.sh
 elif [ "$BUILD_TARGET" = "mac" ]; then
