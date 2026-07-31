@@ -33,7 +33,8 @@ class LLMQSigningTest(DashTestFramework):
         # The first part of this test runs with spork21 off, the second part
         # enables it mid-test and exercises the spork21-only paths on quorums
         # mined after that. spork21 being active from the very first DKG is
-        # covered by feature_llmq_connections.py.
+        # covered by feature_llmq_data_recovery.py, which enables it at the top
+        # of run_test on a fresh chain, before any DKG has run.
         self.nodes[0].sporkupdate("SPORK_17_QUORUM_DKG_ENABLED", 0)
         self.wait_for_sporks_same()
 
@@ -147,8 +148,14 @@ class LLMQSigningTest(DashTestFramework):
         self.wait_for_sporks_same()
         self.mine_quorum()
 
-        for mn in self.mninfo: # type: MasternodeInfo
-            self.wait_until(lambda: mn.get_node(self).getconnectioncount() == self.llmq_size, timeout=10)
+        # Unlike a chain that runs with spork21 from the very first DKG, the intra-quorum
+        # connections here predate the spork, so bump mocktime while waiting to bypass the
+        # quorum connection retry timeout and let the all-connected topology settle.
+        def all_mns_fully_connected():
+            self.bump_mocktime(1)
+            return all(mn.get_node(self).getconnectioncount() == self.llmq_size for mn in self.mninfo)
+
+        self.wait_until(all_mns_fully_connected, timeout=30, sleep=1)
         self.assert_qsendrecsigs_symmetric()
 
         self.log.info("Test the optional submit parameter and QSIGSHARE P2P submission")
