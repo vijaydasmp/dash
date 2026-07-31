@@ -91,7 +91,10 @@ bool CSporkManager::IsValidSpork(const CSporkMessage& spork) const
         return false;
     }
 
-    if (WITH_LOCK(cs, return sporkPubKeyID.IsNull() || !spork.CheckSignature(sporkPubKeyID))) {
+    // Copy the key out instead of verifying under `cs`: signature verification is expensive and
+    // this runs for every spork message received from any peer, before it is scored as misbehaving.
+    const CKeyID pubKeyId{WITH_LOCK(cs, return sporkPubKeyID)};
+    if (pubKeyId.IsNull() || !spork.CheckSignature(pubKeyId)) {
         LogPrint(BCLog::SPORK, "CSporkManager::%s -- ERROR: invalid signature\n", __func__);
         return false;
     }
