@@ -129,7 +129,9 @@ RUN set -ex; \
     echo "deb [signed-by=/etc/apt/trusted.gpg.d/apt.llvm.org.asc] http://apt.llvm.org/${UBUNTU_CODENAME}/  llvm-toolchain-${UBUNTU_CODENAME}-${LLVM_VERSION} main" > /etc/apt/sources.list.d/llvm.list; \
     apt-get update && apt-get install ${APT_ARGS} \
     "llvm-${LLVM_VERSION}-dev"; \
-    rm -rf /var/lib/apt/lists/*;
+    rm -rf /var/lib/apt/lists/*; \
+    update-alternatives --install /usr/bin/llvm-symbolizer llvm-symbolizer \
+        "/usr/bin/llvm-symbolizer-${LLVM_VERSION}" 100;
 
 # Setup unprivileged user and configuration files
 ARG USER_ID=1000 \
