@@ -38,20 +38,19 @@ class QuorumDataRecoveryTest(DashTestFramework):
         if qvvec_sync is None:
             qvvec_sync = []
 
+        # Sample the target height before the restarts stop any node
         wait_block_count = self.nodes[0].getblockcount() if reindex else None
 
-        def extra_args_cb(mn: MasternodeInfo):
-            args = ['-llmq-data-recovery=%d' % qdata_recovery_enabled]
-            for llmq_sync in qvvec_sync:
-                args.append('-llmq-qvvec-sync=%s:%d' % (llmq_type_strings[llmq_sync[0]], llmq_sync[1]))
-            if reindex:
-                args.append('-reindex')
-            return args
+        extra_args = ['-llmq-data-recovery=%d' % qdata_recovery_enabled]
+        for llmq_sync in qvvec_sync:
+            extra_args.append('-llmq-qvvec-sync=%s:%d' % (llmq_type_strings[llmq_sync[0]], llmq_sync[1]))
+        if reindex:
+            extra_args.append('-reindex')
 
         self.restart_masternodes(
             mns=mns,
             exclude=exclude,
-            extra_args_cb=extra_args_cb,
+            extra_args=extra_args,
             wait_block_count=wait_block_count,
         )
 
