@@ -33,9 +33,9 @@ protected:
 public:
     //! nMaxSizeIn is the number of elements retained after a prune. nPruneAfterSizeIn is the size
     //! the map may grow to before the next insertion prunes it; it defaults to nMaxSizeIn, which
-    //! means prune() -- and therefore a sort of every element -- runs on *every* insertion past
-    //! nMaxSizeIn. Callers whose keys are attacker-supplied should pass a larger value (e.g.
-    //! 2 * nMaxSizeIn) so that sorting is amortised over a batch of evictions instead.
+    //! means prune() -- and therefore a partition of every element -- runs on *every* insertion
+    //! past nMaxSizeIn. Callers whose keys are attacker-supplied should pass a larger value (e.g.
+    //! 2 * nMaxSizeIn) so that partitioning is amortised over a batch of evictions instead.
     explicit unordered_limitedmap(size_type nMaxSizeIn, size_type nPruneAfterSizeIn = 0)
     {
         assert(nMaxSizeIn > 0);

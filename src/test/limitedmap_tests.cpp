@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(limitedmap_test)
 // A map constructed with a prune-after size larger than its retained size must not prune on
 // every insertion past the retained size. Instead it is allowed to grow up to the prune-after
 // size and is then pruned back down to the retained size in a single batch. This amortises the
-// cost of prune() -- which sorts every element -- over many insertions.
+// cost of prune() -- which partitions every element -- over many insertions.
 BOOST_AUTO_TEST_CASE(limitedmap_prune_after_size_test)
 {
     constexpr int RETAINED_SIZE{10};
