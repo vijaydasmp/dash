@@ -681,7 +681,13 @@ void CCoinJoinClientManager::LoadPendingObservations(wallet::WalletBatch& batch)
     AssertLockHeld(cs_pending_obs);
 
     if (m_pending_obs_loaded) return;
-    // Missing record simply means nothing was pending when we last shut down
+    // Missing record simply means nothing was pending when we last shut down.
+    // NOTE: this only tells a missing record apart from one which exists but cannot be
+    // deserialized, which is the realistic failure. It cannot tell a missing record apart
+    // from a database error while looking for it: both BerkeleyBatch::HasKey() and
+    // SQLiteBatch::HasKey() report anything which is not a hit as a miss, so an error
+    // there still reads as "nothing was pending". Telling those apart would need a
+    // tri-state DatabaseBatch API for both backends, which is not worth it for this.
     if (!batch.HasCoinJoinPendingObs()) {
         m_pending_obs_loaded = true;
         return;
@@ -694,15 +700,22 @@ void CCoinJoinClientManager::LoadPendingObservations(wallet::WalletBatch& batch)
     // contents have been recovered.
     std::map<COutPoint, int64_t> pending;
     if (!batch.ReadCoinJoinPendingObs(pending)) {
-        LogPrintf("CCoinJoinClientManager::%s -- ERROR: failed to read the pending observation record, will retry\n",
-                  __func__);
+        // Only complain once: a corrupt (as opposed to transiently unreadable) record
+        // never becomes readable, and the retry runs for as long as this node does.
+        if (!m_pending_obs_load_failed) {
+            m_pending_obs_load_failed = true;
+            LogPrintf("CCoinJoinClientManager::%s -- ERROR: failed to read the pending observation record, will keep " /* Continued */
+                      "retrying silently. The inputs it tracks stay locked until it can be read, `lockunspent` "
+                      "releases them manually\n",
+                      __func__);
+        }
         return;
     }
     // Keep any entries added in memory while the record was unreadable
     m_pending_obs.insert(pending.begin(), pending.end());
     m_pending_obs_loaded = true;
     WalletCJLogPrint(m_wallet, "CCoinJoinClientManager::%s -- loaded %d pending observation(s)\n", __func__,
-                     m_pending_obs.size());
+                     pending.size());
 }
 
 void CCoinJoinClientManager::CheckPendingObservations(const CTxMemPool& mempool)

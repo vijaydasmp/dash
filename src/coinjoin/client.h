@@ -190,6 +190,9 @@ private:
     //! never confused with locks the user set themselves via `lockunspent`.
     std::map<COutPoint, int64_t> m_pending_obs GUARDED_BY(cs_pending_obs);
     bool m_pending_obs_loaded GUARDED_BY(cs_pending_obs){false};
+    //! Whether the failure to read the record has been reported already, the read is
+    //! retried for as long as this node runs and a corrupt record never becomes readable
+    bool m_pending_obs_load_failed GUARDED_BY(cs_pending_obs){false};
 
     /// Populate m_pending_obs from the wallet database, once per run
     void LoadPendingObservations(wallet::WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_pending_obs);
