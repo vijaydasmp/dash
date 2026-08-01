@@ -3514,9 +3514,18 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& 
 enum class DSTXValidationScore : int {
     NONE = 0,
     UNKNOWN_MASTERNODE = 1,
-    PREMATURE = 1,
+    PREMATURE = 1, // deliberately shares UNKNOWN_MASTERNODE's weight: both are tip-skew tolerances
     INVALID = 10,
 };
+
+//! Whether a DSTX may be announced to a peer at the given negotiated protocol version.
+//! Post-V24 promotion/demotion DSTXes are unbalanced and thus structurally invalid to peers
+//! below COINJOIN_REBALANCE_VERSION - they would drop the transaction and penalize us for
+//! relaying it. Such peers see the transaction on block inclusion instead.
+static bool CanAnnounceDstxTo(const CCoinJoinBroadcastTx& dstx, int peer_version)
+{
+    return dstx.tx->vin.size() == dstx.tx->vout.size() || peer_version >= COINJOIN_REBALANCE_VERSION;
+}
 
 // do_return signals the caller to stop further processing of the DSTX.
 struct DSTXValidationResult {
@@ -6476,7 +6485,14 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     tx_relay->m_tx_inventory_to_send.erase(hash);
                     if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
 
-                    int nInvType = m_dstxman.GetDSTX(hash) ? MSG_DSTX : MSG_TX;
+                    int nInvType = MSG_TX;
+                    if (const auto dstx = m_dstxman.GetDSTX(hash); dstx) {
+                        if (!CanAnnounceDstxTo(dstx, pto->GetCommonVersion())) {
+                            tx_relay->m_tx_inventory_known_filter.insert(hash);
+                            continue;
+                        }
+                        nInvType = MSG_DSTX;
+                    }
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
 
@@ -6537,6 +6553,14 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                         continue;
                     }
                     if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
+                    int nInvType = MSG_TX;
+                    if (const auto dstx = m_dstxman.GetDSTX(hash); dstx) {
+                        if (!CanAnnounceDstxTo(dstx, pto->GetCommonVersion())) {
+                            tx_relay->m_tx_inventory_known_filter.insert(hash);
+                            continue;
+                        }
+                        nInvType = MSG_DSTX;
+                    }
                     // Send
                     State(pto->GetId())->m_recently_announced_invs.insert(hash);
                     nRelayedTransactions++;
@@ -6553,7 +6577,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                             g_relay_expiration.emplace_back(current_time + RELAY_TX_CACHE_TIME, ret.first);
                         }
                     }
-                    int nInvType = m_dstxman.GetDSTX(hash) ? MSG_DSTX : MSG_TX;
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
                 }

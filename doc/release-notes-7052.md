@@ -9,7 +9,10 @@ P2P and network changes
   the session's capability. Older clients are rejected from such sessions
   at acceptance time (before any collateral is committed) and continue to
   mix normally in sessions created by older peers, which newer clients
-  still join for standard mixing. (#7052)
+  still join for standard mixing. Unbalanced (promotion/demotion) DSTXes
+  are likewise only announced to peers at protocol 70241 or newer; older
+  peers would reject them as structurally invalid and penalize the
+  relayer, and instead see the transaction on block inclusion. (#7052)
 
 - A mixing session only completes once each side of its denomination is
   occupied by nobody or by at least two participants, since coins are
