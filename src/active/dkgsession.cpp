@@ -146,10 +146,13 @@ void ActiveDKGSession::VerifyPendingContributions()
         dkgManager.WriteEncryptedContributions(params.type, m_quorum_base_block_index, m->dmn->proTxHash, *vecEncryptedContributions[idx]);
     }
 
-    // All pending members may have been marked bad (e.g. double contributions)
-    // after they were enqueued. The pre-filter empty check above does not catch
-    // that; skip the BLS worker call rather than relying on its empty-input guard.
+    // Defence in depth: every pending member may have been marked bad (e.g. a
+    // double contribution) after it was enqueued, which the pre-filter check
+    // above cannot catch. AsyncVerifyContributionShares guards empty input too,
+    // but keep the call site correct on its own terms - this path terminated the
+    // node before that guard existed.
     if (memberIndexes.empty()) {
+        logger.Batch("all %d pending contributions were from bad or complained-about members, nothing to verify", pendingContributionVerifications.size());
         pendingContributionVerifications.clear();
         return;
     }
