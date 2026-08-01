@@ -479,8 +479,11 @@ namespace CoinJoin
 
     constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
 
-    /// Whether denomination promotion/demotion (post-V24) is active at the current chain tip
-    bool IsPromotionDemotionActive(const ChainstateManager& chainman);
+    /// Whether denomination promotion/demotion (post-V24) is active at the current chain tip.
+    /// With fNextBlock, additionally counts a deployment that activates in the block following
+    /// the tip - clients validating a final transaction use this to tolerate a masternode
+    /// whose tip is one block ahead around the activation boundary.
+    bool IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock = false);
 
     /// If the collateral is valid given by a client
     bool IsCollateralValid(ChainstateManager& chainman, const llmq::CInstantSendManager& isman,

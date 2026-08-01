@@ -467,8 +467,10 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
 
     if (!mixingMasternode) return false;
 
-    // Evaluated before taking cs_wallet (IsPromotionDemotionActive locks cs_main)
-    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman);
+    // Evaluated before taking cs_wallet (IsPromotionDemotionActive locks cs_main).
+    // fNextBlock keeps this consistent with the final-tx leniency in IsValidInOuts: a
+    // masternode one block ahead at the V24 boundary must not get its final tx refused.
+    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman, /*fNextBlock=*/true);
 
     LOCK(m_wallet->cs_wallet);
     LOCK(cs_coinjoin);

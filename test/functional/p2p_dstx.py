@@ -5,10 +5,11 @@
 """Test P2P CoinJoin broadcast transaction handling.
 
 Verifies that DSTX messages with an unverifiable (unknown) masternode, or a
-structure only valid once V24 activates, incur only a small misbehavior
-penalty, while clearly malformed DSTXes get the existing stronger penalty.
-Also exercises the cumulative behavior so that a peer flooding unknown-MN
-DSTXes is eventually discouraged.
+structure that only becomes valid at the imminent V24 activation boundary,
+incur only a small misbehavior penalty, while clearly malformed DSTXes -
+including post-V24-shaped ones far from the boundary - get the existing
+stronger penalty. Also exercises the cumulative behavior so that a peer
+flooding unknown-MN DSTXes is eventually discouraged.
 """
 
 import time
@@ -31,6 +32,7 @@ from test_framework.script import (
     OP_HASH160,
 )
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import softfork_active
 
 # Default DISCOURAGEMENT_THRESHOLD in net_processing.h.
 DISCOURAGEMENT_THRESHOLD = 100
@@ -39,16 +41,24 @@ DISCOURAGEMENT_THRESHOLD = 100
 UNKNOWN_MN_SCORE = 1
 # Penalty applied when the DSTX itself is structurally bad / bad signature.
 INVALID_DSTX_SCORE = 10
-# Penalty applied when the DSTX is only structurally valid under post-V24 rules, which a
-# relayer whose tip is ahead of ours at the activation boundary may legitimately send.
+# Penalty applied when the DSTX is only structurally valid under post-V24 rules and V24
+# activates at the next block, which a relayer whose tip is one block ahead of ours may
+# legitimately send.
 PREMATURE_DSTX_SCORE = 1
+V24_ACTIVATION_HEIGHT = 100
 
 
 class P2PDSTXTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        self.extra_args = [["-debug=net", "-debug=coinjoin"]]
+        self.extra_args = [[
+            "-debug=net",
+            "-debug=coinjoin",
+            # Window 10, threshold 8/6, no EHF signal required: v24 becomes active at the
+            # first window boundary at or above V24_ACTIVATION_HEIGHT once locked in.
+            f"-vbparams=v24:0:999999999999:{V24_ACTIVATION_HEIGHT}:10:8:6:5:0",
+        ]]
 
     def make_dstx(self, nonce=0):
         tx = CTransaction()
@@ -101,13 +111,34 @@ class P2PDSTXTest(BitcoinTestFramework):
         ]):
             peer_invalid.send_and_ping(msg_dstx(bad))
 
-        self.log.info("Unbalanced DSTX pre-V24 => small (+%d) misbehavior penalty", PREMATURE_DSTX_SCORE)
-        # An unbalanced input/output count is only valid post-V24, so a masternode whose tip
-        # is ahead of ours at the activation boundary can relay one legitimately. It is still
-        # rejected here, but with the same tolerant penalty an unverifiable masternode gets.
+        self.log.info("Unbalanced DSTX far from the V24 boundary => full (+%d) penalty", INVALID_DSTX_SCORE)
+        # An unbalanced input/output count is only valid post-V24. Far from the activation
+        # boundary no honest relayer produces one, so it gets the full structural penalty.
+        peer_unbalanced = node.add_p2p_connection(P2PInterface())
+        unbalanced = self.make_dstx(nonce=3)
+        unbalanced.tx.vout.pop()  # vin.size() != vout.size() is a promotion shape
+        with node.assert_debug_log([
+            "Invalid DSTX structure",
+            "Misbehaving",
+            "(0 -> {})".format(INVALID_DSTX_SCORE),
+            "invalid dstx",
+        ]):
+            peer_unbalanced.send_and_ping(msg_dstx(unbalanced))
+
+        self.log.info("Mine to the last pre-V24 block")
+        # Advance one block at a time so we stop on the exact boundary tip: v24 rules are
+        # enforced for the next block but not yet at our tip.
+        while not softfork_active(node, "v24"):
+            self.bump_mocktime(156)
+            self.generate(node, 1)
+
+        self.log.info("Unbalanced DSTX at the V24 boundary => small (+%d) misbehavior penalty", PREMATURE_DSTX_SCORE)
+        # A masternode whose tip is one block ahead of ours already applies post-V24 rules,
+        # so its DSTX is rejected with the same tolerant penalty an unverifiable masternode
+        # gets rather than the full structural penalty.
         peer_premature = node.add_p2p_connection(P2PInterface())
-        premature = self.make_dstx(nonce=3)
-        premature.tx.vout.pop()  # vin.size() != vout.size() is a promotion shape
+        premature = self.make_dstx(nonce=4)
+        premature.tx.vout.pop()
         with node.assert_debug_log([
             "Invalid DSTX structure",
             "Misbehaving",
@@ -115,6 +146,19 @@ class P2PDSTXTest(BitcoinTestFramework):
             "invalid dstx",
         ]):
             peer_premature.send_and_ping(msg_dstx(premature))
+
+        self.log.info("Unbalanced DSTX once V24 is active => structurally valid, unknown-MN path")
+        self.generate(node, 1)  # v24 rules now apply at the tip itself
+        peer_active = node.add_p2p_connection(P2PInterface())
+        active = self.make_dstx(nonce=5)
+        active.tx.vout.pop()
+        with node.assert_debug_log([
+            "Can't find masternode",
+            "Misbehaving",
+            "(0 -> {})".format(UNKNOWN_MN_SCORE),
+            "invalid dstx",
+        ]):
+            peer_active.send_and_ping(msg_dstx(active))
 
         self.log.info("A peer flooding unknown-MN DSTXes is eventually discouraged")
         peer_flood = node.add_p2p_connection(P2PInterface())

@@ -3545,11 +3545,12 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
     if (!dstx.IsValidStructure(pindex, chainman, &fPossiblyValidPostV24)) {
         LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
         // A tx that is structurally valid under post-V24 rules may come from a masternode
-        // whose tip is ahead of ours around the activation boundary. Like the 24-block-deep
-        // masternode scan below, tolerate the skew: drop it with only a small penalty so
-        // honest relayers are unaffected while a peer flooding us still gets discouraged
-        // eventually. Anything else malformed keeps the full penalty.
-        if (fPossiblyValidPostV24) {
+        // whose tip is one block ahead of ours at the activation boundary. Like the
+        // 24-block-deep masternode scan below, tolerate the skew: drop it with only a small
+        // penalty so honest relayers are unaffected while a peer flooding us still gets
+        // discouraged eventually. Away from the boundary no honest peer relays such a tx,
+        // so it keeps the full penalty like anything else malformed.
+        if (fPossiblyValidPostV24 && CoinJoin::IsPromotionDemotionActive(chainman, /*fNextBlock=*/true)) {
             return {DSTXValidationScore::PREMATURE, true};
         }
         return {DSTXValidationScore::INVALID, true};

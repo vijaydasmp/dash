@@ -240,11 +240,17 @@ std::string CCoinJoinBaseSession::GetStateString() const
     }
 }
 
-bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman)
+bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock)
 {
     LOCK(::cs_main);
     const CBlockIndex* pindex = chainman.ActiveChain().Tip();
-    return pindex && DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
+    if (pindex == nullptr) return false;
+    // With fNextBlock the deployment counts as active if it will be active in the block
+    // following our tip. Clients use this when validating a final transaction so that a
+    // masternode whose tip is one block ahead at the V24 boundary doesn't get its valid
+    // unbalanced final tx refused - refusing to sign would cost the client its collateral.
+    return fNextBlock ? DeploymentActiveAfter(pindex, chainman, Consensus::DEPLOYMENT_V24)
+                      : DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
 }
 
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
@@ -257,8 +263,11 @@ bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const ll
     nMessageIDRet = MSG_NOERR;
     if (fConsumeCollateralRet) *fConsumeCollateralRet = false;
 
-    // Check if V24 is active for promotion/demotion support
-    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman);
+    // Check if V24 is active for promotion/demotion support. Per-entry validation (masternode
+    // side) uses the strict tip state; final-tx validation (client side, before signing) also
+    // accepts activation at the next block so a masternode one block ahead at the boundary
+    // can't cost us our collateral.
+    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman, /*fNextBlock=*/fFinalTx);
 
     // Determine entry type based on input/output counts
     // Standard: N inputs, N outputs (same denom)
