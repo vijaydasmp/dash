@@ -78,6 +78,40 @@ BOOST_AUTO_TEST_CASE(own_overlay_tombstone)
     }
 }
 
+BOOST_AUTO_TEST_CASE(transaction_less_access_uses_default_identity)
+{
+    CEvoDB db{util::DbWrapperParams{.path = m_args.GetDataDirBase() / "evodb_default_identity", .memory = true, .wipe = true}};
+    const auto key = PayloadKey(7);
+
+    // Committed to the SNAPSHOT overlay but not yet flushed to disk.
+    WritePayload(db, EvoDbIdentity::SNAPSHOT, 7);
+
+    // Transaction-less reads default to NORMAL and must not see it.
+    Payload value;
+    BOOST_CHECK(!db.Read(key, value));
+    BOOST_CHECK(!db.Exists(key));
+
+    // Once the snapshot chainstate is active, transaction-less consumers
+    // resolve against the SNAPSHOT overlay.
+    db.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
+    BOOST_REQUIRE(db.Read(key, value));
+    BOOST_CHECK(value == PayloadFor(7));
+    BOOST_CHECK(db.Exists(key));
+
+    // Transaction-less writes land in the default identity's overlay and stay
+    // invisible to the other identity.
+    const auto key2 = PayloadKey(8);
+    db.Write(key2, PayloadFor(8));
+    db.SetDefaultIdentity(EvoDbIdentity::NORMAL);
+    Payload value2;
+    BOOST_CHECK(!db.Read(key2, value2));
+    {
+        auto tx = db.BeginTransaction(EvoDbIdentity::SNAPSHOT);
+        BOOST_REQUIRE(db.Read(key2, value2));
+        BOOST_CHECK(value2 == PayloadFor(8));
+    }
+}
+
 BOOST_AUTO_TEST_CASE(write_derived_verifies_other_unflushed_overlay)
 {
     const fs::path path = m_args.GetDataDirBase() / "evodb_derived_overlay";

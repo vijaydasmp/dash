@@ -193,8 +193,18 @@ bool BuildSimplifiedMNListDiff(CDeterministicMNManager& dmnman, const Chainstate
         return false;
     }
 
-    auto baseDmnList = dmnman.GetListForBlock(baseBlockIndex);
-    auto dmnList = dmnman.GetListForBlock(blockIndex);
+    CDeterministicMNList baseDmnList;
+    CDeterministicMNList dmnList;
+    try {
+        baseDmnList = dmnman.GetListForBlock(baseBlockIndex);
+        dmnList = dmnman.GetListForBlock(blockIndex);
+    } catch (const std::exception& e) {
+        // e.g. a list diff pending in another chainstate's unflushed overlay;
+        // the message carries the IsBlockDataUnavailableError sentinel so the
+        // requesting peer is not penalized.
+        errorRet = e.what();
+        return false;
+    }
     mnListDiffRet = BuildSimplifiedDiff(baseDmnList, dmnList, extended);
 
     // We need to return the value that was provided by the other peer as it otherwise won't be able to recognize the

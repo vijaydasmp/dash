@@ -800,6 +800,23 @@ CDeterministicMNList CDeterministicMNManager::GetListForBlockInternal(gsl::not_n
 
         CDeterministicMNListDiff diff;
         if (!m_evoDb.Read(std::make_pair(DB_LIST_DIFF, pindex->GetBlockHash()), diff)) {
+            if (DeploymentActiveAt(*pindex, Params().GetConsensus(), Consensus::DEPLOYMENT_DIP0003) &&
+                m_evoDb.HasDualChainstateMarker()) {
+                // In a dual-chainstate run a missing diff for a DIP3-active
+                // block means data pending in the other chainstate's unflushed
+                // overlay or EvoDB inconsistency; fabricating an "initial
+                // snapshot" would cache an empty masternode list and clobber
+                // m_initial_snapshot_index. Fail loudly instead; the message
+                // carries the sentinel matched by IsBlockDataUnavailableError
+                // so serving paths do not penalize peers. Single-chainstate
+                // nodes keep the legacy fallback below: an EvoDB that predates
+                // the current DIP3 activation height (e.g. the functional-test
+                // cached chain) bootstraps an empty list here and rebuilds via
+                // ProcessBlock from that point on.
+                throw std::runtime_error(strprintf(
+                    "CDeterministicMNManager::%s -- masternode list diff for block %s is not available (pruned or below an unvalidated snapshot base)",
+                    __func__, pindex->GetBlockHash().ToString()));
+            }
             // no snapshot and no diff on disk means that it's the initial snapshot
             m_initial_snapshot_index = pindex;
             snapshot = CDeterministicMNList(pindex->GetBlockHash(), pindex->nHeight, 0);

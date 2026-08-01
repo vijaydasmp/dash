@@ -58,7 +58,7 @@ const CEvoDB::TransactionContext& CEvoDB::GetContext(EvoDbIdentity identity) con
 
 EvoDbIdentity CEvoDB::GetCurrentIdentity() const
 {
-    return active_transaction.value_or(EvoDbIdentity::NORMAL);
+    return active_transaction.value_or(m_default_identity);
 }
 
 std::unique_ptr<CEvoDBScopedCommitter> CEvoDB::BeginTransaction(EvoDbIdentity identity)

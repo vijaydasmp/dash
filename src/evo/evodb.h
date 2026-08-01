@@ -88,6 +88,11 @@ private:
 
     std::map<EvoDbIdentity, std::unique_ptr<TransactionContext>> transaction_contexts GUARDED_BY(cs);
     std::optional<EvoDbIdentity> active_transaction GUARDED_BY(cs);
+    // Identity used by reads and writes outside any transaction. Tracks the
+    // active chainstate so transaction-less consumers (RPC, mempool, miner,
+    // P2P serving) resolve against active-chain state rather than always
+    // falling back to NORMAL.
+    EvoDbIdentity m_default_identity GUARDED_BY(cs){EvoDbIdentity::NORMAL};
 
     TransactionContext& GetContext(EvoDbIdentity identity) EXCLUSIVE_LOCKS_REQUIRED(cs);
     const TransactionContext& GetContext(EvoDbIdentity identity) const EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -211,6 +216,16 @@ public:
     bool CommitRootTransaction(EvoDbIdentity identity = EvoDbIdentity::NORMAL) EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     bool IsEmpty() { return db->IsEmpty(); }
+
+    //! Set the identity used by reads/writes outside any transaction. Must
+    //! track the active chainstate: snapshot activation sets SNAPSHOT.
+    //! TODO(assumeutxo): snapshot completion (marker promotion) must reset
+    //! this to NORMAL.
+    void SetDefaultIdentity(EvoDbIdentity identity) EXCLUSIVE_LOCKS_REQUIRED(!cs)
+    {
+        LOCK(cs);
+        m_default_identity = identity;
+    }
 
     bool ReadBestBlock(EvoDbIdentity identity, uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs);
     bool VerifyBestBlock(EvoDbIdentity identity, const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs);

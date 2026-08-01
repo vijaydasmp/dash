@@ -5519,6 +5519,7 @@ bool ChainstateManager::ActivateSnapshot(
         assert(chaintip_loaded);
 
         m_active_chainstate = m_snapshot_chainstate.get();
+        m_snapshot_chainstate->m_evoDb.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
 
         LogPrintf("[snapshot] successfully activated snapshot %s\n", base_blockhash.ToString());
         LogPrintf("[snapshot] (%.2f MB)\n",
@@ -5851,6 +5852,9 @@ void ChainstateManager::MaybeRebalanceCaches()
 
 void ChainstateManager::ResetChainstates()
 {
+    if (m_active_chainstate) {
+        m_active_chainstate->m_evoDb.SetDefaultIdentity(EvoDbIdentity::NORMAL);
+    }
     m_ibd_chainstate.reset();
     m_snapshot_chainstate.reset();
     m_active_chainstate = nullptr;
@@ -5922,5 +5926,6 @@ Chainstate* ChainstateManager::ActivateExistingSnapshot(CTxMemPool* mempool, uin
         base_blockhash);
     LogPrintf("[snapshot] switching active chainstate to %s\n", m_snapshot_chainstate->ToString());
     m_active_chainstate = m_snapshot_chainstate.get();
+    evo_db.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
     return m_snapshot_chainstate.get();
 }
