@@ -308,6 +308,11 @@ CMNHFManager::Signals CMNHFManager::GetForBlock(const CBlockIndex* pindex)
         signalsTmp = ProcessBlock(block, pindex_top, false, state);
         if (!signalsTmp.has_value()) {
             LogPrintf("%s: process block failed due to %s\n", __func__, state.ToString());
+            if (state.IsError()) {
+                // Preserve the EvoDB-inconsistency classification so callers'
+                // typed catches do not misreport this as a consensus failure.
+                throw EvoDbInconsistencyError(state.ToString());
+            }
             throw std::runtime_error("failed-getehfforblock-construct");
         }
 
