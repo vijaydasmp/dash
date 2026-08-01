@@ -12,6 +12,7 @@
 #include <protocol.h>
 #include <util/hasher.h>
 
+#include <map>
 #include <unordered_set>
 
 class CActiveMasternodeManager;
@@ -43,6 +44,10 @@ private:
     const CMasternodeSync& m_mn_sync;
     const llmq::CInstantSendManager& m_isman;
 
+protected:
+    // Session state and entry admission live in the protected section so unit tests can seed
+    // and drive them through a test subclass.
+
     // Mixing uses collateral transactions to trust parties entering the pool
     // to behave honestly. If they don't it takes their money.
     std::vector<CTransactionRef> vecSessionCollaterals;
@@ -50,10 +55,27 @@ private:
     // reuses one of them can be rejected without rescanning them all.
     std::unordered_set<COutPoint, SaltedOutpointHasher> setSessionCollateralPrevouts GUARDED_BY(cs_coinjoin);
 
-    bool fUnitTest;
+    // Post-V24: true when this session may contain promotion/demotion entries. Fixed at
+    // session creation from the creator's protocol version; only peers at or above
+    // COINJOIN_REBALANCE_VERSION are allowed into such a session, so clients that cannot
+    // validate an unbalanced final transaction never end up having to refuse to sign one.
+    bool m_fRebalanceSession{false};
+    // The mixing direction each accepted participant declared in its dsa, keyed by collateral
+    // hash. Tells us which side of the session denomination a participant will occupy before
+    // its entry arrives, and entitles it (and only it) to submit an entry of that shape.
+    std::map<uint256, CoinJoin::MixShape> m_mapDeclaredShapes GUARDED_BY(cs_coinjoin);
+
+    /// Sides of the session denomination the accepted participants declared they will occupy
+    CoinJoin::MixSideCounts GetDeclaredSideCounts() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
 
     /// Add a clients entry to the pool
     bool AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    /// Record an accepted collateral and index its input prevouts
+    void CommitSessionCollateral(const CMutableTransaction& txCollateral) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+
+private:
+    bool fUnitTest;
+
     /// Add signature to a txin
     bool AddScriptSig(const CTxIn& txin) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
 
@@ -72,13 +94,10 @@ private:
 
     /// Is this nDenom and txCollateral acceptable?
     bool IsAcceptableDSA(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) const;
-    bool IsCurrentSession(int session_id, int session_denom, PoolState state) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
-    /// Record an accepted collateral and index its input prevouts
-    void CommitSessionCollateral(const CMutableTransaction& txCollateral) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
-    bool CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
-    bool AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    bool CreateNewSession(const CCoinJoinAccept& dsa, int nPeerVersion, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    bool AddUserToExistingSession(const CCoinJoinAccept& dsa, int nPeerVersion, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     /// Do we have enough users to take entries?
-    bool IsSessionReady() const;
+    bool IsSessionReady() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
 
     /// Check that all inputs are signed. (Are all inputs signed?)
     bool IsSignaturesComplete() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);

@@ -467,6 +467,9 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
 
     if (!mixingMasternode) return false;
 
+    // Evaluated before taking cs_wallet (IsPromotionDemotionActive locks cs_main)
+    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman);
+
     LOCK(m_wallet->cs_wallet);
     LOCK(cs_coinjoin);
 
@@ -489,8 +492,9 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
 
     // Make sure all inputs/outputs are valid
     PoolMessage nMessageID{MSG_NOERR};
+    CoinJoin::SessionDenomCounts denomCounts;
     if (!IsValidInOuts(active_chainstate, m_isman, mempool, finalMutableTransaction.vin, finalMutableTransaction.vout,
-                       nSessionDenom, nMessageID, nullptr, /*fFinalTx=*/true)) {
+                       nSessionDenom, nMessageID, nullptr, /*fFinalTx=*/true, &denomCounts)) {
         WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageID).translated);
         UnlockCoins();
         keyHolderStorage.ReturnAll();
@@ -545,6 +549,38 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- found my input %i\n", __func__, nMyInputIndex);
             // add a pair with an empty value
             coins[finalMutableTransaction.vin.at(nMyInputIndex).prevout];
+        }
+    }
+
+    // Post-V24: refuse to sign unless somebody else holds coins at the session denomination on
+    // whichever side we do. Only same-denomination coins conceal ours - coins at the larger
+    // adjacent denomination are told apart by amount - so a malicious masternode could
+    // otherwise pad the transaction with larger-denom coins and publish one that links our ten
+    // promotion inputs, or our ten demotion outputs, to each other in plain sight. The server
+    // never finalizes a session where a side has a lone occupant, so this never rejects an
+    // honest final transaction.
+    if (fV24Active) {
+        const CAmount nSessionAmount = CoinJoin::DenominationToAmount(nSessionDenom);
+        size_t nOwnSessionInputs{0};
+        size_t nOwnSessionOutputs{0};
+        for (const auto& entry : vecEntries) {
+            // Our own promotion inputs and standard inputs are at the session denomination; a
+            // demotion spends a single larger-denom coin, which needs no cover of its own.
+            if (entry.GetMixShape() != CoinJoin::MixShape::DEMOTION) nOwnSessionInputs += entry.vecTxDSIn.size();
+            for (const auto& txout : entry.vecTxOut) {
+                if (txout.nValue == nSessionAmount) ++nOwnSessionOutputs;
+            }
+        }
+
+        const bool fInputsCovered = nOwnSessionInputs == 0 || denomCounts.inputs > nOwnSessionInputs;
+        const bool fOutputsCovered = nOwnSessionOutputs == 0 || denomCounts.outputs > nOwnSessionOutputs;
+        if (!fInputsCovered || !fOutputsCovered) {
+            WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- no cover at the session denom (inputs %d/%d, outputs %d/%d), refusing to sign!\n",
+                             __func__, nOwnSessionInputs, denomCounts.inputs, nOwnSessionOutputs, denomCounts.outputs);
+            UnlockCoins();
+            keyHolderStorage.ReturnAll();
+            SetNull();
+            return false;
         }
     }
 
@@ -1408,7 +1444,12 @@ bool CCoinJoinClientSession::JoinExistingQueue(CAmount nBalanceNeedsAnonymized, 
 
         nSessionDenom = dsq.nDenom;
         mixingMasternode = dmn;
-        pendingDsaRequest = CPendingDsaRequest(dmn->proTxHash, CCoinJoinAccept(nSessionDenom, txMyCollateral));
+        // Declare which side of the session denomination we will occupy so the masternode can
+        // tell whether the session can still cover both sides (rebalance sessions only)
+        const uint8_t nDsaFlags = fPromotion ? CCoinJoinAccept::FLAG_PROMOTION
+                                             : fDemotion ? CCoinJoinAccept::FLAG_DEMOTION : uint8_t{0};
+        pendingDsaRequest = CPendingDsaRequest(dmn->proTxHash,
+                                               CCoinJoinAccept(nSessionDenom, txMyCollateral, nDsaFlags));
         connman.AddPendingMasternode(dmn->proTxHash);
         SetState(POOL_STATE_QUEUE);
         nTimeLastSuccessfulStep = GetTime();
@@ -1577,7 +1618,12 @@ bool CCoinJoinClientSession::StartNewQueue(CAmount nBalanceNeedsAnonymized, CCon
         nSessionDenom = nTargetDenom;
         mixingMasternode = dmn;
         connman.AddPendingMasternode(dmn->proTxHash);
-        pendingDsaRequest = CPendingDsaRequest(dmn->proTxHash, CCoinJoinAccept(nSessionDenom, txMyCollateral));
+        // This overload always starts a promotion/demotion session - declare which side of the
+        // session denomination we will occupy so the masternode can track session coverage
+        pendingDsaRequest = CPendingDsaRequest(dmn->proTxHash,
+                                               CCoinJoinAccept(nSessionDenom, txMyCollateral,
+                                                               fPromotion ? CCoinJoinAccept::FLAG_PROMOTION
+                                                                          : CCoinJoinAccept::FLAG_DEMOTION));
         SetState(POOL_STATE_QUEUE);
         nTimeLastSuccessfulStep = GetTime();
 
@@ -1613,13 +1659,30 @@ bool CCoinJoinClientSession::ProcessPendingDsaRequest(CConnman& connman)
         return false;
     }
 
-    bool fDone = connman.ForNode(mn_addr, [this, &connman](CNode* pnode) {
+    bool fMnTooOldForRebalance{false};
+    bool fDone = connman.ForNode(mn_addr, [this, &connman, &fMnTooOldForRebalance](CNode* pnode) {
+        // Post-V24: a rebalance dsa carries a version-gated flags field the masternode must
+        // understand - and the masternode must be able to host a rebalance-capable session.
+        // If it negotiated an older protocol, abort and let DoAutomaticDenominating retry
+        // with another masternode instead of silently mixing without a reserved slot.
+        if (pendingDsaRequest.GetDSA().IsRebalance() && pnode->GetCommonVersion() < COINJOIN_REBALANCE_VERSION) {
+            fMnTooOldForRebalance = true;
+            return false;
+        }
         WalletCJLogPrint(m_wallet, "-- processing dsa queue for addr=%s\n", pnode->addr.ToStringAddrPort());
         nTimeLastSuccessfulStep = GetTime();
         CNetMsgMaker msgMaker(pnode->GetCommonVersion());
         connman.PushMessage(pnode, msgMaker.Make(NetMsgType::DSACCEPT, pendingDsaRequest.GetDSA()));
         return true;
     });
+
+    if (fMnTooOldForRebalance) {
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- masternode too old for a rebalance session, masternode=%s\n",
+                         __func__, pendingDsaRequest.GetProTxHash().ToString());
+        UnlockCoins();
+        WITH_LOCK(cs_coinjoin, SetNull());
+        return false;
+    }
 
     if (fDone) {
         pendingDsaRequest = CPendingDsaRequest();

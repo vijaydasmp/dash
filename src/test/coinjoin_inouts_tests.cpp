@@ -181,13 +181,29 @@ class TestableCoinJoinServer : public CCoinJoinServer
 {
 public:
     using CCoinJoinServer::CCoinJoinServer;
+    using CCoinJoinServer::AddEntry;
 
     void EnterSigningState() { nState = POOL_STATE_SIGNING; }
+    void EnterAcceptingEntriesState() { nState = POOL_STATE_ACCEPTING_ENTRIES; }
 
     void SeedParticipant(const CService& addr) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
     {
         CCoinJoinEntry entry;
         entry.addr = addr;
+        LOCK(cs_coinjoin);
+        vecEntries.push_back(std::move(entry));
+    }
+
+    void SeedSessionCollateral(const CMutableTransaction& txCollateral, CoinJoin::MixShape shape)
+        EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
+    {
+        LOCK(cs_coinjoin);
+        m_mapDeclaredShapes.emplace(txCollateral.GetHash(), shape);
+        CommitSessionCollateral(txCollateral);
+    }
+
+    void SeedEntry(CCoinJoinEntry entry) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
+    {
         LOCK(cs_coinjoin);
         vecEntries.push_back(std::move(entry));
     }
@@ -324,6 +340,58 @@ BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
                                               &consume_collateral));
     BOOST_CHECK_EQUAL(message, ERR_DENOM);
     BOOST_CHECK(consume_collateral);
+}
+
+BOOST_AUTO_TEST_CASE(server_addentry_binds_entries_to_accepted_collaterals)
+{
+    CActiveMasternodeManager mn_activeman(*Assert(m_node.connman), *Assert(m_node.dmnman), MakeSecretKey());
+    TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
+                                  *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
+                                  *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
+                                  *Assert(m_node.llmq_ctx->isman));
+
+    auto make_collateral = [](uint8_t tag) {
+        CMutableTransaction tx;
+        tx.vin.emplace_back(COutPoint(uint256::ONE, tag));
+        tx.vout.emplace_back(COIN / 10, P2PKHScript(tag));
+        return tx;
+    };
+    // Distinct mixing inputs per entry so none of the checks below trip the duplicate-txin path.
+    auto make_entry = [](const CMutableTransaction& txCollateral, uint8_t tag) {
+        std::vector<CTxDSIn> dsins{CTxDSIn(CTxIn(COutPoint(uint256S("aa"), tag)), P2PKHScript(tag), /*nRounds=*/0)};
+        std::vector<CTxOut> outs{CTxOut(COIN / 1000 + 1, P2PKHScript(tag))};
+        return CCoinJoinEntry(dsins, outs, CTransaction(txCollateral));
+    };
+
+    const CMutableTransaction collateral_a = make_collateral(1);
+    const CMutableTransaction collateral_b = make_collateral(2);
+    const CMutableTransaction collateral_unadmitted = make_collateral(3);
+
+    server.SeedSessionCollateral(collateral_a, CoinJoin::MixShape::STANDARD);
+    server.SeedSessionCollateral(collateral_b, CoinJoin::MixShape::STANDARD);
+    server.EnterAcceptingEntriesState();
+
+    // A collateral that never went through dsa acceptance cannot submit an entry, even
+    // though the session still has free slots.
+    PoolMessage msg{MSG_NOERR};
+    BOOST_CHECK(!server.AddEntry(make_entry(collateral_unadmitted, 0x10), msg));
+    BOOST_CHECK_EQUAL(msg, ERR_SESSION);
+    BOOST_CHECK_EQUAL(server.GetEntriesCount(), 0);
+
+    // An accepted collateral covers exactly one entry: a second entry reusing the
+    // collateral of an existing entry is rejected.
+    server.SeedEntry(make_entry(collateral_a, 0x11));
+    msg = MSG_NOERR;
+    BOOST_CHECK(!server.AddEntry(make_entry(collateral_a, 0x12), msg));
+    BOOST_CHECK_EQUAL(msg, ERR_ALREADY_HAVE);
+    BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
+
+    // An accepted, unused collateral passes both checks and proceeds to collateral
+    // validation (which fails here because the fake collateral has no UTXO backing).
+    msg = MSG_NOERR;
+    BOOST_CHECK(!server.AddEntry(make_entry(collateral_b, 0x13), msg));
+    BOOST_CHECK_EQUAL(msg, ERR_INVALID_COLLATERAL);
+    BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
 }
 
 BOOST_AUTO_TEST_CASE(entry_deserializes_vectors_through_wire_cap)
@@ -831,8 +899,9 @@ BOOST_AUTO_TEST_CASE(validate_final_tx_composition)
     // 3 standard + 1 promotion + 1 demotion
     BOOST_CHECK(CoinJoin::ValidateFinalTxComposition(3 + R + 1, 3 + 1 + R, 1, 1));
 
-    // Promotion-only shape is composable (the standard-mixer minimum is enforced by the
-    // server in CheckPool/AddEntry, not by the composition check)
+    // Promotion-only shape is composable (the side-coverage invariant - each side of the
+    // session denom occupied by nobody or at least two participants - is enforced by the
+    // server in IsSessionReady/CheckPool, not by the composition check)
     BOOST_CHECK(CoinJoin::ValidateFinalTxComposition(R, 1, 0, 1));
 
     // Not enough session-denom inputs to back the promotion output
@@ -1317,77 +1386,163 @@ BOOST_AUTO_TEST_CASE(validate_demotion_entry_edge_cases)
     BOOST_CHECK_EQUAL(CoinJoin::GetSmallerAdjacentDenom(nSmallestDenom), 0);  // No smaller exists
 }
 
-BOOST_AUTO_TEST_CASE(is_standard_mixing_entry)
+// Build an entry of a given shape; only the input/output counts matter for classification
+static CCoinJoinEntry MakeEntry(size_t nInputs, size_t nOutputs)
 {
-    // Test IsStandardMixingEntry() method added for privacy protection
-
-    // Standard entry: equal inputs and outputs
-    CCoinJoinEntry standard;
-    standard.vecTxDSIn.resize(3);
-    standard.vecTxOut.resize(3);
-    BOOST_CHECK(standard.IsStandardMixingEntry());
-
-    // Promotion entry: PROMOTION_RATIO inputs, 1 output
-    CCoinJoinEntry promotion;
-    promotion.vecTxDSIn.resize(CoinJoin::PROMOTION_RATIO);  // 10 inputs
-    promotion.vecTxOut.resize(1);  // 1 output
-    BOOST_CHECK(!promotion.IsStandardMixingEntry());
-
-    // Demotion entry: 1 input, PROMOTION_RATIO outputs
-    CCoinJoinEntry demotion;
-    demotion.vecTxDSIn.resize(1);  // 1 input
-    demotion.vecTxOut.resize(CoinJoin::PROMOTION_RATIO);  // 10 outputs
-    BOOST_CHECK(!demotion.IsStandardMixingEntry());
-
-    // Edge case: empty entry
-    CCoinJoinEntry empty;
-    BOOST_CHECK(empty.IsStandardMixingEntry());  // 0 == 0, technically standard
-
-    // Edge case: 1:1 is standard
-    CCoinJoinEntry one_to_one;
-    one_to_one.vecTxDSIn.resize(1);
-    one_to_one.vecTxOut.resize(1);
-    BOOST_CHECK(one_to_one.IsStandardMixingEntry());
+    CCoinJoinEntry entry;
+    entry.vecTxDSIn.resize(nInputs);
+    entry.vecTxOut.resize(nOutputs);
+    return entry;
 }
 
-BOOST_AUTO_TEST_CASE(get_standard_entries_count)
+BOOST_AUTO_TEST_CASE(entry_mix_shape_classification)
 {
-    // Test GetStandardEntriesCount() methods for privacy threshold enforcement
-    // This is tested through CCoinJoinBaseSession which vecEntries is part of
-    // We verify the logic by testing IsStandardMixingEntry on various entry types
+    using CoinJoin::MixShape;
+    constexpr size_t R = CoinJoin::PROMOTION_RATIO;
 
-    // Mix of standard and promotion/demotion entries
-    std::vector<CCoinJoinEntry> entries;
+    // Standard entries mix at the session denomination on both sides
+    BOOST_CHECK(MakeEntry(3, 3).GetMixShape() == MixShape::STANDARD);
+    BOOST_CHECK(MakeEntry(1, 1).GetMixShape() == MixShape::STANDARD);
+    BOOST_CHECK(MakeEntry(9, 9).GetMixShape() == MixShape::STANDARD);
+    BOOST_CHECK(MakeEntry(3, 3).IsStandardMixingEntry());
 
-    // 3 standard entries
-    for (int i = 0; i < 3; ++i) {
-        CCoinJoinEntry standard;
-        standard.vecTxDSIn.resize(5);
-        standard.vecTxOut.resize(5);
-        entries.push_back(standard);
+    BOOST_CHECK(MakeEntry(R, 1).GetMixShape() == MixShape::PROMOTION);
+    BOOST_CHECK(MakeEntry(1, R).GetMixShape() == MixShape::DEMOTION);
+    BOOST_CHECK(!MakeEntry(R, 1).IsStandardMixingEntry());
+    BOOST_CHECK(!MakeEntry(1, R).IsStandardMixingEntry());
+
+    // An empty entry occupies neither side - it must not pass as a standard mixer, or it
+    // could take a participant slot while providing no cover at all
+    BOOST_CHECK(MakeEntry(0, 0).GetMixShape() == MixShape::UNKNOWN);
+    BOOST_CHECK(!MakeEntry(0, 0).IsStandardMixingEntry());
+    BOOST_CHECK(MakeEntry(R, 0).GetMixShape() == MixShape::UNKNOWN);
+    BOOST_CHECK(MakeEntry(0, R).GetMixShape() == MixShape::UNKNOWN);
+
+    // Ratios that are neither balanced nor a valid promotion/demotion
+    BOOST_CHECK(MakeEntry(9, 1).GetMixShape() == MixShape::UNKNOWN);
+    BOOST_CHECK(MakeEntry(1, 9).GetMixShape() == MixShape::UNKNOWN);
+    BOOST_CHECK(MakeEntry(R + 1, 1).GetMixShape() == MixShape::UNKNOWN);
+    BOOST_CHECK(MakeEntry(R, 2).GetMixShape() == MixShape::UNKNOWN);
+}
+
+BOOST_AUTO_TEST_CASE(mix_side_counts_invariant)
+{
+    using CoinJoin::MixShape;
+    using CoinJoin::MixSideCounts;
+
+    // Each side of the session denomination must be occupied by nobody or by at least two
+    // participants; exactly one is the only forbidden count. Standard entries occupy both
+    // sides, promotions only the input side, demotions only the output side.
+    const auto sides = [](std::initializer_list<MixShape> shapes) {
+        MixSideCounts counts;
+        for (const auto shape : shapes) counts.Add(shape);
+        return counts;
+    };
+
+    // Allowed compositions
+    BOOST_CHECK(sides({MixShape::STANDARD, MixShape::STANDARD, MixShape::STANDARD}).IsCovered());
+    BOOST_CHECK(sides({MixShape::STANDARD, MixShape::STANDARD, MixShape::PROMOTION}).IsCovered());
+    BOOST_CHECK(sides({MixShape::STANDARD, MixShape::STANDARD, MixShape::DEMOTION}).IsCovered());
+    // Rebalancers can cover each other without any 1:1 mixer present
+    BOOST_CHECK(sides({MixShape::PROMOTION, MixShape::PROMOTION}).IsCovered());
+    BOOST_CHECK(sides({MixShape::DEMOTION, MixShape::DEMOTION}).IsCovered());
+    BOOST_CHECK(sides({MixShape::PROMOTION, MixShape::PROMOTION, MixShape::DEMOTION, MixShape::DEMOTION}).IsCovered());
+    // An empty session is trivially covered
+    BOOST_CHECK(sides({}).IsCovered());
+
+    // Forbidden: the lone promoter is the only participant with session-denom inputs, so its
+    // ten inputs would be identifiable as a group on-chain
+    BOOST_CHECK(!sides({MixShape::PROMOTION}).IsCovered());
+    BOOST_CHECK(!sides({MixShape::PROMOTION, MixShape::DEMOTION, MixShape::DEMOTION}).IsCovered());
+    // Mirror image: the lone demoter is the only one receiving session-denom outputs
+    BOOST_CHECK(!sides({MixShape::DEMOTION}).IsCovered());
+    BOOST_CHECK(!sides({MixShape::DEMOTION, MixShape::PROMOTION, MixShape::PROMOTION}).IsCovered());
+    // A single standard mixer alone is uncovered on both sides
+    BOOST_CHECK(!sides({MixShape::STANDARD}).IsCovered());
+    // One standard mixer plus one promoter leaves the output side with a lone occupant
+    BOOST_CHECK(!sides({MixShape::STANDARD, MixShape::PROMOTION}).IsCovered());
+
+    // Entries that occupy no side never count toward coverage
+    const auto unknown_only = sides({MixShape::UNKNOWN, MixShape::UNKNOWN});
+    BOOST_CHECK_EQUAL(unknown_only.inputs, 0);
+    BOOST_CHECK_EQUAL(unknown_only.outputs, 0);
+}
+
+BOOST_AUTO_TEST_CASE(dsa_rebalance_flag_version_gated_serialization)
+{
+    // The dsa flags field is only serialized between peers at or above
+    // COINJOIN_REBALANCE_VERSION; the wire format for older peers must be unchanged
+    CMutableTransaction txCollateral;
+    txCollateral.vin.emplace_back(COutPoint(uint256::ONE, 0));
+    txCollateral.vout.emplace_back(CoinJoin::GetCollateralAmount(), P2PKHScript(0x01));
+
+    const CCoinJoinAccept dsaPlain(1 << 2, txCollateral);
+    const CCoinJoinAccept dsaPromotion(1 << 2, txCollateral, CCoinJoinAccept::FLAG_PROMOTION);
+    const CCoinJoinAccept dsaDemotion(1 << 2, txCollateral, CCoinJoinAccept::FLAG_DEMOTION);
+
+    BOOST_CHECK(!dsaPlain.IsRebalance());
+    BOOST_CHECK(dsaPromotion.IsPromotion() && !dsaPromotion.IsDemotion() && dsaPromotion.IsRebalance());
+    BOOST_CHECK(dsaDemotion.IsDemotion() && !dsaDemotion.IsPromotion() && dsaDemotion.IsRebalance());
+
+    // A participant mixes in exactly one direction
+    BOOST_CHECK(dsaPlain.HasValidFlags());
+    BOOST_CHECK(dsaPromotion.HasValidFlags());
+    BOOST_CHECK(dsaDemotion.HasValidFlags());
+    const CCoinJoinAccept dsaBoth(1 << 2, txCollateral,
+                                  CCoinJoinAccept::FLAG_PROMOTION | CCoinJoinAccept::FLAG_DEMOTION);
+    BOOST_CHECK(!dsaBoth.HasValidFlags());
+
+    // Old-version stream: the flags are silently dropped and the encoding matches a
+    // flag-less dsa byte for byte
+    {
+        CDataStream ssPlain(SER_NETWORK, COINJOIN_REBALANCE_VERSION - 1);
+        ssPlain << dsaPlain;
+        CDataStream ssRebalance(SER_NETWORK, COINJOIN_REBALANCE_VERSION - 1);
+        ssRebalance << dsaPromotion;
+        BOOST_CHECK(std::equal(ssPlain.begin(), ssPlain.end(), ssRebalance.begin(), ssRebalance.end()));
+
+        CCoinJoinAccept dsaDecoded;
+        ssRebalance >> dsaDecoded;
+        BOOST_CHECK_EQUAL(dsaDecoded.nDenom, dsaPromotion.nDenom);
+        BOOST_CHECK(!dsaDecoded.IsRebalance());
     }
 
-    // 1 promotion entry
-    CCoinJoinEntry promotion;
-    promotion.vecTxDSIn.resize(CoinJoin::PROMOTION_RATIO);
-    promotion.vecTxOut.resize(1);
-    entries.push_back(promotion);
+    // New-version stream: each direction round-trips distinctly
+    for (const auto& dsa : {dsaPromotion, dsaDemotion}) {
+        CDataStream ss(SER_NETWORK, COINJOIN_REBALANCE_VERSION);
+        ss << dsa;
+        CCoinJoinAccept dsaDecoded;
+        ss >> dsaDecoded;
+        BOOST_CHECK_EQUAL(dsaDecoded.nDenom, dsa.nDenom);
+        BOOST_CHECK_EQUAL(dsaDecoded.IsPromotion(), dsa.IsPromotion());
+        BOOST_CHECK_EQUAL(dsaDecoded.IsDemotion(), dsa.IsDemotion());
+    }
 
-    // 1 demotion entry
-    CCoinJoinEntry demotion;
-    demotion.vecTxDSIn.resize(1);
-    demotion.vecTxOut.resize(CoinJoin::PROMOTION_RATIO);
-    entries.push_back(demotion);
+    // New-version encoding is exactly one byte longer than the legacy encoding
+    {
+        CDataStream ssOld(SER_NETWORK, COINJOIN_REBALANCE_VERSION - 1);
+        ssOld << dsaPlain;
+        CDataStream ssNew(SER_NETWORK, COINJOIN_REBALANCE_VERSION);
+        ssNew << dsaPlain;
+        BOOST_CHECK_EQUAL(ssNew.size(), ssOld.size() + 1);
+    }
+}
 
-    // Count standard entries manually (what GetStandardEntriesCount should return)
-    int standard_count = std::count_if(entries.begin(), entries.end(),
-        [](const CCoinJoinEntry& e) { return e.IsStandardMixingEntry(); });
+BOOST_AUTO_TEST_CASE(honest_session_always_covers_both_sides)
+{
+    using CoinJoin::MixShape;
+    using CoinJoin::MixSideCounts;
 
-    BOOST_CHECK_EQUAL(standard_count, 3);  // Only 3 standard, not 5 total
-    BOOST_CHECK_EQUAL(entries.size(), 5);  // Total is 5
+    // Whatever mix of rebalancers joins, a session holding the minimum number of 1:1 mixers
+    // covers both sides, so the invariant never rejects an ordinary session
+    const int nMin = CoinJoin::GetMinPoolParticipants();
+    BOOST_CHECK(nMin >= 2);
 
-    // Verify promotion and demotion are NOT counted
-    BOOST_CHECK(!promotion.IsStandardMixingEntry());
-    BOOST_CHECK(!demotion.IsStandardMixingEntry());
+    for (int nPromoters = 0; nPromoters <= CoinJoin::GetMaxPoolParticipants() - nMin; ++nPromoters) {
+        MixSideCounts counts;
+        for (int i = 0; i < nMin; ++i) counts.Add(MixShape::STANDARD);
+        for (int i = 0; i < nPromoters; ++i) counts.Add(MixShape::PROMOTION);
+        BOOST_CHECK(counts.IsCovered());
+    }
 }
 BOOST_AUTO_TEST_SUITE_END()

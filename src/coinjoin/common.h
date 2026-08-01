@@ -11,6 +11,7 @@
 #include <primitives/transaction.h>
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 /** Holds a mixing input
@@ -118,6 +119,58 @@ constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
 // Promotion/demotion constants (post-V24 feature)
 constexpr int PROMOTION_RATIO = 10;   // 10 smaller denomination coins = 1 larger denomination coin
 constexpr int GAP_THRESHOLD = 10;     // Deficit gap required to trigger promotion/demotion
+
+/**
+ * Which side(s) of the session denomination a participant occupies. A standard entry mixes at
+ * the session denomination on both sides. A promotion spends PROMOTION_RATIO session-denom
+ * inputs for one larger-denom output, so it only occupies the input side; a demotion is the
+ * mirror image. UNKNOWN is for empty or malformed entries, which occupy neither.
+ */
+enum class MixShape : uint8_t { UNKNOWN, STANDARD, PROMOTION, DEMOTION };
+
+/**
+ * How many participants occupy each side of the session denomination.
+ *
+ * Mixing only conceals a participant when someone else holds coins of the same size on the
+ * same side: a group of session-denom coins is hidden by the other session-denom coins it
+ * could be confused with. A participant holding a single coin at the larger denomination has
+ * no group to hide, which is why only the session denomination is counted here.
+ */
+struct MixSideCounts {
+    int inputs{0};  //!< participants contributing session-denom inputs (standard + promotions)
+    int outputs{0}; //!< participants receiving session-denom outputs (standard + demotions)
+
+    constexpr void Add(MixShape shape)
+    {
+        switch (shape) {
+        case MixShape::STANDARD:
+            ++inputs;
+            ++outputs;
+            break;
+        case MixShape::PROMOTION:
+            ++inputs;
+            break;
+        case MixShape::DEMOTION:
+            ++outputs;
+            break;
+        case MixShape::UNKNOWN:
+            break;
+        }
+    }
+
+    /**
+     * Each side must be occupied by nobody or by at least two participants. Exactly one is the
+     * only forbidden count: that participant's session-denom coins would be the only ones of
+     * their size on that side and so would be trivially identifiable on-chain.
+     */
+    [[nodiscard]] constexpr bool IsCovered() const { return inputs != 1 && outputs != 1; }
+};
+
+/// How many coins of a final transaction sit at the session denomination on each side
+struct SessionDenomCounts {
+    size_t inputs{0};
+    size_t outputs{0};
+};
 
 /**
  * Check if two denominations are adjacent (one step apart in the denom list)

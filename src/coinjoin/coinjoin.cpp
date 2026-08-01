@@ -250,7 +250,8 @@ bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman)
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                                          const CTxMemPool& mempool, const std::vector<CTxIn>& vin,
                                          const std::vector<CTxOut>& vout, int session_denom, PoolMessage& nMessageIDRet,
-                                         bool* fConsumeCollateralRet, bool fFinalTx)
+                                         bool* fConsumeCollateralRet, bool fFinalTx,
+                                         CoinJoin::SessionDenomCounts* pDenomCountsRet)
 {
     std::set<CScript> setScripPubKeys;
     nMessageIDRet = MSG_NOERR;
@@ -404,6 +405,11 @@ bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const ll
                  __func__, vin.size(), vout.size(), nLargerInputs, nLargerOutputs);
         nMessageIDRet = ERR_SIZE_MISMATCH;
         return false;
+    }
+
+    if (pDenomCountsRet) {
+        pDenomCountsRet->inputs = vin.size() - nLargerInputs;
+        pDenomCountsRet->outputs = vout.size() - nLargerOutputs;
     }
 
     LogPrint(BCLog::COINJOIN, "CCoinJoinBaseSession::%s -- Valid %s entry: %d inputs, %d outputs\n",

@@ -139,23 +139,43 @@ public:
 class CCoinJoinAccept
 {
 public:
+    //! dsa flags (post-V24): which kind of rebalance entry this participant intends to submit.
+    //! The direction matters to the masternode because a promotion only ever adds coins at the
+    //! session denomination to the input side and a demotion only to the output side, and each
+    //! side needs either nobody or at least two participants (see CoinJoin::MixSideCounts).
+    static constexpr uint8_t FLAG_PROMOTION{1 << 0};
+    static constexpr uint8_t FLAG_DEMOTION{1 << 1};
+
     int nDenom{0};
     CMutableTransaction txCollateral;
+    //! Only serialized between peers at or above COINJOIN_REBALANCE_VERSION; old peers
+    //! neither send nor receive it, so their wire format is unchanged
+    uint8_t nFlags{0};
 
     CCoinJoinAccept() = default;
 
-    CCoinJoinAccept(int nDenom, CMutableTransaction txCollateral) :
+    CCoinJoinAccept(int nDenom, CMutableTransaction txCollateral, uint8_t nFlags = 0) :
         nDenom(nDenom),
-        txCollateral(std::move(txCollateral)){};
+        txCollateral(std::move(txCollateral)),
+        nFlags(nFlags){};
 
     SERIALIZE_METHODS(CCoinJoinAccept, obj)
     {
         READWRITE(obj.nDenom, obj.txCollateral);
+        if (s.GetVersion() >= COINJOIN_REBALANCE_VERSION) {
+            READWRITE(obj.nFlags);
+        }
     }
+
+    [[nodiscard]] bool IsPromotion() const { return (nFlags & FLAG_PROMOTION) != 0; }
+    [[nodiscard]] bool IsDemotion() const { return (nFlags & FLAG_DEMOTION) != 0; }
+    [[nodiscard]] bool IsRebalance() const { return IsPromotion() || IsDemotion(); }
+    //! A participant mixes in exactly one direction; anything else is malformed
+    [[nodiscard]] bool HasValidFlags() const { return !(IsPromotion() && IsDemotion()); }
 
     friend bool operator==(const CCoinJoinAccept& a, const CCoinJoinAccept& b)
     {
-        return a.nDenom == b.nDenom && CTransaction(a.txCollateral) == CTransaction(b.txCollateral);
+        return a.nDenom == b.nDenom && a.nFlags == b.nFlags && CTransaction(a.txCollateral) == CTransaction(b.txCollateral);
     }
 };
 
@@ -204,14 +224,20 @@ public:
 
     bool AddScriptSig(const CTxIn& txin);
 
-    // Check if this is a standard mixing entry (not promotion/demotion)
-    // Standard: equal number of inputs and outputs
-    // Promotion: PROMOTION_RATIO inputs, 1 output
-    // Demotion: 1 input, PROMOTION_RATIO outputs
-    bool IsStandardMixingEntry() const
+    /// Which side(s) of the session denomination this entry occupies, derived from its shape.
+    /// Empty and malformed entries are UNKNOWN; they occupy neither side and are rejected
+    /// before they reach the pool.
+    [[nodiscard]] CoinJoin::MixShape GetMixShape() const
     {
-        return vecTxDSIn.size() == vecTxOut.size();
+        using CoinJoin::MixShape;
+        if (vecTxDSIn.empty() || vecTxOut.empty()) return MixShape::UNKNOWN;
+        if (vecTxDSIn.size() == vecTxOut.size()) return MixShape::STANDARD;
+        if (vecTxDSIn.size() == size_t(CoinJoin::PROMOTION_RATIO) && vecTxOut.size() == 1) return MixShape::PROMOTION;
+        if (vecTxDSIn.size() == 1 && vecTxOut.size() == size_t(CoinJoin::PROMOTION_RATIO)) return MixShape::DEMOTION;
+        return MixShape::UNKNOWN;
     }
+
+    [[nodiscard]] bool IsStandardMixingEntry() const { return GetMixShape() == CoinJoin::MixShape::STANDARD; }
 };
 
 
@@ -364,7 +390,7 @@ protected:
     static bool IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                               const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout,
                               int session_denom, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet,
-                              bool fFinalTx = false);
+                              bool fFinalTx = false, CoinJoin::SessionDenomCounts* pDenomCountsRet = nullptr);
 
 public:
     // Atomic because the message-handling and scheduler threads write it while those threads and
@@ -380,18 +406,15 @@ public:
     int GetEntriesCount() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin) { LOCK(cs_coinjoin); return vecEntries.size(); }
     int GetEntriesCountLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin) { return vecEntries.size(); }
 
-    // Count only standard mixing entries (not promotion/demotion) for privacy threshold
-    int GetStandardEntriesCount() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
+    /// Participants occupying each side of the session denomination among the entries received
+    CoinJoin::MixSideCounts GetMixSideCounts() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
     {
         LOCK(cs_coinjoin);
-        return std::count_if(vecEntries.begin(), vecEntries.end(),
-                             [](const CCoinJoinEntry& entry) { return entry.IsStandardMixingEntry(); });
-    }
-
-    int GetStandardEntriesCountLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin)
-    {
-        return std::count_if(vecEntries.begin(), vecEntries.end(),
-                             [](const CCoinJoinEntry& entry) { return entry.IsStandardMixingEntry(); });
+        CoinJoin::MixSideCounts counts;
+        for (const auto& entry : vecEntries) {
+            counts.Add(entry.GetMixShape());
+        }
+        return counts;
     }
 };
 
