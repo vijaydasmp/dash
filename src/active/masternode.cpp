@@ -178,8 +178,19 @@ void CActiveMasternodeManager::UpdatedBlockTip(const CBlockIndex* pindexNew, con
 
     const auto [cur_state, cur_protx_hash] = WITH_READ_LOCK(cs, return std::make_pair(m_state, m_protx_hash));
     if (cur_state == MasternodeState::READY) {
-        auto oldMNList = m_dmnman.GetListForBlock(pindexNew->pprev);
-        auto newMNList = m_dmnman.GetListForBlock(pindexNew);
+        CDeterministicMNList oldMNList;
+        CDeterministicMNList newMNList;
+        try {
+            oldMNList = m_dmnman.GetListForBlock(pindexNew->pprev);
+            newMNList = m_dmnman.GetListForBlock(pindexNew);
+        } catch (const std::exception& e) {
+            // GetListForBlock throws when list data is unavailable. This
+            // callback runs on the scheduler thread, where an uncaught
+            // exception terminates the node; skip this tip update instead and
+            // let the next one retry.
+            LogPrintf("CActiveMasternodeManager::%s -- masternode list unavailable: %s\n", __func__, e.what());
+            return;
+        }
         auto reset = [this, pindexNew](MasternodeState state) -> void {
             LOCK(cs);
             m_state = state;

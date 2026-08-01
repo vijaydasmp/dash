@@ -138,7 +138,16 @@ std::optional<const CGovernanceObject> GovernanceSigner::CreateGovernanceTrigger
 
     // Nobody submitted a trigger we'd like to see, so let's do it but only if we are the payee
     const CBlockIndex* tip = m_chainman.ActiveChain().Tip();
-    const auto mnList = m_dmnman.GetListForBlock(tip);
+    CDeterministicMNList mnList;
+    try {
+        mnList = m_dmnman.GetListForBlock(tip);
+    } catch (const std::exception& e) {
+        // GetListForBlock throws when list data is unavailable. This runs on
+        // the scheduler thread, where an uncaught exception terminates the
+        // node; skip this trigger attempt instead.
+        LogPrint(BCLog::GOBJECT, "%s -- masternode list unavailable: %s\n", __func__, e.what());
+        return std::nullopt;
+    }
     const auto mn_payees = mnList.GetProjectedMNPayees(tip);
 
     if (mn_payees.empty()) {
