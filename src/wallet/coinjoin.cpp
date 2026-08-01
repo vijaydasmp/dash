@@ -331,9 +331,24 @@ int CWallet::GetRealOutpointCoinJoinRounds(const COutPoint& outpoint, int nRound
 
     int nShortest = -10; // an initial value, should be no way to get this by calculations
     bool fDenomFound = false;
+    const int nOutputDenom = CoinJoin::AmountToDenomination(txOutRef->nValue);
     // only denoms here so let's look up
     for (const auto& txinNext : wtx->tx->vin) {
         if (InputIsMine(*this, txinNext)) {
+            // Post-V24: if our own inputs to this mixing tx are at a different denomination,
+            // this output was created by a promotion/demotion. The conversion's 10:1 shape
+            // publicly clusters the participant's coins, so the new coin starts mixing over
+            // instead of inheriting its inputs' rounds. Deciding on the first mismatch is
+            // safe because a wallet contributes at most one entry per mixing transaction
+            // (concurrent sessions never share a masternode), so all of its inputs in one
+            // tx share a single denomination.
+            const CWalletTx* wtxPrev{GetWalletTx(txinNext.prevout.hash)};
+            if (wtxPrev != nullptr && txinNext.prevout.n < wtxPrev->tx->vout.size() &&
+                CoinJoin::AmountToDenomination(wtxPrev->tx->vout[txinNext.prevout.n].nValue) != nOutputDenom) {
+                *nRoundsRef = 0;
+                WalletCJLogPrint(this, "%s UPDATED   %-70s %3d (rebalance output)\n", __func__, outpoint.ToStringShort(), *nRoundsRef);
+                return *nRoundsRef;
+            }
             int n = GetRealOutpointCoinJoinRounds(txinNext.prevout, nRounds + 1);
             // denom found, find the shortest chain or initially assign nShortest with the first found value
             if (n >= 0 && (n < nShortest || nShortest == -10)) {

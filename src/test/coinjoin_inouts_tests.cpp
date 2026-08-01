@@ -1133,9 +1133,9 @@ BOOST_AUTO_TEST_CASE(isvalidstructure_boundary_input_counts)
 
 namespace {
 
-// Adapters over the live decision functions; the promote adapter treats every
-// coin as fully mixed so the count-based cases below isolate the deficit logic
-// (the fully-mixed gate has its own test)
+// Adapters over the live decision functions; both adapters treat every coin as
+// fully mixed so the count-based cases below isolate the deficit logic
+// (the fully-mixed gates have their own tests)
 bool TestShouldPromote(int smallerCount, int largerCount, int goal)
 {
     return CoinJoin::ShouldPromoteDenoms(smallerCount, largerCount, /*nSmallerFullyMixedCount=*/smallerCount, goal);
@@ -1143,7 +1143,7 @@ bool TestShouldPromote(int smallerCount, int largerCount, int goal)
 
 bool TestShouldDemote(int largerCount, int smallerCount, int goal)
 {
-    return CoinJoin::ShouldDemoteDenoms(largerCount, smallerCount, goal);
+    return CoinJoin::ShouldDemoteDenoms(largerCount, smallerCount, /*nLargerFullyMixedCount=*/largerCount, goal);
 }
 
 } // anonymous namespace
@@ -1155,6 +1155,14 @@ BOOST_AUTO_TEST_CASE(should_promote_requires_fully_mixed_coins)
     BOOST_CHECK(CoinJoin::ShouldPromoteDenoms(100, 0, CoinJoin::PROMOTION_RATIO, 100));
     BOOST_CHECK(!CoinJoin::ShouldPromoteDenoms(100, 0, CoinJoin::PROMOTION_RATIO - 1, 100));
     BOOST_CHECK(!CoinJoin::ShouldPromoteDenoms(100, 0, 0, 100));
+}
+
+BOOST_AUTO_TEST_CASE(should_demote_requires_fully_mixed_coin)
+{
+    // Deficit logic says demote (100 larger vs 0 smaller), but without a fully-mixed
+    // coin of the larger denomination the demotion must be blocked
+    BOOST_CHECK(CoinJoin::ShouldDemoteDenoms(100, 0, /*nLargerFullyMixedCount=*/1, 100));
+    BOOST_CHECK(!CoinJoin::ShouldDemoteDenoms(100, 0, /*nLargerFullyMixedCount=*/0, 100));
 }
 
 BOOST_AUTO_TEST_CASE(should_promote_larger_deficit_greater)

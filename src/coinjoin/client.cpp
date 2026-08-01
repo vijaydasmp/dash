@@ -1333,16 +1333,16 @@ bool CCoinJoinClientSession::SelectRebalanceInputs(int nTargetDenom, bool fPromo
             return false;
         }
     } else {
-        // Demotion: select 1 coin of the larger adjacent denomination. Prefer fully-mixed
-        // coins, falling back to ready-to-mix - unlike promotion inputs, demotion outputs
-        // keep mixing afterwards, so spending a not-yet-mixed input is acceptable.
+        // Demotion: select 1 fully-mixed coin of the larger adjacent denomination. Like
+        // promotion inputs, the coin's history must already be protected: the demotion's
+        // 1:10 shape publicly clusters its outputs, which therefore start mixing over
+        // (see GetRealOutpointCoinJoinRounds), and only a fully-mixed input is worth that.
         const int nLargerDenom = CoinJoin::GetLargerAdjacentDenom(nTargetDenom);
         if (nLargerDenom == 0) {
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- No larger adjacent denom for demotion\n", __func__);
             return false;
         }
-        if (!m_wallet->SelectTxDSInsByDenomination(nLargerDenom, CoinJoin::DenominationToAmount(nLargerDenom), vecTxDSInRet, CoinType::ONLY_FULLY_MIXED) &&
-            !m_wallet->SelectTxDSInsByDenomination(nLargerDenom, CoinJoin::DenominationToAmount(nLargerDenom), vecTxDSInRet, CoinType::ONLY_READY_TO_MIX)) {
+        if (!m_wallet->SelectTxDSInsByDenomination(nLargerDenom, CoinJoin::DenominationToAmount(nLargerDenom), vecTxDSInRet, CoinType::ONLY_FULLY_MIXED)) {
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- Couldn't find coin for demotion\n", __func__);
             return false;
         }
@@ -2519,6 +2519,6 @@ bool CCoinJoinClientManager::ShouldDemote(int nLargerDenom, int nSmallerDenom, c
     const int idxSmaller = CoinJoin::GetDenominationIndex(nSmallerDenom);
 
     return CoinJoin::ShouldDemoteDenoms(counts.total[idxLarger], counts.total[idxSmaller],
-                                        CCoinJoinClientOptions::GetDenomsGoal());
+                                        counts.fully_mixed[idxLarger], CCoinJoinClientOptions::GetDenomsGoal());
 }
 

@@ -225,12 +225,16 @@ constexpr bool ShouldPromoteDenoms(int nSmallerCount, int nLargerCount, int nSma
 /**
  * Core demotion decision (post-V24): split one coin of the larger denomination into
  * PROMOTION_RATIO coins of the smaller adjacent denomination when the smaller denomination
- * is further from the per-denom goal by more than GAP_THRESHOLD.
+ * is further from the per-denom goal by more than GAP_THRESHOLD. Like promotion, demotion
+ * only spends a fully-mixed coin: the conversion's public 1:10 shape clusters its outputs,
+ * which start mixing over, so only an input with a protected history is worth converting.
  */
-constexpr bool ShouldDemoteDenoms(int nLargerCount, int nSmallerCount, int nGoal)
+constexpr bool ShouldDemoteDenoms(int nLargerCount, int nSmallerCount, int nLargerFullyMixedCount, int nGoal)
 {
     // Don't sacrifice a denomination that's still being built up
     if (nLargerCount < nGoal / 2) return false;
+    // A demotion consumes one fully-mixed coin
+    if (nLargerFullyMixedCount < 1) return false;
     const int nSmallerDeficit = nSmallerCount < nGoal ? nGoal - nSmallerCount : 0;
     const int nLargerDeficit = nLargerCount < nGoal ? nGoal - nLargerCount : 0;
     return nSmallerDeficit > nLargerDeficit + GAP_THRESHOLD;

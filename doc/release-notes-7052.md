@@ -33,3 +33,10 @@ Wallet
   next larger denomination, while demotion splits 1 input into 10
   outputs of the next smaller denomination. Pre-V24 behavior remains
   unchanged. (#7052)
+
+- Conversions only spend fully-mixed coins, and their outputs start
+  mixing over from zero rounds. The 10:1 shape of a conversion publicly
+  clusters one participant's coins even inside a mixing transaction, so
+  a converted coin is not treated as mixed: it re-enters mixing at its
+  new denomination and disperses normally, while the histories of the
+  fully-mixed coins that fed the conversion remain protected. (#7052)
