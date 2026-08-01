@@ -31,6 +31,11 @@ protected:
     size_type nPruneAfterSize;
 
 public:
+    //! nMaxSizeIn is the number of elements retained after a prune. nPruneAfterSizeIn is the size
+    //! the map may grow to before the next insertion prunes it; it defaults to nMaxSizeIn, which
+    //! means prune() -- and therefore a sort of every element -- runs on *every* insertion past
+    //! nMaxSizeIn. Callers whose keys are attacker-supplied should pass a larger value (e.g.
+    //! 2 * nMaxSizeIn) so that sorting is amortised over a batch of evictions instead.
     explicit unordered_limitedmap(size_type nMaxSizeIn, size_type nPruneAfterSizeIn = 0)
     {
         assert(nMaxSizeIn > 0);
@@ -68,7 +73,11 @@ public:
             return;
         itTarget->second = v;
     }
+    //! Number of elements retained after a prune.
     size_type max_size() const { return nMaxSize; }
+    //! Size the map is allowed to grow to before a prune is triggered. Always >= max_size();
+    //! when larger, the map temporarily holds more than max_size() elements between prunes.
+    size_type prune_after_size() const { return nPruneAfterSize; }
     size_type max_size(size_type nMaxSizeIn, size_type nPruneAfterSizeIn = 0)
     {
         assert(nMaxSizeIn > 0);
