@@ -515,22 +515,13 @@ BOOST_AUTO_TEST_CASE(bls_verify_contribution_share_null_vvec_tests)
     FuncVerifyContributionShareNullVvec(false);
 }
 
-// Regression: an empty verification-vector set must not break the
-// promise held by AsyncVerifyContributionShares.
-//
-// Pre-fix reproduction (unpatched tree, 2026-07-25):
-//   ./src/test/test_dash --run_test=bls_tests/v022_empty_vvecs_repro
-// with a temporary test that called VerifyContributionShares(validId, {}, {})
-// threw:
-//   std::future_error: "The associated promise has been destructed prior to the
-//   associated state becoming ready." (std::future_errc::broken_promise)
-// In production that exception is thrown from VerifyPendingContributions on the
-// DKG phase-handler thread (NetDKG::PhaseHandlerThread only catches
-// AbortPhaseException), so util::TraceThread rethrows and std::terminate aborts
-// dashd. Sibling helpers AsyncBuildQuorumVerificationVector / AsyncAggregateHelper
-// already short-circuit empty input; this path did not.
-//
-// Post-fix contract: return an empty result vector (no throw).
+// Regression: an empty verification-vector set schedules no work at all, so
+// before the guard nothing ever invoked doneCallback and .get() threw
+// std::future_error(broken_promise). In production that throw escapes
+// VerifyPendingContributions on the DKG phase-handler thread, which only catches
+// AbortPhaseException, and std::terminate aborts dashd.
+// Contract: return an empty result vector, on both the aggregated and the
+// one-by-one path.
 void FuncVerifyContributionSharesEmptyVvecs(const bool legacy_scheme)
 {
     bls::bls_legacy_scheme.store(legacy_scheme);
@@ -548,8 +539,6 @@ void FuncVerifyContributionSharesEmptyVvecs(const bool legacy_scheme)
     const auto result = worker.VerifyContributionShares(id, vvecs, skShares);
     BOOST_CHECK(result.empty());
 
-    // Same for the non-aggregated path (batchCount default is 1 and would also
-    // schedule zero per-entry work without the empty-input guard).
     const auto result_no_agg = worker.VerifyContributionShares(id, vvecs, skShares,
                                                                /*parallel=*/true,
                                                                /*aggregated=*/false);
@@ -564,24 +553,22 @@ BOOST_AUTO_TEST_CASE(bls_verify_contribution_shares_empty_vvecs_tests)
     FuncVerifyContributionSharesEmptyVvecs(false);
 }
 
-// Positive control accompanying the empty-input guard: the guard must not
-// change which contributions are ACCEPTED. Accepting an invalid share would
-// corrupt the recovered quorum key; rejecting an honest one would stall DKG.
-// Until now this property was only covered by src/bench/bls_dkg.cpp, which does
-// not run under `make check`, so a regression here was invisible to CI.
+// Positive control for the empty-input guard: it must not change which
+// contributions are accepted. Accepting an invalid share would corrupt the
+// recovered quorum key; rejecting an honest one would stall DKG. This property
+// was previously only covered by src/bench/bls_dkg.cpp, which does not run under
+// `make check`.
 //
-// QUORUM_SIZE is deliberately larger than ContributionVerifier's batch size of 8
-// so that the aggregated path builds more than one batch. Corrupting a share in
-// the first batch only must therefore (a) fail batch verification for that batch
-// and fall back to per-contribution verification, (b) identify exactly the
-// corrupted index, and (c) leave the untouched second batch accepted wholesale.
-// That is the property batch verification could silently break: an invalid share
-// must never be masked by the valid shares it is aggregated with.
+// QUORUM_SIZE exceeds CONTRIBUTION_VERIFY_BATCH_SIZE so the aggregated path
+// builds more than one batch. Corrupting a share in the first batch must then
+// fail that batch, fall back to per-contribution verification, blame exactly the
+// corrupted index, and leave the second batch accepted wholesale - an invalid
+// share must never be masked by the valid shares it is aggregated with.
 void FuncVerifyContributionSharesHonest(const bool legacy_scheme)
 {
     bls::bls_legacy_scheme.store(legacy_scheme);
 
-    constexpr size_t QUORUM_SIZE{10}; // > batch size 8, so aggregation uses 2 batches
+    constexpr size_t QUORUM_SIZE{CBLSWorker::CONTRIBUTION_VERIFY_BATCH_SIZE + 2};
     constexpr int THRESHOLD{6};
 
     CBLSWorker worker;
@@ -625,19 +612,23 @@ void FuncVerifyContributionSharesHonest(const bool legacy_scheme)
         }
     }
 
-    // 2. Corrupt one share in the first batch. Batch verification of that batch
-    //    must fail and fall back to per-contribution verification, which must
-    //    blame exactly that index and nobody else. The second batch stays valid.
-    constexpr size_t kBadIdx{3};
+    // 2. Corrupt one share and expect exactly that index to be blamed, nobody else.
+    //    With aggregated=true the corrupted index sits in the first batch, so that
+    //    batch must fail and fall back to per-contribution verification while the
+    //    second batch stays accepted wholesale. With aggregated=false there is a
+    //    single batch verified one-by-one, so only the blame-exactness holds.
+    constexpr size_t BAD_IDX{3};
+    static_assert(BAD_IDX < CBLSWorker::CONTRIBUTION_VERIFY_BATCH_SIZE,
+                  "corrupted index must land in the first batch");
     auto corrupted = skContributions;
-    corrupted[kBadIdx].MakeNewKey(); // valid key, wrong value -> pk mismatch
+    corrupted[BAD_IDX].MakeNewKey(); // valid key, wrong value -> pk mismatch
 
     for (const bool aggregated : {true, false}) {
         const auto result = worker.VerifyContributionShares(myId, vvecs, corrupted,
                                                             /*parallel=*/true, aggregated);
         BOOST_REQUIRE_EQUAL(result.size(), QUORUM_SIZE);
         for (const size_t i : util::irange(QUORUM_SIZE)) {
-            const bool expected = (i != kBadIdx);
+            const bool expected{i != BAD_IDX};
             BOOST_CHECK_MESSAGE(result[i] == expected,
                                 "index " << i << " expected " << expected << " got " << result[i]
                                          << " (aggregated=" << aggregated << ")");
