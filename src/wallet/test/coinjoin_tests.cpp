@@ -21,6 +21,7 @@
 #include <validation.h>
 #include <txmempool.h>
 #include <wallet/context.h>
+#include <wallet/db.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
@@ -392,6 +393,82 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_reload_tests, CTransactionB
         cj_man.CheckPendingObservations(*m_node.mempool);
         BOOST_CHECK(!cj_man.IsPendingObservation(outpointPending));
         BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+    }));
+    SetMockTime(0);
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_unreadable_tests, CTransactionBuilderTestSetup)
+{
+    // 0.100001 DASH, a valid CoinJoin denomination
+    constexpr CAmount nDenomAmount{10000100};
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount, nDenomAmount});
+    const COutPoint outpointPersisted = tallyItem.outpoints[0];
+    const COutPoint outpointInMemory = tallyItem.outpoints[1];
+
+    const int64_t nStart{GetTime()};
+    SetMockTime(nStart);
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        cj_man.AddPendingObservation({outpointPersisted});
+    }));
+    BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPersisted)));
+
+    // Corrupt the record behind the manager's back: it exists but cannot be deserialized
+    // into the pending map anymore. This must not read as "nothing was ever pending", the
+    // locks it tracks would be left with nothing to ever release them.
+    BOOST_REQUIRE(wallet->GetDatabase().MakeBatch()->Write(std::string(DBKeys::COINJOIN_PENDING_OBS),
+                                                           std::string("not a pending observation map")));
+
+    // A fresh manager for the same wallet, the way a restart would build one
+    m_node.cj_walletman->removeWallet(wallet->GetName());
+    m_node.cj_walletman->addWallet(wallet);
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        // The read fails, so nothing is loaded and the persisted lock is left in place
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPersisted)));
+
+        // Adding a new observation while the record is unreadable must not overwrite it,
+        // that would orphan the locks it still tracks for good. The new entry is kept in
+        // memory (and its coin locked) but deliberately not persisted.
+        cj_man.AddPendingObservation({outpointInMemory});
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointInMemory));
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointInMemory)));
+        {
+            std::map<COutPoint, int64_t> persisted;
+            WalletBatch batch(wallet->GetDatabase());
+            BOOST_CHECK(!batch.ReadCoinJoinPendingObs(persisted));
+            BOOST_CHECK(persisted.empty());
+        }
+
+        // Same for the release path: a pass which changes the pending set must not write
+        // the record out either while its contents are still unknown
+        WITH_LOCK(wallet->cs_wallet, wallet->UnlockCoin(outpointInMemory));
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointInMemory));
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPersisted)));
+        {
+            std::map<COutPoint, int64_t> persisted;
+            WalletBatch batch(wallet->GetDatabase());
+            BOOST_CHECK(!batch.ReadCoinJoinPendingObs(persisted));
+        }
+
+        // Once the record is readable again the entry it tracks is picked back up and the
+        // lock behind it can finally be released
+        {
+            WalletBatch batch(wallet->GetDatabase());
+            BOOST_REQUIRE(batch.WriteCoinJoinPendingObs({{outpointPersisted, nStart}}));
+        }
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPersisted));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+
+        m_node.mn_sync->SwitchToNextAsset();
+        BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointPersisted));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPersisted)));
     }));
     SetMockTime(0);
 }
