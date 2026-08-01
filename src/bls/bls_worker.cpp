@@ -681,16 +681,9 @@ CBLSPublicKey CBLSWorker::BuildPubKeyShare(const BLSVerificationVectorPtr& vvec,
 void CBLSWorker::AsyncVerifyContributionShares(const CBLSId& forId, Span<BLSVerificationVectorPtr> vvecs, Span<CBLSSecretKey> skShares,
                                                bool parallel, bool aggregated, std::function<void(const std::vector<bool>&)> doneCallback)
 {
-    // Empty input is degenerate: VerifyVerificationVectors() returns true for an
-    // empty span (its loop body never runs), and ContributionVerifier::Start then
-    // schedules zero work (batchCount==0 or zero-length one-by-one batch). Nothing
-    // ever invokes doneCallback, so the promise held by the future-based wrappers
-    // is destroyed without set_value and .get() throws std::future_error
-    // (broken_promise). ActiveDKGSession::VerifyPendingContributions can reach
-    // this path when every pending member has been marked bad between enqueue
-    // and flush (e.g. double-contribution MarkBadMember). Mirror the empty-input
-    // short-circuit already present on AsyncBuildQuorumVerificationVector and
-    // AsyncAggregateHelper.
+    // Empty input never schedules any work, so doneCallback would never fire and the
+    // future-based wrappers would throw broken_promise. Mirror the empty-input
+    // short-circuit in AsyncBuildQuorumVerificationVector / AsyncAggregateHelper.
     if (vvecs.empty()) {
         doneCallback(std::vector<bool>{});
         return;
@@ -702,7 +695,7 @@ void CBLSWorker::AsyncVerifyContributionShares(const CBLSId& forId, Span<BLSVeri
         return;
     }
 
-    auto verifier = std::make_shared<ContributionVerifier>(forId, vvecs, skShares, 8, parallel, aggregated, workerPool, std::move(doneCallback));
+    auto verifier = std::make_shared<ContributionVerifier>(forId, vvecs, skShares, CONTRIBUTION_VERIFY_BATCH_SIZE, parallel, aggregated, workerPool, std::move(doneCallback));
     verifier->Start();
 }
 
