@@ -16,6 +16,7 @@
 #include <logging.h>
 #include <masternode/payments.h>
 #include <node/blockstorage.h>
+#include <shutdown.h>
 #include <validation.h>
 
 #include <algorithm>
@@ -138,9 +139,14 @@ void CCreditPoolManager::AddToCache(const uint256& block_hash, int height, const
 {
     if (height % DISK_SNAPSHOT_PERIOD == 0) {
         if (!evoDb.WriteDerived(std::make_pair(DB_CREDITPOOL_SNAPSHOT, block_hash), pool)) {
-            LogPrintf("ERROR: CCreditPoolManager::%s -- EvoDB credit pool mismatch for block %s\n",
-                      __func__, block_hash.ToString());
-            throw std::runtime_error("EvoDB credit pool payload mismatch");
+            // A mismatch is local EvoDB corruption, not a statement about the
+            // block. Abort here: some callers (miner, RPC) never pass through a
+            // validation-state catch, and the block-connect catches must not
+            // translate this into a consensus rejection.
+            const std::string msg = strprintf("CCreditPoolManager::%s -- EvoDB credit pool mismatch for block %s",
+                                              __func__, block_hash.ToString());
+            AbortNode(msg);
+            throw EvoDbInconsistencyError(msg);
         }
     }
     {
@@ -335,6 +341,11 @@ std::optional<CCreditPoolDiff> GetCreditPoolDiffForBlock(CCreditPoolManager& cpo
             }
         }
         return creditPoolDiff;
+    } catch (const EvoDbInconsistencyError& e) {
+        // Local EvoDB corruption (the node is already aborting): fail with
+        // M_ERROR so the block is not marked invalid.
+        state.Error(e.what());
+        return std::nullopt;
     } catch (const std::exception& e) {
         LogPrintf("%s -- failed: %s\n", __func__, e.what());
         state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-getcreditpooldiff");

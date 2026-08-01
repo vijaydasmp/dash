@@ -17,6 +17,7 @@
 #include <masternode/meta.h>
 #include <node/blockstorage.h>
 #include <script/standard.h>
+#include <shutdown.h>
 #include <stats/client.h>
 #include <uint256.h>
 #include <util/helpers.h>
@@ -645,16 +646,21 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block, gsl::not_null<co
         oldList = GetListForBlockInternal(pindex->pprev);
         diff = oldList.BuildDiff(newList);
 
+        // A WriteDerived mismatch is local EvoDB corruption, not a statement
+        // about the block: abort the node with M_ERROR instead of marking the
+        // block consensus-invalid and punishing the peer that relayed it.
         if (!m_evoDb.WriteDerived(std::make_pair(DB_LIST_DIFF, newList.GetBlockHash()), diff)) {
-            LogPrintf("ERROR: CDeterministicMNManager::%s -- EvoDB list diff mismatch for block %s\n",
-                      __func__, newList.GetBlockHash().ToString());
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-dmn-block");
+            const std::string msg = strprintf("CDeterministicMNManager::%s -- EvoDB list diff mismatch for block %s",
+                                              __func__, newList.GetBlockHash().ToString());
+            AbortNode(msg);
+            return state.Error(msg);
         }
         if ((nHeight % DISK_SNAPSHOT_PERIOD) == 0 || pindex->pprev == m_initial_snapshot_index) {
             if (!m_evoDb.WriteDerived(std::make_pair(DB_LIST_SNAPSHOT, newList.GetBlockHash()), newList)) {
-                LogPrintf("ERROR: CDeterministicMNManager::%s -- EvoDB list snapshot mismatch for block %s\n",
-                          __func__, newList.GetBlockHash().ToString());
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-dmn-block");
+                const std::string msg = strprintf("CDeterministicMNManager::%s -- EvoDB list snapshot mismatch for block %s",
+                                                  __func__, newList.GetBlockHash().ToString());
+                AbortNode(msg);
+                return state.Error(msg);
             }
             mnListsCache.emplace(newList.GetBlockHash(), newList);
             LogPrintf("CDeterministicMNManager::%s -- Wrote snapshot. nHeight=%d, mapCurMNs.allMNsCount=%d\n",

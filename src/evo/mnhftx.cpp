@@ -11,6 +11,7 @@
 #include <llmq/quorumsman.h>
 #include <llmq/signhash.h>
 #include <node/blockstorage.h>
+#include <shutdown.h>
 #include <util/std23.h>
 
 #include <chain.h>
@@ -249,6 +250,11 @@ std::optional<CMNHFManager::Signals> CMNHFManager::ProcessBlock(const CBlock& bl
 
         AddToCache(signals, pindex);
         return signals;
+    } catch (const EvoDbInconsistencyError& e) {
+        // Local EvoDB corruption (the node is already aborting): fail with
+        // M_ERROR so the block is not marked invalid.
+        state.Error(e.what());
+        return std::nullopt;
     } catch (const std::exception& e) {
         LogPrintf("CMNHFManager::ProcessBlock -- failed: %s\n", e.what());
         state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-proc-mnhf-inblock");
@@ -357,9 +363,14 @@ void CMNHFManager::AddToCache(const Signals& signals, const CBlockIndex* const p
     const uint256& blockHash = pindex->GetBlockHash();
     if (DeploymentActiveAt(*pindex, m_chainman.GetConsensus(), Consensus::DEPLOYMENT_V20) &&
         !m_evoDb.WriteDerived(std::make_pair(DB_SIGNALS_v2, blockHash), signals)) {
-        LogPrintf("ERROR: CMNHFManager::%s -- EvoDB MNHF state mismatch for block %s\n",
-                  __func__, blockHash.ToString());
-        throw std::runtime_error("EvoDB MNHF payload mismatch");
+        // A mismatch is local EvoDB corruption, not a statement about the
+        // block. Abort here: some callers (miner, RPC) never pass through a
+        // validation-state catch, and the block-connect catches must not
+        // translate this into a consensus rejection.
+        const std::string msg = strprintf("CMNHFManager::%s -- EvoDB MNHF state mismatch for block %s",
+                                          __func__, blockHash.ToString());
+        AbortNode(msg);
+        throw EvoDbInconsistencyError(msg);
     }
     {
         LOCK(cs_cache);

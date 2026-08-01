@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <stdexcept>
 
 class uint256;
 namespace util {
@@ -33,6 +34,16 @@ static const std::string EVODB_DUAL_CHAINSTATE = "b_dcs";
 enum class EvoDbIdentity {
     NORMAL,
     SNAPSHOT,
+};
+
+/** Thrown when an independently derived block payload disagrees with the copy
+ *  already recorded in EvoDB. This is local state corruption (or a
+ *  cross-chainstate divergence bug), never evidence about the block being
+ *  processed, so it must abort the node rather than invalidate the block. */
+class EvoDbInconsistencyError : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
 };
 
 class CEvoDB;

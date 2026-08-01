@@ -11,6 +11,7 @@
 #include <evo/cbtx.h>
 #include <evo/creditpool.h>
 #include <evo/deterministicmns.h>
+#include <evo/evodb.h>
 #include <evo/mnhftx.h>
 #include <evo/netinfo.h>
 #include <evo/simplifiedmns.h>
@@ -812,6 +813,10 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
             bls::bls_legacy_scheme.store(false);
             LogPrintf("CSpecialTxProcessor::%s -- bls_legacy_scheme=%d\n", __func__, bls::bls_legacy_scheme.load());
         }
+    } catch (const EvoDbInconsistencyError& e) {
+        // Local EvoDB corruption detected below (the node is already
+        // aborting): fail with M_ERROR so the block is not marked invalid.
+        return state.Error(e.what());
     } catch (const std::exception& e) {
         LogPrintf("CSpecialTxProcessor::%s -- FAILURE! %s\n", __func__, e.what());
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-procspectxsinblock");
@@ -876,6 +881,10 @@ bool CSpecialTxProcessor::CheckCreditPoolDiffForBlock(const CBlock& block, const
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cbtx-assetlocked-amount");
         }
 
+    } catch (const EvoDbInconsistencyError& e) {
+        // Local EvoDB corruption detected below (the node is already
+        // aborting): fail with M_ERROR so the block is not marked invalid.
+        return state.Error(e.what());
     } catch (const std::exception& e) {
         LogPrintf("CSpecialTxProcessor::%s -- FAILURE! %s\n", __func__, e.what());
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "failed-checkcreditpooldiff");
