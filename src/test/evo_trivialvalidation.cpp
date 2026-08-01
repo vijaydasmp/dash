@@ -19,7 +19,6 @@
 #include <primitives/transaction.h>
 #include <script/script.h>
 #include <script/standard.h>
-#include <util/check.h>
 #include <util/std23.h>
 #include <validation.h>
 
