@@ -5524,12 +5524,11 @@ void PeerManagerImpl::ProcessMessage(
         uint256 hash = spork.GetHash();
         CInv spork_inv{MSG_SPORK, hash};
         WITH_LOCK(::cs_main, m_object_request.ReceivedResponse(pfrom.GetId(), spork_inv));
-        auto opt_signer = m_sporkman.GetValidSporkSigner(spork);
-        if (!opt_signer) {
+        if (!m_sporkman.IsValidSpork(spork)) {
             Misbehaving(*peer, 100, strprintf("invalid spork received. peer=%d", pfrom.GetId()));
             return;
         }
-        if (m_sporkman.ProcessSpork(spork, *opt_signer, strprintf(" peer=%d", pfrom.GetId()))) {
+        if (m_sporkman.ProcessSpork(spork, strprintf(" peer=%d", pfrom.GetId()))) {
             WITH_LOCK(::cs_main, m_object_request.ForgetTxHash(spork_inv));
             RelayInv(spork_inv);
         }
@@ -5540,10 +5539,9 @@ void PeerManagerImpl::ProcessMessage(
         // For 'getsporks', active sporks is sent to the requesting peer.
         auto active_sporks = m_sporkman.ActiveSporks();
         std::vector<uint256> active_spork_hashes;
-        for (const auto& pair : active_sporks) {
-            for (const auto& spork_pair : pair.second) {
-                active_spork_hashes.push_back(spork_pair.second.GetHash());
-            }
+        active_spork_hashes.reserve(active_sporks.size());
+        for (const auto& spork : active_sporks) {
+            active_spork_hashes.push_back(spork.GetHash());
         }
         std::sort(active_spork_hashes.begin(), active_spork_hashes.end());
 
@@ -5557,10 +5555,8 @@ void PeerManagerImpl::ProcessMessage(
         peer->m_getsporks_recvd = true;
         peer->m_getsporks_last_response = active_spork_hashes;
 
-        for (const auto& pair : active_sporks) {
-            for (const auto& signerSporkPair : pair.second) {
-                m_connman.PushMessage(&pfrom, CNetMsgMaker(pfrom.GetCommonVersion()).Make(NetMsgType::SPORK, signerSporkPair.second));
-            }
+        for (const auto& spork : active_sporks) {
+            m_connman.PushMessage(&pfrom, CNetMsgMaker(pfrom.GetCommonVersion()).Make(NetMsgType::SPORK, spork));
         }
         return;
     }
