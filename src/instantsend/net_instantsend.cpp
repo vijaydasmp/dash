@@ -108,6 +108,8 @@ std::unique_ptr<NetInstantSend::BatchVerificationData> NetInstantSend::BuildVeri
 {
     auto data = std::make_unique<BatchVerificationData>();
 
+    const CChain& active_chain = *WITH_LOCK(::cs_main, return &m_chainman.ActiveChain());
+
     for (const auto& pending : pend) {
         const auto& hash = pending.islock_hash;
         auto nodeId = pending.node_id;
@@ -145,7 +147,7 @@ std::unique_ptr<NetInstantSend::BatchVerificationData> NetInstantSend::BuildVeri
             nSignHeight = cycleHeight + dkgInterval - 1;
         }
         // For RegTest non-rotating quorum cycleHash has directly quorum hash
-        auto quorum = llmq_params.useRotation ? llmq::SelectQuorumForSigning(llmq_params, m_chainman.ActiveChainstate().m_chain, m_qman,
+        auto quorum = llmq_params.useRotation ? llmq::SelectQuorumForSigning(llmq_params, active_chain, m_qman,
                                                                              id, nSignHeight, signOffset)
                                               : m_qman.GetQuorum(llmq_params.type, islock->cycleHash);
 

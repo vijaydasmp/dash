@@ -390,7 +390,8 @@ void InstantSendSigner::TrySignInstantSendLock(const CTransaction& tx)
 
     const auto& llmq_params_opt = Params().GetLLMQ(llmqType);
     assert(llmq_params_opt);
-    const auto quorum = llmq::SelectQuorumForSigning(llmq_params_opt.value(), m_chainman.ActiveChain(), m_qman, id);
+    const CChain& active_chain = *WITH_LOCK(::cs_main, return &m_chainman.ActiveChain());
+    const auto quorum = llmq::SelectQuorumForSigning(llmq_params_opt.value(), active_chain, m_qman, id);
 
     if (!quorum) {
         LogPrint(BCLog::INSTANTSEND, "%s -- failed to select quorum. islock id=%s, txid=%s\n", __func__, id.ToString(),
