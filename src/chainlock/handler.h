@@ -57,12 +57,12 @@ private:
     //! Number of recently seen CLSIG hashes retained once `seenChainLocks` is pruned.
     static constexpr size_t SEEN_CHAINLOCKS_RETAINED_SIZE{1024};
     //! Size `seenChainLocks` may grow to before the next insertion prunes it back down to
-    //! SEEN_CHAINLOCKS_RETAINED_SIZE. Pruning sorts every entry, and CLSIG hashes are recorded
-    //! before the signature is verified, so pruning on each insertion past the retained size
-    //! lets a peer turn a stream of unique CLSIG hashes into a stream of O(n log n) sorts under
-    //! `cs`. Pruning only after twice the retained size amortises that cost over the entries
-    //! dropped in a single batch, at the price of a larger transient cache. The 2x ratio matches
-    //! the default in unordered_lru_cache.
+    //! SEEN_CHAINLOCKS_RETAINED_SIZE. Pruning partitions every entry, and CLSIG hashes are
+    //! recorded before the signature is verified, so pruning on each insertion past the retained
+    //! size lets a peer turn a stream of unique CLSIG hashes into a stream of full-map partition
+    //! passes under `cs`. Pruning only after twice the retained size amortises that cost over the
+    //! entries dropped in a single batch, at the price of a larger transient cache. The 2x ratio
+    //! matches the default in unordered_lru_cache.
     static constexpr size_t SEEN_CHAINLOCKS_PRUNE_AFTER_SIZE{2 * SEEN_CHAINLOCKS_RETAINED_SIZE};
 
     const CBlockIndex* lastNotifyChainLockBlockIndex GUARDED_BY(cs){nullptr};
