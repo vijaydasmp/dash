@@ -60,7 +60,6 @@ SUPPRESSED_WARNINGS = (
     "functionStatic",
     "knownConditionTrueFalse",
     "missingOverride",
-    "returnByReference",
     "shadowFunction",
     "shadowMember",
     "shadowVariable",

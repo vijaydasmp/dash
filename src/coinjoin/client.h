@@ -52,7 +52,7 @@ public:
     }
 
     [[nodiscard]] uint256 GetProTxHash() const { return proTxHash; }
-    [[nodiscard]] CCoinJoinAccept GetDSA() const { return dsa; }
+    [[nodiscard]] const CCoinJoinAccept& GetDSA() const { return dsa; }
     [[nodiscard]] bool IsExpired() const { return GetTime() - nTimeCreated > TIMEOUT; }
 
     friend bool operator==(const CPendingDsaRequest& a, const CPendingDsaRequest& b)
