@@ -1004,7 +1004,7 @@ bool CCoinJoinServer::AlreadyHave(const CInv& inv)
     return (inv.type == MSG_DSQ) ? m_queueman.HasQueue(inv.hash) : false;
 }
 
-bool CCoinJoinServer::ProcessGetData(CNode& pfrom, const CInv& inv, CConnman& connman, const CNetMsgMaker& msgMaker)
+bool CCoinJoinServer::ProcessGetData(CNode& pfrom, const CInv& inv, const CNetMsgMaker& msgMaker)
 {
     if (inv.type != MSG_DSQ) return false;
 

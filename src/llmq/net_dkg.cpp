@@ -557,18 +557,18 @@ bool NetDKG::AlreadyHave(const CInv& inv)
     return false;
 }
 
-bool NetDKG::ProcessGetData(CNode& pfrom, const CInv& inv, CConnman& connman, const CNetMsgMaker& msgMaker)
+bool NetDKG::ProcessGetData(CNode& pfrom, const CInv& inv, const CNetMsgMaker& msgMaker)
 {
-    // Default implementations of GetContribution and the other virtual methods
-    // return false in observer mode; m_active is only an early exit and does
-    // not affect logic.
+    // Observer mode holds no CConnman, so this null check guards the replies
+    // below rather than merely short-circuiting them. It costs no coverage: the
+    // Get* calls return false by construction in observer mode.
     if (m_active == nullptr) return false;
 
     switch (inv.type) {
     case MSG_QUORUM_CONTRIB: {
         CDKGContribution o;
         if (m_qdkgsman.GetContribution(inv.hash, o)) {
-            connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QCONTRIB, o));
+            m_active->connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QCONTRIB, o));
             return true;
         }
         return false;
@@ -576,7 +576,7 @@ bool NetDKG::ProcessGetData(CNode& pfrom, const CInv& inv, CConnman& connman, co
     case MSG_QUORUM_COMPLAINT: {
         CDKGComplaint o;
         if (m_qdkgsman.GetComplaint(inv.hash, o)) {
-            connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QCOMPLAINT, o));
+            m_active->connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QCOMPLAINT, o));
             return true;
         }
         return false;
@@ -584,7 +584,7 @@ bool NetDKG::ProcessGetData(CNode& pfrom, const CInv& inv, CConnman& connman, co
     case MSG_QUORUM_JUSTIFICATION: {
         CDKGJustification o;
         if (m_qdkgsman.GetJustification(inv.hash, o)) {
-            connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QJUSTIFICATION, o));
+            m_active->connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QJUSTIFICATION, o));
             return true;
         }
         return false;
@@ -592,7 +592,7 @@ bool NetDKG::ProcessGetData(CNode& pfrom, const CInv& inv, CConnman& connman, co
     case MSG_QUORUM_PREMATURE_COMMITMENT: {
         CDKGPrematureCommitment o;
         if (m_qdkgsman.GetPrematureCommitment(inv.hash, o)) {
-            connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QPCOMMITMENT, o));
+            m_active->connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QPCOMMITMENT, o));
             return true;
         }
         return false;
