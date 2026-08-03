@@ -10,6 +10,9 @@
 #include <net_processing.h>
 #include <net_types.h>
 #include <protocol.h>
+#include <util/hasher.h>
+
+#include <unordered_set>
 
 class CActiveMasternodeManager;
 class CConnman;
@@ -43,6 +46,9 @@ private:
     // Mixing uses collateral transactions to trust parties entering the pool
     // to behave honestly. If they don't it takes their money.
     std::vector<CTransactionRef> vecSessionCollaterals;
+    // Input prevouts of every transaction in vecSessionCollaterals, so a dsa whose collateral
+    // reuses one of them can be rejected without rescanning them all.
+    std::unordered_set<COutPoint, SaltedOutpointHasher> setSessionCollateralPrevouts GUARDED_BY(cs_coinjoin);
 
     bool fUnitTest;
 
@@ -66,6 +72,8 @@ private:
 
     /// Is this nDenom and txCollateral acceptable?
     bool IsAcceptableDSA(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) const;
+    /// Record an accepted collateral and index its input prevouts
+    void CommitSessionCollateral(const CMutableTransaction& txCollateral) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
     bool CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     bool AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     /// Do we have enough users to take entries?

@@ -283,6 +283,7 @@ void CCoinJoinServer::SetNull()
     AssertLockHeld(cs_coinjoin);
     // MN side
     vecSessionCollaterals.clear();
+    setSessionCollateralPrevouts.clear();
 
     CCoinJoinBaseSession::SetNull();
     m_queueman.SetNull();
@@ -743,6 +744,15 @@ bool CCoinJoinServer::IsAcceptableDSA(const CCoinJoinAccept& dsa, PoolMessage& n
     return true;
 }
 
+void CCoinJoinServer::CommitSessionCollateral(const CMutableTransaction& txCollateral)
+{
+    AssertLockHeld(cs_coinjoin);
+    vecSessionCollaterals.push_back(MakeTransactionRef(txCollateral));
+    for (const auto& txin : txCollateral.vin) {
+        setSessionCollateralPrevouts.insert(txin.prevout);
+    }
+}
+
 bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet)
 {
     if (nSessionID != 0) return false;
@@ -776,7 +786,7 @@ bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& 
 
         SetState(POOL_STATE_QUEUE);
 
-        vecSessionCollaterals.push_back(MakeTransactionRef(dsa.txCollateral));
+        CommitSessionCollateral(dsa.txCollateral);
     }
 
     if (!fUnitTest) {
@@ -827,10 +837,22 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolM
         return false;
     }
 
+    // Session collaterals are only ever test-accepted, never added to the mempool, so nothing
+    // pins their identity: the same UTXO can be re-signed into arbitrarily many distinct txids.
+    // Match on input prevouts so a resent or replayed dsa cannot be counted as a new participant.
+    for (const auto& txin : dsa.txCollateral.vin) {
+        if (setSessionCollateralPrevouts.contains(txin.prevout)) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- collateral %s spends prevout %s already committed to this session\n",
+                dsa.txCollateral.GetHash().ToString(), txin.prevout.ToStringShort());
+            nMessageIDRet = ERR_ALREADY_HAVE;
+            return false;
+        }
+    }
+
     // count new user as accepted to an existing session
 
     nMessageIDRet = MSG_NOERR;
-    vecSessionCollaterals.push_back(MakeTransactionRef(dsa.txCollateral));
+    CommitSessionCollateral(dsa.txCollateral);
 
     LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- new user accepted, nSessionID: %d  nSessionDenom: %d (%s)  vecSessionCollaterals.size(): %d  CoinJoin::GetMaxPoolParticipants(): %d\n",
         nSessionID, nSessionDenom, CoinJoin::DenominationToString(nSessionDenom), vecSessionCollaterals.size(), CoinJoin::GetMaxPoolParticipants());
