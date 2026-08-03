@@ -160,6 +160,7 @@ util::Result<std::unique_ptr<StatsdClient>> StatsdClient::make(const ArgsManager
             return util::Error{_("No text before the scheme delimiter, malformed URL")};
         }
         std::string scheme{ToLower(host.substr(/*pos=*/0, scheme_idx))};
+        // cppcheck-suppress knownConditionTrueFalse
         if (scheme != "udp") {
             return util::Error{_("Unsupported URL scheme, must begin with udp://")};
         }

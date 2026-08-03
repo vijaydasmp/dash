@@ -1804,14 +1804,6 @@ static RPCHelpMan protx_listdiff()
     const CBlockIndex* pBaseBlockIndex = ParseBlockIndex(request.params[0], chainman, "baseBlock");
     const CBlockIndex* pTargetBlockIndex = ParseBlockIndex(request.params[1], chainman, "block");
 
-    if (pBaseBlockIndex == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Base block not found");
-    }
-
-    if (pTargetBlockIndex == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
-    }
-
     ret.pushKV("baseHeight", pBaseBlockIndex->nHeight);
     ret.pushKV("blockHeight", pTargetBlockIndex->nHeight);
 
