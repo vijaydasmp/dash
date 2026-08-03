@@ -2180,7 +2180,7 @@ Span<const CRPCCommand> GetWalletEvoRPCCommands()
 }
 #endif // ENABLE_WALLET
 
-void RegisterEvoRPCCommands(CRPCTable& tableRPC)
+void RegisterEvoRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"evo", &bls_help},
@@ -2197,7 +2197,7 @@ void RegisterEvoRPCCommands(CRPCTable& tableRPC)
         {"evo", &protx_info},
     };
     for (const auto& command : commands) {
-        tableRPC.appendCommand(command.name, &command);
+        t.appendCommand(command.name, &command);
     }
     // If we aren't compiling with wallet support, we still need to register RPCs that are
     // capable of working without wallet support. We have to do this even if wallet support
@@ -2211,7 +2211,7 @@ void RegisterEvoRPCCommands(CRPCTable& tableRPC)
 #endif // ENABLE_WALLET
     ) {
         for (const auto& command : commands_wallet) {
-            tableRPC.appendCommand(command.name, &command);
+            t.appendCommand(command.name, &command);
         }
     }
 }
