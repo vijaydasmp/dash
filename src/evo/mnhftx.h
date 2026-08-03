@@ -111,7 +111,7 @@ public:
     CMNHFManager(const CMNHFManager&) = delete;
     CMNHFManager& operator=(const CMNHFManager&) = delete;
     explicit CMNHFManager(CEvoDB& evoDb, const ChainstateManager& chainman);
-    ~CMNHFManager();
+    ~CMNHFManager() override;
 
     /**
      * Every new block should be processed when Tip() is updated by calling of CMNHFManager::ProcessBlock.

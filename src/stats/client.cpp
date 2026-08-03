@@ -45,7 +45,7 @@ class StatsdClientImpl final : public StatsdClient
 public:
     explicit StatsdClientImpl(const std::string& host, uint16_t port, uint64_t batch_size, uint64_t interval_ms,
                               const std::string& prefix, const std::string& suffix, std::optional<bilingual_str>& error);
-    ~StatsdClientImpl() = default;
+    ~StatsdClientImpl() override = default;
 
 public:
     bool dec(std::string_view key, float sample_rate) override EXCLUSIVE_LOCKS_REQUIRED(!cs)

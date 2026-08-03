@@ -58,7 +58,6 @@ SUPPRESSED_WARNINGS = (
     "duplInheritedMember",
     "functionStatic",
     "knownConditionTrueFalse",
-    "missingOverride",
     "shadowFunction",
     "uninitMemberVarNoCtor",
     "useStlAlgorithm",

@@ -66,7 +66,7 @@ public:
                            llmq::CQuorumManager& qman, llmq::CQuorumSnapshotManager& qsnapman,
                            llmq::CSigningManager& sigman, const CMasternodeSync& mn_sync,
                            const CBLSSecretKey& operator_sk, const util::DbWrapperParams& db_params, bool quorums_watch);
-    ~ActiveContext();
+    ~ActiveContext() override;
 
     void Start();
     void Stop();
