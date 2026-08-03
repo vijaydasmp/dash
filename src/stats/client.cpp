@@ -217,12 +217,12 @@ util::Result<std::unique_ptr<StatsdClient>> StatsdClient::make(const ArgsManager
 StatsdClientImpl::StatsdClientImpl(const std::string& host, uint16_t port, uint64_t batch_size, uint64_t interval_ms,
                                    const std::string& prefix, const std::string& suffix,
                                    std::optional<bilingual_str>& error) :
+    m_sender{std::make_unique<RawSender>(host, port,
+                                         std::make_pair(batch_size, static_cast<uint8_t>(STATSD_MSG_DELIMITER)),
+                                         interval_ms, error)},
     m_prefix{[prefix]() { return !prefix.empty() ? prefix + STATSD_NS_DELIMITER : prefix; }()},
     m_suffix{[suffix]() { return !suffix.empty() ? STATSD_NS_DELIMITER + suffix : suffix; }()}
 {
-    m_sender = std::make_unique<RawSender>(host, port,
-                                           std::make_pair(batch_size, static_cast<uint8_t>(STATSD_MSG_DELIMITER)),
-                                           interval_ms, error);
     if (error.has_value()) {
         m_sender.reset();
         return;

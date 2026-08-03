@@ -64,7 +64,6 @@ SUPPRESSED_WARNINGS = (
     "shadowMember",
     "shadowVariable",
     "uninitMemberVarNoCtor",
-    "useInitializationList",
     "useStlAlgorithm",
 )
 
