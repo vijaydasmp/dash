@@ -382,8 +382,8 @@ struct VectorAggregator : public std::enable_shared_from_this<VectorAggregator<T
 // Same rules as in Aggregator apply for the inputs
 struct ContributionVerifier : public std::enable_shared_from_this<ContributionVerifier> {
     struct BatchState {
-        size_t start;
-        size_t count;
+        size_t start{0};
+        size_t count{0};
 
         BLSVerificationVectorPtr vvec;
         CBLSSecretKey skShare;

@@ -382,7 +382,7 @@ public:
         uint32_t recvSessionId{UNINITIALIZED_SESSION_ID};
         uint32_t sendSessionId{UNINITIALIZED_SESSION_ID};
 
-        Consensus::LLMQType llmqType;
+        Consensus::LLMQType llmqType{Consensus::LLMQType::LLMQ_NONE};
         uint256 quorumHash;
         uint256 id;
         uint256 msgHash;

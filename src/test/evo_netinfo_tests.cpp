@@ -19,8 +19,8 @@ BOOST_FIXTURE_TEST_SUITE(evo_netinfo_tests, BasicTestingSetup)
 
 struct TestEntry {
     std::pair</*purpose=*/NetInfoPurpose, /*addr=*/std::string> input;
-    NetInfoStatus expected_ret_mn;
-    NetInfoStatus expected_ret_ext;
+    NetInfoStatus expected_ret_mn{NetInfoStatus::BadInput};
+    NetInfoStatus expected_ret_ext{NetInfoStatus::BadInput};
 };
 
 static const std::vector<TestEntry> addr_vals_main{
