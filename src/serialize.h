@@ -435,7 +435,16 @@ void WriteFixedBitSet(Stream& s, const std::vector<bool>& vec, size_t size)
     s.write(AsBytes(Span{vBytes}));
 }
 
-template<typename Stream>
+/** A stream that can report how many bytes are still available to read.
+ *
+ * size() must mean bytes *remaining*, not the total the stream ever held. ReadFixedBitSet
+ * relies on that to bound a wire-declared bit count before allocating, so a stream whose
+ * size() means anything else would silently weaken the bound rather than fail to compile.
+ */
+template<typename S>
+concept SizedStream = requires(const S& s) { { s.size() } -> std::convertible_to<size_t>; };
+
+template<SizedStream Stream>
 void ReadFixedBitSet(Stream& s, std::vector<bool>& vec, size_t size)
 {
     const size_t nbytes = (size + 7) / 8;
@@ -444,10 +453,8 @@ void ReadFixedBitSet(Stream& s, std::vector<bool>& vec, size_t size)
     // multi-megabyte resize and zero-fill that is only abandoned when the short read throws.
     // A well-formed message always carries exactly the required bytes, so this rejects only
     // claims that could never have been satisfied.
-    if constexpr (requires(const Stream& cs) { cs.size(); }) {
-        if (nbytes > s.size()) {
-            throw std::ios_base::failure("ReadFixedBitSet(): declared size exceeds remaining bytes");
-        }
+    if (nbytes > s.size()) {
+        throw std::ios_base::failure("ReadFixedBitSet(): declared size exceeds remaining bytes");
     }
 
     vec.resize(size);

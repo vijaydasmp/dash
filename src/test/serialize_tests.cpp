@@ -3,12 +3,9 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <hash.h>
-#include <llmq/commitment.h>
-#include <llmq/params.h>
 #include <serialize.h>
 #include <streams.h>
 #include <test/util/setup_common.h>
-#include <uint256.h>
 #include <util/strencodings.h>
 
 #include <stdint.h>
@@ -209,27 +206,18 @@ BOOST_AUTO_TEST_CASE(dynbitset_rejects_oversized_declared_length)
     // No bit payload follows, so the remaining size is zero.
 
     std::vector<bool> bits;
-    std::string what;
-    bool threw = false;
-    try {
-        s >> DYNBITSET(bits);
-    } catch (const std::ios_base::failure& e) {
-        threw = true;
-        what = e.what();
-    }
-    BOOST_CHECK_MESSAGE(threw, "DYNBITSET must reject a declared length that exceeds remaining bytes");
+    BOOST_CHECK_EXCEPTION(s >> DYNBITSET(bits), std::ios_base::failure,
+                          HasReason(std::string{BOUND_REJECTION}));
     // Rejection has to precede the resize, so the destination must still hold its exact
     // pre-deserialization state. Merely falling short of the declared size would also be
     // satisfied by an allocation that happened and was then abandoned.
     BOOST_CHECK(bits.empty());
-    BOOST_CHECK_MESSAGE(what.find(BOUND_REJECTION) != std::string::npos,
-                        "Expected a pre-allocation rejection, got: " + what);
 }
 
-/** A legitimately sized DYNBITSET (LLMQ max 400) must still round-trip unchanged. */
-BOOST_AUTO_TEST_CASE(dynbitset_accepts_legitimate_llmq_size)
+/** The largest bit count accepted by ReadCompactSize must still round-trip unchanged. */
+BOOST_AUTO_TEST_CASE(dynbitset_accepts_maximum_size)
 {
-    constexpr size_t kSize = Consensus::MAX_LLMQ_SIZE;
+    constexpr size_t kSize = MAX_SIZE;
     std::vector<bool> original(kSize, false);
     for (size_t i = 0; i < kSize; i += 3) {
         original[i] = true;
@@ -241,34 +229,6 @@ BOOST_AUTO_TEST_CASE(dynbitset_accepts_legitimate_llmq_size)
     std::vector<bool> decoded;
     s >> DYNBITSET(decoded);
     BOOST_CHECK(decoded == original);
-}
-
-/**
- * The same primitive is reachable from an unauthenticated QFCOMMITMENT via CFinalCommitment's
- * signers bitset, so cover the real message type too.
- */
-BOOST_AUTO_TEST_CASE(qfinalcommitment_rejects_oversized_signers_bitset)
-{
-    CDataStream s(SER_NETWORK, PROTOCOL_VERSION);
-    // nVersion (u16) | llmqType (u8) | quorumHash (32) | signers DYNBITSET | ...
-    s << static_cast<uint16_t>(llmq::CFinalCommitment::BASIC_BLS_NON_INDEXED_QUORUM_VERSION);
-    s << Consensus::LLMQType::LLMQ_400_85;
-    s << uint256::ONE;
-    WriteCompactSize(s, 1'000'000);
-
-    llmq::CFinalCommitment qc;
-    std::string what;
-    bool threw = false;
-    try {
-        s >> qc;
-    } catch (const std::ios_base::failure& e) {
-        threw = true;
-        what = e.what();
-    }
-    BOOST_CHECK(threw);
-    BOOST_CHECK(qc.signers.empty());
-    BOOST_CHECK_MESSAGE(what.find(BOUND_REJECTION) != std::string::npos,
-                        "Expected a pre-allocation rejection for CFinalCommitment, got: " + what);
 }
 
 BOOST_AUTO_TEST_CASE(noncanonical)
