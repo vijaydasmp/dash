@@ -1911,8 +1911,8 @@ static UniValue evodb_verify_or_repair_impl(const JSONRPCRequest& request, bool 
     UniValue result(UniValue::VOBJ);
     UniValue verification_errors(UniValue::VARR);
 
-    for (const auto& error : recalc_result.verification_errors) {
-        verification_errors.push_back(error);
+    for (const auto& verification_error : recalc_result.verification_errors) {
+        verification_errors.push_back(verification_error);
     }
 
     result.pushKV("startHeight", recalc_result.start_height);
@@ -1924,8 +1924,8 @@ static UniValue evodb_verify_or_repair_impl(const JSONRPCRequest& request, bool 
     // Only include repair errors if we're in repair mode
     if (repair) {
         UniValue repair_errors(UniValue::VARR);
-        for (const auto& error : recalc_result.repair_errors) {
-            repair_errors.push_back(error);
+        for (const auto& repair_error : recalc_result.repair_errors) {
+            repair_errors.push_back(repair_error);
         }
         result.pushKV("repairErrors", repair_errors);
     }

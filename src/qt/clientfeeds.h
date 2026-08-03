@@ -83,10 +83,10 @@ public:
     void fetch() override EXCLUSIVE_LOCKS_REQUIRED(!m_cs) = 0;
 
 protected:
-    void setData(std::shared_ptr<const Data> data) EXCLUSIVE_LOCKS_REQUIRED(!m_cs)
+    void setData(std::shared_ptr<const Data> feed_data) EXCLUSIVE_LOCKS_REQUIRED(!m_cs)
     {
         LOCK(m_cs);
-        m_data = std::move(data);
+        m_data = std::move(feed_data);
     }
 
 private:

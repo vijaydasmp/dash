@@ -47,6 +47,7 @@ FATAL_ERRORS = (
 SUPPRESSED_WARNINGS = (
     "src/stacktraces.cpp:.*: .*: Parameter 'info' can be declared as pointer to const",
     "Return value 'state.(Invalid|Error).*' is always false.*knownConditionTrueFalse",
+    "Local variable '_' shadows outer function.*shadowFunction",
 
     "unusedFunction",
     "unknownMacro",
@@ -57,7 +58,6 @@ SUPPRESSED_WARNINGS = (
     # one at a time. Note that any message matching ALWAYS_ENABLED_WARNINGS is
     # still reported even if its check id is listed here.
     "duplInheritedMember",
-    "shadowFunction",
     "uninitMemberVarNoCtor",
     "useStlAlgorithm",
 )
