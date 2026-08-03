@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <test/util/masternode.h>
 #include <test/util/setup_common.h>
 
 #include <chainparams.h>
@@ -33,109 +34,15 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <map>
 #include <optional>
 #include <vector>
-
-using SimpleUTXOMap = std::map<COutPoint, Coin>;
-
-static SimpleUTXOMap BuildSimpleUtxoMap(const std::vector<CTransactionRef>& txs)
-{
-    SimpleUTXOMap utxos;
-    for (size_t i = 0; i < txs.size(); i++) {
-        auto& tx = txs[i];
-        for (size_t j = 0; j < tx->vout.size(); j++) {
-            if (tx->vout[j].scriptPubKey.IsUnspendable()) continue;
-            utxos.emplace(COutPoint(tx->GetHash(), j), Coin(tx->vout[j], static_cast<int>(i) + 1, /*fCoinBaseIn=*/false));
-        }
-    }
-    return utxos;
-}
-
-static SimpleUTXOMap SelectUTXOs(const CChain& active_chain, SimpleUTXOMap& utoxs, CAmount amount, CAmount& changeRet)
-{
-    changeRet = 0;
-
-    SimpleUTXOMap selectedUtxos;
-    CAmount selectedAmount = 0;
-    while (!utoxs.empty()) {
-        bool found = false;
-        for (auto it = utoxs.begin(); it != utoxs.end(); ++it) {
-            if (active_chain.Height() - it->second.nHeight < 101) {
-                continue;
-            }
-
-            found = true;
-            selectedAmount += it->second.out.nValue;
-            selectedUtxos.emplace(it->first, it->second);
-            utoxs.erase(it);
-            break;
-        }
-        BOOST_REQUIRE(found);
-        if (selectedAmount >= amount) {
-            changeRet = selectedAmount - amount;
-            break;
-        }
-    }
-
-    return selectedUtxos;
-}
-
-// Returns the coins being spent so the caller can sign without a chain/mempool lookup.
-static SimpleUTXOMap FundTransaction(const ChainstateManager& chainman, CMutableTransaction& tx, SimpleUTXOMap& utoxs, const CScript& scriptPayout, CAmount amount)
-{
-    CAmount change;
-    auto inputs = WITH_LOCK(::cs_main, return SelectUTXOs(chainman.ActiveChain(), utoxs, amount, change));
-    for (const auto& input : inputs) {
-        tx.vin.emplace_back(CTxIn(input.first));
-    }
-    tx.vout.emplace_back(CTxOut(amount, scriptPayout));
-    if (change != 0) {
-        tx.vout.emplace_back(CTxOut(change, scriptPayout));
-    }
-    return inputs;
-}
-
-static void SignTransaction(CMutableTransaction& tx, const SimpleUTXOMap& coins, const CKey& coinbaseKey)
-{
-    FillableSigningProvider tempKeystore;
-    tempKeystore.AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey());
-
-    std::map<int, bilingual_str> input_errors;
-    BOOST_REQUIRE(::SignTransaction(tx, &tempKeystore, coins, SIGHASH_ALL, input_errors));
-}
 
 static CMutableTransaction CreateSpendTx(const ChainstateManager& chainman, SimpleUTXOMap& utxos, const CScript& scriptPayout, CAmount amount, const CKey& coinbaseKey)
 {
     CMutableTransaction tx;
     const auto spent = FundTransaction(chainman, tx, utxos, scriptPayout, amount);
     SignTransaction(tx, spent, coinbaseKey);
-    return tx;
-}
-
-static CMutableTransaction CreateProRegTx(const ChainstateManager& chainman, SimpleUTXOMap& utxos, int port, const CScript& scriptPayout, const CKey& coinbaseKey, CKey& ownerKeyRet, CBLSSecretKey& operatorKeyRet)
-{
-    ownerKeyRet.MakeNewKey(true);
-    operatorKeyRet.MakeNewKey();
-
-    CProRegTx proTx;
-    proTx.nVersion = ProTxVersion::GetMax(!bls::bls_legacy_scheme, /*is_extended_addr=*/false);
-    proTx.netInfo = NetInfoInterface::MakeNetInfo(proTx.nVersion);
-    proTx.collateralOutpoint.n = 0;
-    BOOST_CHECK_EQUAL(proTx.netInfo->AddEntry(NetInfoPurpose::CORE_P2P, strprintf("1.1.1.1:%d", port)),
-                      NetInfoStatus::Success);
-    proTx.keyIDOwner = ownerKeyRet.GetPubKey().GetID();
-    proTx.pubKeyOperator.Set(operatorKeyRet.GetPublicKey(), bls::bls_legacy_scheme.load());
-    proTx.keyIDVoting = ownerKeyRet.GetPubKey().GetID();
-    proTx.scriptPayout = scriptPayout;
-
-    CMutableTransaction tx;
-    tx.nVersion = 3;
-    tx.nType = TRANSACTION_PROVIDER_REGISTER;
-    const auto spent = FundTransaction(chainman, tx, utxos, scriptPayout, dmn_types::Regular.collat_amount);
-    proTx.inputsHash = CalcTxInputsHash(CTransaction(tx));
-    SetTxPayload(tx, proTx);
-    SignTransaction(tx, spent, coinbaseKey);
-
     return tx;
 }
 
@@ -252,13 +159,6 @@ static CMutableTransaction MalleateProTxPayout(const CMutableTransaction& tx)
     SetTxPayload(tx2, protx);
 
     return tx2;
-}
-
-static CScript GenerateRandomAddress()
-{
-    CKey key;
-    key.MakeNewKey(false);
-    return GetScriptForDestination(PKHash(key.GetPubKey()));
 }
 
 static CDeterministicMNCPtr FindPayoutDmn(CDeterministicMNManager& dmnman, const CBlock& block)
