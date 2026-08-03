@@ -1304,7 +1304,7 @@ static RPCHelpMan verifyislock()
         signHeight = pindexMined->nHeight;
     }
 
-    CBlockIndex* pBlockIndex{nullptr};
+    const CBlockIndex* pBlockIndex{nullptr};
     {
         LOCK(cs_main);
         if (signHeight == -1) {
