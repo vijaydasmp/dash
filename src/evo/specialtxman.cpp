@@ -699,9 +699,6 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
         static int64_t nTimeLoop = 0;
         static int64_t nTimeQuorum = 0;
         static int64_t nTimeDMN = 0;
-        static int64_t nTimeMerkleMNL = 0;
-        static int64_t nTimeMerkleQuorums = 0;
-        static int64_t nTimeCbTxCL = 0;
         static int64_t nTimeMnehf = 0;
         static int64_t nTimePayload = 0;
         static int64_t nTimeCreditPool = 0;
@@ -809,6 +806,10 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
                  nTimeDMN * 0.000001);
 
         if (opt_cbTx.has_value()) {
+            static int64_t nTimeMerkleMNL = 0;
+            static int64_t nTimeMerkleQuorums = 0;
+            static int64_t nTimeCbTxCL = 0;
+
             uint256 calculatedMerkleRootMNL;
             if (!CalcCbTxMerkleRootMNList(calculatedMerkleRootMNL, mn_list.to_sml(), state)) {
                 // pass the state returned by the function above

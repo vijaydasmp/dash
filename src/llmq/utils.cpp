@@ -549,9 +549,9 @@ BlsCheck::BlsCheck() = default;
 
 BlsCheck::BlsCheck(CBLSSignature sig, std::vector<CBLSPublicKey> pubkeys, uint256 msg_hash, std::string id_string) :
     m_sig(sig),
-    m_pubkeys(pubkeys),
+    m_pubkeys(std::move(pubkeys)),
     m_msg_hash(msg_hash),
-    m_id_string(id_string)
+    m_id_string(std::move(id_string))
 {
 }
 

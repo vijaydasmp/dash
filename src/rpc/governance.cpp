@@ -660,6 +660,8 @@ static RPCResult ListObjectsHelp()
     auto ret = CGovernanceObject::GetStateJsonHelp(/*key=*/"", /*optional=*/false, /*local_valid_key=*/"fBlockchainValidity");
     auto mod_inner = ret.m_inner;
     for (const auto& result : CGovernanceObject::GetVotesJsonHelp(/*key=*/"", /*optional=*/false).m_inner) {
+        // The range expression's temporary is lifetime-extended for the whole loop
+        // cppcheck-suppress danglingTempReference
         mod_inner.push_back(result);
     }
     return RPCResult{ret.m_type, ret.m_key_name, ret.m_description, mod_inner};

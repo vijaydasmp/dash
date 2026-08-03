@@ -934,7 +934,6 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
                     LOCK(pwallet->cs_wallet);
                     // lets prove we own the collateral
                     CScript scriptPubKey = GetScriptForDestination(txDest);
-                    std::unique_ptr<SigningProvider> provider = pwallet->GetSolvingProvider(scriptPubKey);
 
                     std::string signed_payload;
                     SigningResult err = pwallet->SignMessage(ptx.MakeSignString(), *pkhash, signed_payload);

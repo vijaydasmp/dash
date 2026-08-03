@@ -234,6 +234,7 @@ public:
 struct CBLSIdImplicit : public uint256
 {
     CBLSIdImplicit() = default;
+    // cppcheck-suppress noExplicitConstructor
     CBLSIdImplicit(const uint256& id)
     {
         memcpy(begin(), id.begin(), sizeof(uint256));
