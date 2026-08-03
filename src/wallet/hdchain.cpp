@@ -40,9 +40,9 @@ bool CHDChain::IsCrypted() const
     return fCrypted;
 }
 
-bool CHDChain::SetMnemonic(const SecureVector& vchMnemonic, const SecureVector& vchMnemonicPassphrase, bool fUpdateID)
+bool CHDChain::SetMnemonic(const SecureVector& mnemonic, const SecureVector& mnemonic_passphrase, bool fUpdateID)
 {
-    return SetMnemonic(SecureString(vchMnemonic.begin(), vchMnemonic.end()), SecureString(vchMnemonicPassphrase.begin(), vchMnemonicPassphrase.end()), fUpdateID);
+    return SetMnemonic(SecureString(mnemonic.begin(), mnemonic.end()), SecureString(mnemonic_passphrase.begin(), mnemonic_passphrase.end()), fUpdateID);
 }
 
 bool CHDChain::SetMnemonic(const SecureString& ssMnemonic, const SecureString& ssMnemonicPassphrase, bool fUpdateID)

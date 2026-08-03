@@ -61,7 +61,6 @@ SUPPRESSED_WARNINGS = (
     "knownConditionTrueFalse",
     "missingOverride",
     "shadowFunction",
-    "shadowMember",
     "uninitMemberVarNoCtor",
     "useStlAlgorithm",
 )
