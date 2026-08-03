@@ -366,20 +366,34 @@ bool CSigningManager::GetRecoveredSigForGetData(const uint256& hash, CRecoveredS
 void CSigningManager::VerifyAndProcessRecoveredSig(NodeId from, std::shared_ptr<CRecoveredSig> recoveredSig)
 {
     auto llmq_type = recoveredSig->getLlmqType();
-    auto quorum = qman.GetQuorum(llmq_type, recoveredSig->getQuorumHash());
+    const uint256& quorum_hash = recoveredSig->getQuorumHash();
 
-    if (!quorum) {
-        LogPrint(BCLog::LLMQ, "CSigningManager::%s -- quorum %s not found\n", __func__,
-                 recoveredSig->getQuorumHash().ToString());
-        return;
-    }
-    if (!IsQuorumActive(llmq_type, qman, quorum->qc->quorumHash)) {
+    // Cheap gate first. IsQuorumActive is bounded to the keepOldConnections most recent
+    // quorums at the tip, and that set is shared and cached across callers. GetQuorum, by
+    // contrast, takes the peer-supplied hash and can rebuild an arbitrary historical mined
+    // commitment (DMN list replay + member selection) on a cache miss — do not let an
+    // unsolicited QSIGREC force that work for inactive hashes.
+    // Caller (NetSigning) has already rejected unknown llmq types.
+    if (!IsQuorumActive(llmq_type, qman, quorum_hash)) {
         return;
     }
 
     // It's important to only skip seen *valid* sig shares here. See comment for CBatchedSigShare
     // We don't receive recovered sigs in batches, but we do batched verification per node on these
     if (db.HasRecoveredSigForHash(recoveredSig->GetHash())) {
+        return;
+    }
+
+    // Once IsQuorumActive has passed, quorum_hash is one of the recent quorums ScanQuorums
+    // covers, so this is usually served from cache. ScanQuorums and GetQuorum keep separate
+    // LRUs, so a rebuild is still possible here, but only of a recent quorum — never of the
+    // arbitrary historical one a peer could otherwise name.
+    auto quorum = qman.GetQuorum(llmq_type, quorum_hash);
+    if (!quorum) {
+        // Reported active by ScanQuorums but no longer materializable (e.g. reorg).
+        // Not peer-controlled once the hash is restricted to the active set, so no score.
+        LogPrint(BCLog::LLMQ, "CSigningManager::%s -- quorum %s not found\n", __func__,
+                 quorum_hash.ToString());
         return;
     }
 
