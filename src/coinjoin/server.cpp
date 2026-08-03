@@ -758,12 +758,26 @@ bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& 
         return false;
     }
 
-    // start new session
-    nMessageIDRet = MSG_NOERR;
-    nSessionID = GetRand<int>(/*nMax=*/999999) + 1;
-    nSessionDenom = dsa.nDenom;
+    {
+        LOCK(cs_coinjoin);
 
-    SetState(POOL_STATE_QUEUE);
+        // A scheduler-thread timeout can reset the session via SetNull() between the checks
+        // above and taking cs_coinjoin, so revalidate: the session state and the collateral
+        // that opened it have to be committed as one unit.
+        if (nSessionID != 0 || nState != POOL_STATE_IDLE) {
+            nMessageIDRet = ERR_MODE;
+            return false;
+        }
+
+        // start new session
+        nMessageIDRet = MSG_NOERR;
+        nSessionID = GetRand<int>(/*nMax=*/999999) + 1;
+        nSessionDenom = dsa.nDenom;
+
+        SetState(POOL_STATE_QUEUE);
+
+        vecSessionCollaterals.push_back(MakeTransactionRef(dsa.txCollateral));
+    }
 
     if (!fUnitTest) {
         //broadcast that I'm accepting entries, only if it's the first entry through
@@ -775,7 +789,6 @@ bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& 
         m_queueman.AddQueue(std::move(dsq));
     }
 
-    vecSessionCollaterals.push_back(MakeTransactionRef(dsa.txCollateral));
     LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CreateNewSession -- new session created, nSessionID: %d  nSessionDenom: %d (%s)  vecSessionCollaterals.size(): %d  CoinJoin::GetMaxPoolParticipants(): %d\n",
         nSessionID, nSessionDenom, CoinJoin::DenominationToString(nSessionDenom), vecSessionCollaterals.size(), CoinJoin::GetMaxPoolParticipants());
 
@@ -801,6 +814,16 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolM
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- incompatible denom %d (%s) != nSessionDenom %d (%s)\n",
             dsa.nDenom, CoinJoin::DenominationToString(dsa.nDenom), nSessionDenom, CoinJoin::DenominationToString(nSessionDenom));
         nMessageIDRet = ERR_DENOM;
+        return false;
+    }
+
+    LOCK(cs_coinjoin);
+
+    // A scheduler-thread timeout can reset the session via SetNull() between the checks above
+    // and taking cs_coinjoin, so revalidate: a collateral must never be committed to a session
+    // that no longer exists.
+    if (nSessionID == 0 || nState != POOL_STATE_QUEUE) {
+        nMessageIDRet = ERR_MODE;
         return false;
     }
 
