@@ -292,9 +292,9 @@ public:
     }
     bool processVoteAndRelay(const CGovernanceVote& vote, std::string& error) override
     {
-        if (context().govman != nullptr && context().connman != nullptr) {
+        if (context().govman != nullptr) {
             CGovernanceException exception;
-            bool result = context().govman->ProcessVoteAndRelay(vote, exception, *context().connman);
+            bool result = context().govman->ProcessVoteAndRelay(vote, exception);
             if (!result) {
                 error = exception.GetMessage();
             }

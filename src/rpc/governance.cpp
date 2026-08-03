@@ -466,8 +466,7 @@ static UniValue VoteWithMasternodes(const JSONRPCRequest& request, const CWallet
         }
 
         CGovernanceException exception;
-        CConnman& connman = EnsureConnman(node);
-        if (node.govman->ProcessVoteAndRelay(vote, exception, connman)) {
+        if (node.govman->ProcessVoteAndRelay(vote, exception)) {
             nSuccessful++;
             statusObj.pushKV("result", "success");
         } else {
@@ -932,10 +931,8 @@ static RPCHelpMan voteraw()
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Failure to verify vote.");
     }
 
-    CConnman& connman = EnsureConnman(node);
-
     CGovernanceException exception;
-    if (node.govman->ProcessVoteAndRelay(vote, exception, connman)) {
+    if (node.govman->ProcessVoteAndRelay(vote, exception)) {
         return "Voted successfully";
     } else {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Error voting : " + exception.GetMessage());

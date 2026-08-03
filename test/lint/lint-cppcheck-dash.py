@@ -55,7 +55,6 @@ SUPPRESSED_WARNINGS = (
     # the linter can be enforced. TODO: burn these down and re-enable them
     # one at a time. Note that any message matching ALWAYS_ENABLED_WARNINGS is
     # still reported even if its check id is listed here.
-    "constParameterReference",
     "duplInheritedMember",
     "functionStatic",
     "knownConditionTrueFalse",

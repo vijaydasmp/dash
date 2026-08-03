@@ -1449,7 +1449,7 @@ static bool CheckWalletOwnsKey(const CWallet* const pwallet, const CKeyID& keyID
 }
 #endif
 
-static UniValue BuildDMNListEntry(const CWallet* const pwallet, const CDeterministicMN& dmn, CMasternodeMetaMan& mn_metaman, bool detailed, const ChainstateManager& chainman, const CBlockIndex* pindex = nullptr)
+static UniValue BuildDMNListEntry(const CWallet* const pwallet, const CDeterministicMN& dmn, const CMasternodeMetaMan& mn_metaman, bool detailed, const ChainstateManager& chainman, const CBlockIndex* pindex = nullptr)
 {
     if (!detailed) {
         return dmn.proTxHash.ToString();
@@ -1538,7 +1538,7 @@ static RPCHelpMan protx_list()
     const ChainstateManager& chainman = EnsureChainman(node);
 
     CDeterministicMNManager& dmnman = *CHECK_NONFATAL(node.dmnman);
-    CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
+    const CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
 
     std::shared_ptr<CWallet> wallet{nullptr};
 #ifdef ENABLE_WALLET
@@ -1650,7 +1650,7 @@ static RPCHelpMan protx_info()
     const ChainstateManager& chainman = EnsureChainman(node);
 
     CDeterministicMNManager& dmnman = *CHECK_NONFATAL(node.dmnman);
-    CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
+    const CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
 
     std::shared_ptr<CWallet> wallet{nullptr};
 #ifdef ENABLE_WALLET
@@ -1913,7 +1913,7 @@ static UniValue evodb_verify_or_repair_impl(const JSONRPCRequest& request, bool 
     };
 
     // Call the dmnman method to do the work
-    auto recalc_result = dmnman.RecalculateAndRepairDiffs(start_index, stop_index, chainman, build_list_func, repair);
+    auto recalc_result = dmnman.RecalculateAndRepairDiffs(start_index, stop_index, build_list_func, repair);
 
     // Convert result to UniValue
     UniValue result(UniValue::VOBJ);

@@ -805,7 +805,7 @@ public:
         CDeterministicMNList& mnListRet)>;
 
     [[nodiscard]] RecalcDiffsResult RecalculateAndRepairDiffs(const CBlockIndex* start_index,
-                                                              const CBlockIndex* stop_index, ChainstateManager& chainman,
+                                                              const CBlockIndex* stop_index,
                                                               BuildListFromBlockFunc build_list_func, bool repair)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
     [[nodiscard]] bool IsRepaired() const;
@@ -828,7 +828,7 @@ private:
     std::vector<std::pair<uint256, CDeterministicMNListDiff>> RepairSnapshotPair(
         const CBlockIndex* from_index, const CBlockIndex* to_index, const CDeterministicMNList& from_snapshot,
         const CDeterministicMNList& to_snapshot, BuildListFromBlockFunc build_list_func, RecalcDiffsResult& result);
-    void WriteRepairedDiffs(const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs,
-                            RecalcDiffsResult& result) EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    void WriteRepairedDiffs(const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs)
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
 };
 #endif // BITCOIN_EVO_DETERMINISTICMNS_H

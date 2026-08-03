@@ -130,7 +130,7 @@ uint256 CHDChain::GetSeedHash()
 }
 
 //! Try to derive an extended key, throw if it fails.
-static void DeriveExtKey(CExtKey& key_in, unsigned int index, CExtKey& key_out)
+static void DeriveExtKey(const CExtKey& key_in, unsigned int index, CExtKey& key_out)
 {
     if (!key_in.Derive(key_out, index)) {
         throw std::runtime_error("Could not derive extended key");
