@@ -44,6 +44,7 @@ static SimpleUTXOMap BuildSimpleUtxoMap(const std::vector<CTransactionRef>& txs)
     for (size_t i = 0; i < txs.size(); i++) {
         auto& tx = txs[i];
         for (size_t j = 0; j < tx->vout.size(); j++) {
+            if (tx->vout[j].scriptPubKey.IsUnspendable()) continue;
             utxos.emplace(COutPoint(tx->GetHash(), j), Coin(tx->vout[j], static_cast<int>(i) + 1, /*fCoinBaseIn=*/false));
         }
     }
