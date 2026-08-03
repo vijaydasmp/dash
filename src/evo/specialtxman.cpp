@@ -293,6 +293,7 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
 {
     // Verify that prevList either represents an empty/initial state (default-constructed),
     // or it matches the previous block's hash.
+    // cppcheck-suppress assertWithSideEffect
     assert(prevList == CDeterministicMNList() || prevList.GetBlockHash() == pindexPrev->GetBlockHash());
 
     int nHeight = pindexPrev->nHeight + 1;
