@@ -161,6 +161,7 @@ public:
         return IsValid();
     }
 
+    // cppcheck-suppress functionStatic
     inline void Serialize(CSizeComputer& s) const
     {
         s.seek(SerSize);
@@ -435,6 +436,7 @@ public:
         return *this;
     }
 
+    // cppcheck-suppress functionStatic
     inline void Serialize(CSizeComputer& s) const
     {
         s.seek(BLSObject::SerSize);

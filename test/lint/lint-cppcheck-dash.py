@@ -57,7 +57,6 @@ SUPPRESSED_WARNINGS = (
     # one at a time. Note that any message matching ALWAYS_ENABLED_WARNINGS is
     # still reported even if its check id is listed here.
     "duplInheritedMember",
-    "functionStatic",
     "shadowFunction",
     "uninitMemberVarNoCtor",
     "useStlAlgorithm",

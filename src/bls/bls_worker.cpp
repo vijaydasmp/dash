@@ -155,8 +155,8 @@ struct Aggregator : public std::enable_shared_from_this<Aggregator<T>> {
         }
     }
 
-    const T* pointer(const T& v) { return &v; }
-    const T* pointer(const T* v) { return v; }
+    static const T* pointer(const T& v) { return &v; }
+    static const T* pointer(const T* v) { return v; }
 
     // Starts aggregation.
     // If parallel=true, then this will return fast, otherwise this will block until aggregation is done
@@ -297,7 +297,7 @@ struct Aggregator : public std::enable_shared_from_this<Aggregator<T>> {
     }
 
     template <typename TP>
-    T SyncAggregate(Span<TP> vec, size_t start, size_t count)
+    static T SyncAggregate(Span<TP> vec, size_t start, size_t count)
     {
         T result = *vec[start];
         for (size_t j = 1; j < count; j++) {
