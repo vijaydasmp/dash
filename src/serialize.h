@@ -438,9 +438,21 @@ void WriteFixedBitSet(Stream& s, const std::vector<bool>& vec, size_t size)
 template<typename Stream>
 void ReadFixedBitSet(Stream& s, std::vector<bool>& vec, size_t size)
 {
+    const size_t nbytes = (size + 7) / 8;
+    // Bound the wire-declared length against the bytes actually left in the stream before
+    // allocating anything. Otherwise a handful of bytes declaring millions of bits forces a
+    // multi-megabyte resize and zero-fill that is only abandoned when the short read throws.
+    // A well-formed message always carries exactly the required bytes, so this rejects only
+    // claims that could never have been satisfied.
+    if constexpr (requires(const Stream& cs) { cs.size(); }) {
+        if (nbytes > s.size()) {
+            throw std::ios_base::failure("ReadFixedBitSet(): declared size exceeds remaining bytes");
+        }
+    }
+
     vec.resize(size);
 
-    std::vector<uint8_t> vBytes((size + 7) / 8);
+    std::vector<uint8_t> vBytes(nbytes);
     s.read(AsWritableBytes(Span{vBytes}));
     for (size_t p = 0; p < size; p++)
         vec[p] = (vBytes[p / 8] & (1 << (p % 8))) != 0;
