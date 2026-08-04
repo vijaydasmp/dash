@@ -183,11 +183,13 @@ void CActiveMasternodeManager::UpdatedBlockTip(const CBlockIndex* pindexNew, con
         try {
             oldMNList = m_dmnman.GetListForBlock(pindexNew->pprev);
             newMNList = m_dmnman.GetListForBlock(pindexNew);
-        } catch (const std::exception& e) {
-            // GetListForBlock throws when list data is unavailable. This
-            // callback runs on the scheduler thread, where an uncaught
-            // exception terminates the node; skip this tip update instead and
-            // let the next one retry.
+        } catch (const BlockDataUnavailableError& e) {
+            // This callback runs on the scheduler thread, where an uncaught
+            // exception terminates the node. Unavailable history is expected
+            // while a snapshot's background chainstate is still catching up, so
+            // skip this tip update and let the next one retry. Any other
+            // exception means local EvoDB/list corruption and must not be
+            // hidden, so it deliberately stays unhandled.
             LogPrintf("CActiveMasternodeManager::%s -- masternode list unavailable: %s\n", __func__, e.what());
             return;
         }

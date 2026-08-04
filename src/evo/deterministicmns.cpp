@@ -813,7 +813,7 @@ CDeterministicMNList CDeterministicMNManager::GetListForBlockInternal(gsl::not_n
                 // the current DIP3 activation height (e.g. the functional-test
                 // cached chain) bootstraps an empty list here and rebuilds via
                 // ProcessBlock from that point on.
-                throw std::runtime_error(strprintf(
+                throw BlockDataUnavailableError(strprintf(
                     "CDeterministicMNManager::%s -- masternode list diff for block %s is not available (pruned or below an unvalidated snapshot base)",
                     __func__, pindex->GetBlockHash().ToString()));
             }

@@ -198,10 +198,11 @@ bool BuildSimplifiedMNListDiff(CDeterministicMNManager& dmnman, const Chainstate
     try {
         baseDmnList = dmnman.GetListForBlock(baseBlockIndex);
         dmnList = dmnman.GetListForBlock(blockIndex);
-    } catch (const std::exception& e) {
+    } catch (const BlockDataUnavailableError& e) {
         // e.g. a list diff pending in another chainstate's unflushed overlay;
         // the message carries the IsBlockDataUnavailableError sentinel so the
-        // requesting peer is not penalized.
+        // requesting peer is not penalized. Local list corruption throws a plain
+        // runtime_error and deliberately stays unhandled, as before this change.
         errorRet = e.what();
         return false;
     }

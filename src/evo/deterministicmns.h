@@ -25,6 +25,7 @@
 #include <atomic>
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -682,6 +683,18 @@ struct MNListUpdates
     CDeterministicMNList old_list;
     CDeterministicMNList new_list;
     CDeterministicMNListDiff diff;
+};
+
+/** Thrown when the masternode list for a block cannot be reconstructed because
+ *  the data is not on this node yet (pruned, or below an unvalidated snapshot
+ *  base, or pending in another chainstate's unflushed EvoDB overlay). Distinct
+ *  from the plain std::runtime_error that CDeterministicMNList::ApplyDiff
+ *  raises for genuine local corruption, which must never be swallowed.
+ *  The message carries the sentinel matched by IsBlockDataUnavailableError(). */
+class BlockDataUnavailableError : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
 };
 
 class CDeterministicMNManager

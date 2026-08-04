@@ -141,10 +141,13 @@ std::optional<const CGovernanceObject> GovernanceSigner::CreateGovernanceTrigger
     CDeterministicMNList mnList;
     try {
         mnList = m_dmnman.GetListForBlock(tip);
-    } catch (const std::exception& e) {
-        // GetListForBlock throws when list data is unavailable. This runs on
-        // the scheduler thread, where an uncaught exception terminates the
-        // node; skip this trigger attempt instead.
+    } catch (const BlockDataUnavailableError& e) {
+        // This runs on the scheduler thread, where an uncaught exception
+        // terminates the node. Unavailable history is expected while a
+        // snapshot's background chainstate is still catching up, so skip this
+        // trigger attempt. Any other exception means local EvoDB/list
+        // corruption and must not be hidden, so it deliberately stays
+        // unhandled.
         LogPrint(BCLog::GOBJECT, "%s -- masternode list unavailable: %s\n", __func__, e.what());
         return std::nullopt;
     }
