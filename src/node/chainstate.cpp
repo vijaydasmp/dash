@@ -65,6 +65,15 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
     // Load the fully validated chainstate.
     chainman.InitializeChainstate(options.mempool, *evodb, chain_helper);
 
+    // Wiping the shared EvoDB above erased the SNAPSHOT best-block marker that
+    // ActivateExistingSnapshot() requires, so a persisted snapshot chainstate can
+    // no longer be revived. Discard it here rather than letting startup fail with
+    // advice ("reindex") the user has just followed, which would never recover.
+    if (to_wipe_data && !DeleteSnapshotChainstateFromDisk()) {
+        return {ChainstateLoadStatus::FAILURE,
+                _("Failed to remove the snapshot chainstate directory. Remove it manually before restarting.")};
+    }
+
     // Load a chain created from a UTXO snapshot, if any exist.
     bilingual_str snapshot_error;
     if (!chainman.DetectSnapshotChainstate(options.mempool, snapshot_error)) {

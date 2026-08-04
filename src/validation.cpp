@@ -5448,6 +5448,19 @@ static bool DeleteCoinsDBFromDisk(const fs::path db_path, bool is_snapshot)
     return destroyed && !fs::exists(db_path);
 }
 
+bool DeleteSnapshotChainstateFromDisk()
+{
+    AssertLockHeld(::cs_main);
+
+    auto snapshot_datadir = node::FindSnapshotChainstateDir();
+    if (!snapshot_datadir) {
+        return true;
+    }
+    LogPrintf("[snapshot] discarding persisted snapshot chainstate at %s\n",
+              fs::PathToString(*snapshot_datadir));
+    return DeleteCoinsDBFromDisk(*snapshot_datadir, /*is_snapshot=*/true);
+}
+
 bool ChainstateManager::ActivateSnapshot(
         AutoFile& coins_file,
         const SnapshotMetadata& metadata,
@@ -5523,6 +5536,21 @@ bool ChainstateManager::ActivateSnapshot(
     if (!snapshot_ok) {
         LOCK(::cs_main);
         this->MaybeRebalanceCaches();
+
+        // PopulateAndValidateSnapshot commits the snapshot best-block and
+        // dual-chainstate markers as its last step, so a later failure (e.g.
+        // WriteSnapshotBaseBlockhash on an unwritable datadir) would leave them
+        // behind on a node that is back to a single chainstate. Erasing them is
+        // a no-op when they were never written.
+        CEvoDB& evo_db = this->ActiveChainstate().m_evoDb;
+        {
+            auto db_tx = evo_db.BeginTransaction(EvoDbIdentity::SNAPSHOT);
+            evo_db.EraseSnapshotMarkers();
+            db_tx->Commit();
+        }
+        if (!evo_db.CommitRootTransaction(EvoDbIdentity::SNAPSHOT)) {
+            AbortNode("Failed to roll back the snapshot EvoDB markers");
+        }
 
         // PopulateAndValidateSnapshot can return (in error) before the leveldb datadir
         // has been created, so only attempt removal if we got that far.

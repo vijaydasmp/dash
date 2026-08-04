@@ -240,6 +240,12 @@ public:
     void WriteBestBlock(EvoDbIdentity identity, const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs);
     void WriteDualChainstateMarker() EXCLUSIVE_LOCKS_REQUIRED(!cs);
     bool HasDualChainstateMarker() EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    //! Undo WriteBestBlock(SNAPSHOT) and WriteDualChainstateMarker(). Needed
+    //! when snapshot activation is abandoned after those markers were already
+    //! committed: a stale dual-chainstate marker turns supported legacy
+    //! bootstrapping into "unavailable history", and a stale SNAPSHOT marker
+    //! would let a later snapshot directory pass ActivateExistingSnapshot().
+    void EraseSnapshotMarkers() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     bool VerifyBestBlock(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs) { return VerifyBestBlock(EvoDbIdentity::NORMAL, hash); }
     void WriteBestBlock(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs) { WriteBestBlock(EvoDbIdentity::NORMAL, hash); }

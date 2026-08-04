@@ -833,4 +833,26 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init_missing_evodb_marker, Sn
     this->LoadVerifyActivateChainstate();
 }
 
+//! Reindexing wipes the shared EvoDB, taking the SNAPSHOT best-block marker with
+//! it. Startup must discard the persisted snapshot chainstate too, or every
+//! subsequent start would fail on the erased marker and tell the user to reindex.
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_discarded_on_reindex, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    BOOST_REQUIRE(node::FindSnapshotChainstateDir());
+
+    this->SimulateNodeRestart();
+    m_args.ForceSetArg("-reindex-chainstate", "1");
+    this->LoadVerifyActivateChainstate();
+    m_args.ForceSetArg("-reindex-chainstate", "0");
+
+    ChainstateManager& reindexed = *Assert(m_node.chainman);
+    LOCK(::cs_main);
+    BOOST_CHECK(!node::FindSnapshotChainstateDir());
+    BOOST_CHECK(!reindexed.IsSnapshotActive());
+    BOOST_CHECK_EQUAL(reindexed.GetAll().size(), 1);
+    uint256 stale_marker;
+    BOOST_CHECK(!m_node.evodb->ReadBestBlock(EvoDbIdentity::SNAPSHOT, stale_marker));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

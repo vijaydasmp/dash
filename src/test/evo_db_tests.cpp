@@ -230,4 +230,35 @@ BOOST_AUTO_TEST_CASE(open_transaction_does_not_capture_other_threads)
     BOOST_CHECK(other_thread == PayloadFor(30));
 }
 
+BOOST_AUTO_TEST_CASE(snapshot_markers_can_be_discarded)
+{
+    const fs::path path = m_args.GetDataDirBase() / "evodb_marker_rollback";
+    {
+        CEvoDB db{util::DbWrapperParams{.path = path, .memory = false, .wipe = true}};
+        WriteMarker(db, EvoDbIdentity::SNAPSHOT, BlockHash(40));
+        {
+            auto tx = db.BeginTransaction(EvoDbIdentity::SNAPSHOT);
+            db.WriteDualChainstateMarker();
+            tx->Commit();
+        }
+        BOOST_REQUIRE(db.CommitRootTransaction(EvoDbIdentity::SNAPSHOT));
+        BOOST_REQUIRE(db.HasDualChainstateMarker());
+
+        // Abandoning snapshot activation after the markers were committed must
+        // leave no trace: a stale dual-chainstate marker breaks legacy
+        // bootstrapping and a stale best-block marker would revive a future
+        // snapshot directory.
+        {
+            auto tx = db.BeginTransaction(EvoDbIdentity::SNAPSHOT);
+            db.EraseSnapshotMarkers();
+            tx->Commit();
+        }
+        BOOST_REQUIRE(db.CommitRootTransaction(EvoDbIdentity::SNAPSHOT));
+    }
+    CEvoDB reopened{util::DbWrapperParams{.path = path, .memory = false, .wipe = false}};
+    uint256 hash;
+    BOOST_CHECK(!reopened.ReadBestBlock(EvoDbIdentity::SNAPSHOT, hash));
+    BOOST_CHECK(!reopened.HasDualChainstateMarker());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -140,3 +140,11 @@ bool CEvoDB::HasDualChainstateMarker()
     LOCK(cs);
     return db->Exists(EVODB_DUAL_CHAINSTATE);
 }
+
+void CEvoDB::EraseSnapshotMarkers()
+{
+    LOCK(cs);
+    auto& transaction = GetContext(GetCurrentIdentity()).cur_transaction;
+    transaction.Erase(std::make_pair(EVODB_BEST_BLOCK, uint8_t{1}));
+    transaction.Erase(EVODB_DUAL_CHAINSTATE);
+}
