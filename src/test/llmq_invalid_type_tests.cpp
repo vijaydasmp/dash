@@ -9,6 +9,7 @@
 #include <llmq/context.h>
 #include <llmq/params.h>
 #include <llmq/quorumsman.h>
+#include <llmq/signing.h>
 #include <llmq/utils.h>
 #include <saltedhasher.h>
 #include <sync.h>
@@ -81,6 +82,21 @@ BOOST_FIXTURE_TEST_CASE(get_quorum_unknown_llmq_type_is_safe, RegTestingSetup)
 
     BOOST_CHECK(qman.GetQuorum(UNKNOWN_LLMQ_TYPE, tip_hash) == nullptr);
     BOOST_CHECK(qman.GetQuorum(UNREGISTERED_LLMQ_TYPE, tip_hash) == nullptr);
+}
+
+// IsQuorumActive used to assert(GetLLMQ(...).has_value()). Wire-derived types can
+// reach it if a caller reorders checks or omits the net-layer type gate; treat
+// unregistered types as inactive instead of aborting.
+BOOST_FIXTURE_TEST_CASE(is_quorum_active_unknown_llmq_type_is_safe, RegTestingSetup)
+{
+    const auto& qman = *Assert(Assert(m_node.llmq_ctx)->qman);
+    const uint256 tip_hash = WITH_LOCK(::cs_main, return Assert(m_node.chainman->ActiveTip())->GetBlockHash());
+
+    BOOST_REQUIRE(!Params().GetLLMQ(UNKNOWN_LLMQ_TYPE).has_value());
+    BOOST_REQUIRE(!Params().GetLLMQ(UNREGISTERED_LLMQ_TYPE).has_value());
+
+    BOOST_CHECK(!llmq::IsQuorumActive(UNKNOWN_LLMQ_TYPE, qman, tip_hash));
+    BOOST_CHECK(!llmq::IsQuorumActive(UNREGISTERED_LLMQ_TYPE, qman, tip_hash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
