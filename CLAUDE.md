@@ -176,6 +176,7 @@ For these areas, prefer small tests that prove the invariant being changed.
 
 ## PR Hygiene
 
+- When creating pull requests, automated agents must follow `.github/PULL_REQUEST_TEMPLATE.md` for the description and ensure the PR title satisfies the active linter in `.github/workflows/semantic-pull-request.yml` (using Conventional Commits).
 - Use atomic commits. Each commit should make sense on its own and generally
   build and pass tests. An intentionally non-building commit (e.g. a
   regression test landing before its fix) is fine if called out explicitly so
