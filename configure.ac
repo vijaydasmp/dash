@@ -1228,16 +1228,10 @@ if test "$enable_stacktraces" != "no"; then
       ])
     fi
     BACKTRACE_LIBS="$BACKTRACE_LIBS -lbacktrace"
-    dnl More modern compilers may emit DWARF 5 binaries by default, use DWARF 4 out of precaution
-    if test "$TARGET_OS" != "windows"; then
-      AX_CHECK_COMPILE_FLAG([-gdwarf-4], [BACKTRACE_FLAGS="$BACKTRACE_FLAGS -gdwarf-4"], [
-        if test "$enable_stacktraces" = "yes"; then
-          AC_MSG_ERROR([--enable-stacktraces was specified but cannot set -gdwarf-4])
-        fi
-        AC_MSG_WARN([cannot set -gdwarf-4, stacktraces will be disabled])
-        enable_stacktraces=no
-      ], [$CXXFLAG_WERROR])
-    fi
+    dnl The libbacktrace pinned in depends understands DWARF 5, so the
+    dnl compiler's default debug format is used as-is. A -gdwarf-4 pin
+    dnl previously lived here and, being a -g-family flag, also forced
+    dnl debug level 2 onto every build.
     if test "$TARGET_OS" = "darwin"; then
       AX_CHECK_COMPILE_FLAG([-fno-standalone-debug], [BACKTRACE_FLAGS="$BACKTRACE_FLAGS -fno-standalone-debug"], [
         if test "$enable_stacktraces" = "yes"; then

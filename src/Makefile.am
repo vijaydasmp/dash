@@ -10,9 +10,10 @@ print-%: FORCE
 DIST_SUBDIRS = secp256k1
 
 AM_LDFLAGS = $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(SANITIZER_LDFLAGS) $(CORE_LDFLAGS) $(BACKTRACE_LDFLAGS)
-# BACKTRACE_FLAGS must precede the debug-level flags: -gdwarf-4 pins the DWARF
-# version but also implies -g2, so the intended level (DEBUG_*FLAGS' -g1 floor,
-# --enable-debug's -g3, or the user's CXXFLAGS) must come later to take effect.
+# BACKTRACE_FLAGS must precede the debug-level flags: -g-family members placed
+# there (e.g. a -gdwarf-N version pin) imply -g2, so the intended level
+# (DEBUG_*FLAGS' -g1 floor, --enable-debug's -g3, or the user's CXXFLAGS) must
+# come later to take effect.
 AM_CFLAGS = $(BACKTRACE_FLAGS) $(DEBUG_CFLAGS)
 AM_CXXFLAGS = $(BACKTRACE_FLAGS) $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(WARN_CXXFLAGS) $(NOWARN_CXXFLAGS) $(ERROR_CXXFLAGS) $(SANITIZER_CXXFLAGS) $(CORE_CXXFLAGS)
 AM_OBJCXXFLAGS = $(AM_CXXFLAGS)
