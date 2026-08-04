@@ -57,6 +57,7 @@ darwin_STRIP=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-strip")
 #         in the SDK, where __has_feature(modules) is used to define USE_CLANG_TYPES,
 #         which is in turn used as an include guard.
 
+# TODO: remove C_INCLUDE_PATH/darwin_env_unset when bitcoin#30451 is fully backported.
 # C_INCLUDE_PATH/CPLUS_INCLUDE_PATH leak native-toolchain headers into the
 # darwin cross-build and conflict with the SDK headers. Guix exports them
 # (contrib/guix/libexec/build.sh), so strip them there with an `env -u`
