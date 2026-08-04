@@ -12,6 +12,7 @@
 #include <map>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 
 class uint256;
 namespace util {
@@ -87,7 +88,14 @@ private:
     };
 
     std::map<EvoDbIdentity, std::unique_ptr<TransactionContext>> transaction_contexts GUARDED_BY(cs);
+    // The open transaction belongs to the thread that began it: it is the
+    // identity of one validation execution context, not of the process. Other
+    // threads reading concurrently (RPC, P2P serving, quorum construction after
+    // it has released cs_main) must keep resolving against m_default_identity,
+    // or a background NORMAL transaction would silently redirect them away from
+    // the active snapshot's overlay.
     std::optional<EvoDbIdentity> active_transaction GUARDED_BY(cs);
+    std::thread::id active_transaction_thread GUARDED_BY(cs);
     // Identity used by reads and writes outside any transaction. Tracks the
     // active chainstate so transaction-less consumers (RPC, mempool, miner,
     // P2P serving) resolve against active-chain state rather than always

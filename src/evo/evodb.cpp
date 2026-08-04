@@ -58,7 +58,10 @@ const CEvoDB::TransactionContext& CEvoDB::GetContext(EvoDbIdentity identity) con
 
 EvoDbIdentity CEvoDB::GetCurrentIdentity() const
 {
-    return active_transaction.value_or(m_default_identity);
+    if (active_transaction.has_value() && active_transaction_thread == std::this_thread::get_id()) {
+        return *active_transaction;
+    }
+    return m_default_identity;
 }
 
 std::unique_ptr<CEvoDBScopedCommitter> CEvoDB::BeginTransaction(EvoDbIdentity identity)
@@ -66,6 +69,7 @@ std::unique_ptr<CEvoDBScopedCommitter> CEvoDB::BeginTransaction(EvoDbIdentity id
     LOCK(cs);
     assert(!active_transaction.has_value());
     active_transaction = identity;
+    active_transaction_thread = std::this_thread::get_id();
     GetContext(identity);
     return std::make_unique<CEvoDBScopedCommitter>(*this, identity);
 }

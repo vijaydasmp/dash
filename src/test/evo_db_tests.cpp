@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -203,6 +204,30 @@ BOOST_AUTO_TEST_CASE(normal_marker_preserves_legacy_key_bytes)
     BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.end(), expected.begin(), expected.end());
     it->Next();
     BOOST_CHECK(!it->Valid());
+}
+
+BOOST_AUTO_TEST_CASE(open_transaction_does_not_capture_other_threads)
+{
+    CEvoDB db{util::DbWrapperParams{.path = m_args.GetDataDirBase() / "evodb_tx_thread", .memory = true, .wipe = true}};
+    db.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
+    WritePayload(db, EvoDbIdentity::SNAPSHOT, 30);
+
+    // A transaction is one validation execution context, not a process-wide
+    // mode: while the background chainstate holds a NORMAL transaction open,
+    // concurrent transaction-less readers must still see the active snapshot's
+    // overlay.
+    auto tx = db.BeginTransaction(EvoDbIdentity::NORMAL);
+    Payload same_thread;
+    BOOST_CHECK(!db.Read(PayloadKey(30), same_thread));
+
+    Payload other_thread;
+    bool other_thread_read{false};
+    std::thread reader{[&] { other_thread_read = db.Read(PayloadKey(30), other_thread); }};
+    reader.join();
+    tx->Commit();
+
+    BOOST_REQUIRE(other_thread_read);
+    BOOST_CHECK(other_thread == PayloadFor(30));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
