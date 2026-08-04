@@ -153,10 +153,23 @@ namespace {
 //! ConnectBlock switches the scheme while validating a block across the V19
 //! boundary; this keeps a failed or dry-run validation from leaking that
 //! change into the process-wide flag.
+//!
+//! `enter` establishes the scheme for the scope. The flag is process-wide but
+//! the correct value is per-chainstate, so a background chainstate validating
+//! pre-V19 blocks under an active post-V19 snapshot must set it on entry
+//! (ProcessSpecialTxsInBlock only ever switches legacy->basic) and must not
+//! commit it back to the active chainstate's consumers.
 class ScopedBLSLegacyScheme
 {
 public:
-    ScopedBLSLegacyScheme() noexcept : m_saved(bls::bls_legacy_scheme.load()) {}
+    explicit ScopedBLSLegacyScheme(std::optional<bool> enter = std::nullopt) noexcept :
+        m_saved(bls::bls_legacy_scheme.load())
+    {
+        if (enter.has_value() && *enter != m_saved) {
+            bls::bls_legacy_scheme.store(*enter);
+            LogPrintf("ScopedBLSLegacyScheme: entered bls_legacy_scheme=%d\n", *enter);
+        }
+    }
     ~ScopedBLSLegacyScheme() noexcept
     {
         if (!m_committed && m_saved != bls::bls_legacy_scheme.load()) {
@@ -2169,8 +2182,14 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
 
     assert(m_chain_helper);
 
-    // Roll back any BLS scheme switch below unless we fully connect the block.
-    ScopedBLSLegacyScheme bls_scheme_guard;
+    // The scheme in force while a block is processed is the one its parent left
+    // behind; ProcessSpecialTxsInBlock flips it to basic afterwards when V19
+    // activates. Establish it here rather than inheriting the caller's, because
+    // a background chainstate connects pre-V19 blocks while the active snapshot
+    // chainstate has already moved the process-wide flag to basic. Rolled back
+    // below unless we fully connect the block.
+    ScopedBLSLegacyScheme bls_scheme_guard{
+        !DeploymentActiveAt(*pindex, m_params.GetConsensus(), Consensus::DEPLOYMENT_V19)};
 
     // Check it again in case a previous version let a bad block in
     // NOTE: We don't currently (re-)invoke ContextualCheckBlock() or
@@ -2855,10 +2874,14 @@ bool Chainstate::DisconnectTip(BlockValidationState& state, DisconnectedBlockTra
     if (!ReadBlockFromDisk(block, pindexDelete, m_params.GetConsensus())) {
         return error("DisconnectTip(): Failed to read block");
     }
-    // DisconnectBlock may switch the BLS scheme back while the tip still points
-    // at the disconnected block. Restore it if disconnect post-processing fails
-    // before m_chain.SetTip() moves the active tip backward.
-    ScopedBLSLegacyScheme bls_scheme_guard;
+    // UndoSpecialTxsInBlock does its undo work under the scheme that will be in
+    // force once this block is gone, but it only ever switches basic -> legacy.
+    // Establish that scheme here for the same reason ConnectBlock does, so the
+    // invariant holds in both directions instead of depending on the caller. Also
+    // restores it if disconnect post-processing fails before m_chain.SetTip()
+    // moves the tip backward.
+    ScopedBLSLegacyScheme bls_scheme_guard{
+        !DeploymentActiveAt(*pindexDelete, m_params.GetConsensus(), Consensus::DEPLOYMENT_V19)};
     // Apply the block atomically to the chain state.
     int64_t nStart = GetTimeMicros();
     {
@@ -2904,7 +2927,10 @@ bool Chainstate::DisconnectTip(BlockValidationState& state, DisconnectedBlockTra
     }
 
     m_chain.SetTip(*pindexDelete->pprev);
-    bls_scheme_guard.Commit();
+    // Only the active chainstate's tip may define the process-wide scheme; a
+    // background disconnect across V19 must not leave the active chain's
+    // consumers on legacy.
+    if (this == &m_chainman.ActiveChainstate()) bls_scheme_guard.Commit();
 
     UpdateTip(pindexDelete->pprev);
     // Let wallets know transactions went from 1-confirmed to
@@ -3044,7 +3070,10 @@ bool Chainstate::ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew,
     }
     // Update m_chain & related variables.
     m_chain.SetTip(*pindexNew);
-    bls_scheme_guard.Commit();
+    // Only the active chainstate's tip may define the process-wide scheme; a
+    // background connect below V19 must not leave the active chain's consumers
+    // on legacy.
+    if (this == &m_chainman.ActiveChainstate()) bls_scheme_guard.Commit();
     UpdateTip(pindexNew);
 
     int64_t nTime6 = GetTimeMicros(); nTimePostConnect += nTime6 - nTime5; nTimeTotal += nTime6 - nTime1;
