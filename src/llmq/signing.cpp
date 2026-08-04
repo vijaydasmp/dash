@@ -368,12 +368,8 @@ void CSigningManager::VerifyAndProcessRecoveredSig(NodeId from, std::shared_ptr<
     auto llmq_type = recoveredSig->getLlmqType();
     const uint256& quorum_hash = recoveredSig->getQuorumHash();
 
-    // Cheap gate first. IsQuorumActive is bounded to the keepOldConnections most recent
-    // quorums at the tip, and that set is shared and cached across callers. GetQuorum, by
-    // contrast, takes the peer-supplied hash and can rebuild an arbitrary historical mined
-    // commitment (DMN list replay + member selection) on a cache miss — do not let an
-    // unsolicited QSIGREC force that work for inactive hashes.
-    // Caller (NetSigning) has already rejected unknown llmq types.
+    // Cheap gate first: GetQuorum can rebuild an arbitrary historical quorum on a cache miss,
+    // so don't let an unsolicited QSIGREC force that work for an inactive hash.
     if (!IsQuorumActive(llmq_type, qman, quorum_hash)) {
         return;
     }
@@ -384,14 +380,9 @@ void CSigningManager::VerifyAndProcessRecoveredSig(NodeId from, std::shared_ptr<
         return;
     }
 
-    // Once IsQuorumActive has passed, quorum_hash is one of the recent quorums ScanQuorums
-    // covers, so this is usually served from cache. ScanQuorums and GetQuorum keep separate
-    // LRUs, so a rebuild is still possible here, but only of a recent quorum — never of the
-    // arbitrary historical one a peer could otherwise name.
     auto quorum = qman.GetQuorum(llmq_type, quorum_hash);
     if (!quorum) {
-        // Reported active by ScanQuorums but no longer materializable (e.g. reorg).
-        // Not peer-controlled once the hash is restricted to the active set, so no score.
+        // Active per ScanQuorums but no longer materializable (e.g. reorg); not peer-controlled, so no score.
         LogPrint(BCLog::LLMQ, "CSigningManager::%s -- quorum %s not found\n", __func__,
                  quorum_hash.ToString());
         return;
