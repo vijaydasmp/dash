@@ -11,13 +11,12 @@
 #include <governance/governance.h>
 #include <instantsend/instantsend.h>
 #include <masternode/sync.h>
-#include <util/check.h>
 #include <validation.h>
 
 
 CDSNotificationInterface::CDSNotificationInterface(CConnman& connman, CDSTXManager& dstxman, CMasternodeSync& mn_sync,
                                                    CGovernanceManager& govman, const ChainstateManager& chainman,
-                                                   const std::unique_ptr<CDeterministicMNManager>& dmnman) :
+                                                   CDeterministicMNManager& dmnman) :
     m_connman{connman},
     m_dstxman{dstxman},
     m_mn_sync{mn_sync},
@@ -50,7 +49,7 @@ void CDSNotificationInterface::SynchronousUpdatedBlockTip(const CBlockIndex *pin
     if (pindexNew == pindexFork) // blocks were disconnected without any new ones
         return;
 
-    Assert(m_dmnman)->UpdatedBlockTip(pindexNew);
+    m_dmnman.UpdatedBlockTip(pindexNew);
 }
 
 void CDSNotificationInterface::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
