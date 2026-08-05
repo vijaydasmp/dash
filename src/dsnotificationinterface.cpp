@@ -102,5 +102,3 @@ void CDSNotificationInterface::NotifyChainLock(const CBlockIndex* pindex,
         m_dstxman.NotifyChainLock(pindex);
     }
 }
-
-std::unique_ptr<CDSNotificationInterface> g_ds_notification_interface;

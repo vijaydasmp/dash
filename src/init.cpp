@@ -376,9 +376,9 @@ void PrepareShutdown(NodeContext& node)
         UnregisterValidationInterface(node.cj_walletman.get());
     }
 
-    if (g_ds_notification_interface) {
-        UnregisterValidationInterface(g_ds_notification_interface.get());
-        g_ds_notification_interface.reset();
+    if (node.ds_notification_interface) {
+        UnregisterValidationInterface(node.ds_notification_interface.get());
+        node.ds_notification_interface.reset();
     }
 
     // After all scheduled tasks have been flushed, destroy pointers
@@ -2101,10 +2101,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                                      node.dmnman, node.cj_walletman, node.llmq_ctx, ignores_incoming_txs);
     RegisterValidationInterface(node.peerman.get());
 
-    g_ds_notification_interface = std::make_unique<CDSNotificationInterface>(
+    node.ds_notification_interface = std::make_unique<CDSNotificationInterface>(
         *node.connman, *node.dstxman, *node.mn_sync, *node.govman, chainman, *node.dmnman
     );
-    RegisterValidationInterface(g_ds_notification_interface.get());
+    RegisterValidationInterface(node.ds_notification_interface.get());
 
     // ********************************************************* Step 7d: Setup other Dash services
 
@@ -2375,7 +2375,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                 // for quorum connection setup and skShare derivation.
                 // Only kick CDSNotificationInterface here (cached block
                 // height for DS/MN payments/budgets).
-                g_ds_notification_interface->InitializeCurrentBlockTip(tip, ibd);
+                node.ds_notification_interface->InitializeCurrentBlockTip(tip, ibd);
             } else {
                 // Non-masternode nodes (including observer-only): broadcast
                 // to all subscribers now; no proTxHash dependency.

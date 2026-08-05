@@ -48,6 +48,4 @@ private:
     CDeterministicMNManager& m_dmnman;
 };
 
-extern std::unique_ptr<CDSNotificationInterface> g_ds_notification_interface;
-
 #endif // BITCOIN_DSNOTIFICATIONINTERFACE_H
