@@ -18,8 +18,6 @@
 constexpr uint8_t DB_ADDRESSINDEX{'a'};
 constexpr uint8_t DB_ADDRESSUNSPENTINDEX{'u'};
 
-std::unique_ptr<AddressIndex> g_addressindex;
-
 AddressIndex::DB::DB(size_t n_cache_size, bool f_memory, bool f_wipe) :
     BaseIndex::DB(gArgs.GetDataDirNet() / "indexes" / "addressindex", n_cache_size, f_memory, f_wipe)
 {

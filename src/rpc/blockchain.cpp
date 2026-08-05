@@ -554,19 +554,20 @@ static RPCHelpMan getblockhashes()
         },
     [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    if (!g_timestampindex) {
+    const NodeContext& node = EnsureAnyNodeContext(request.context);
+    if (!node.timestamp_index) {
         throw JSONRPCError(RPC_MISC_ERROR, "Timestamp index is not enabled. Start with -timestampindex to enable.");
     }
 
-    if (!g_timestampindex->BlockUntilSyncedToCurrentChain()) {
-        throw JSONRPCError(RPC_MISC_ERROR, strprintf("Timestamp index is syncing. Current height: %d", g_timestampindex->GetSummary().best_block_height));
+    if (!node.timestamp_index->BlockUntilSyncedToCurrentChain()) {
+        throw JSONRPCError(RPC_MISC_ERROR, strprintf("Timestamp index is syncing. Current height: %d", node.timestamp_index->GetSummary().best_block_height));
     }
 
     unsigned int high = request.params[0].getInt<int>();
     unsigned int low = request.params[1].getInt<int>();
     std::vector<uint256> blockHashes;
 
-    if (!g_timestampindex->GetBlockHashes(high, low, blockHashes)) {
+    if (!node.timestamp_index->GetBlockHashes(high, low, blockHashes)) {
         throw JSONRPCError(RPC_MISC_ERROR, "Failed to read timestamp index.");
     }
 
@@ -2475,7 +2476,7 @@ static RPCHelpMan getspecialtxes()
             case 2 :
                 {
                     UniValue objTx(UniValue::VOBJ);
-                    TxToJSON(*tx, blockhash, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, g_spentindex.get(), objTx);
+                    TxToJSON(*tx, blockhash, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, node.spent_index.get(), objTx);
                     result.push_back(objTx);
                     break;
                 }

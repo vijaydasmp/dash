@@ -16,6 +16,9 @@
 #include <scheduler.h>
 #include <txmempool.h>
 #include <validation.h>
+#include <index/addressindex.h>
+#include <index/spentindex.h>
+#include <index/timestampindex.h>
 
 #include <active/context.h>
 #include <chainlock/chainlock.h>

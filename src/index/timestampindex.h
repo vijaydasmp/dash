@@ -61,7 +61,4 @@ public:
     bool GetBlockHashes(uint32_t high, uint32_t low, std::vector<uint256>& hashes) const;
 };
 
-/// Global TimestampIndex instance
-extern std::unique_ptr<TimestampIndex> g_timestampindex;
-
 #endif // BITCOIN_INDEX_TIMESTAMPINDEX_H

@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 
+class AddressIndex;
 class ArgsManager;
 class BanMan;
 class CActiveMasternodeManager;
@@ -35,6 +36,8 @@ class CSporkManager;
 class CTxMemPool;
 class NetGroupManager;
 class PeerManager;
+class SpentIndex;
+class TimestampIndex;
 struct ActiveContext;
 struct LLMQContext;
 
@@ -109,6 +112,10 @@ struct NodeContext {
     std::unique_ptr<ActiveContext> active_ctx;
     std::unique_ptr<LLMQContext> llmq_ctx;
     std::unique_ptr<llmq::ObserverContext> observer_ctx;
+    //! Dash indexes
+    std::unique_ptr<AddressIndex> address_index;
+    std::unique_ptr<SpentIndex> spent_index;
+    std::unique_ptr<TimestampIndex> timestamp_index;
 
     //! Declare default constructor and destructor that are not inline, so code
     //! instantiating the NodeContext struct doesn't need to #include class

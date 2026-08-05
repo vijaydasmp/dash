@@ -433,7 +433,7 @@ static RPCHelpMan getrawtransaction()
 
     UniValue result(UniValue::VOBJ);
     if (blockindex) result.pushKV("in_active_chain", in_active_chain);
-    TxToJSON(*tx, hash_block, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, g_spentindex.get(), result);
+    TxToJSON(*tx, hash_block, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, node.spent_index.get(), result);
     return result;
 },
     };
@@ -526,7 +526,7 @@ static RPCHelpMan getrawtransactionmulti() {
                 result.pushKV(txid_str, "None");
             } else if (fVerbose) {
                 UniValue tx_data{UniValue::VOBJ};
-                TxToJSON(*tx, hash_block, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, g_spentindex.get(), tx_data);
+                TxToJSON(*tx, hash_block, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, node.spent_index.get(), tx_data);
                 result.pushKV(txid_str, tx_data);
             } else {
                 result.pushKV(txid_str, EncodeHexTx(*tx));
