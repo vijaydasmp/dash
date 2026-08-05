@@ -33,12 +33,6 @@
 #include <optional>
 #include <ranges>
 
-// Forward declarations for index globals and utilities
-class AddressIndex;
-class SpentIndex;
-extern std::unique_ptr<AddressIndex> g_addressindex;
-extern std::unique_ptr<SpentIndex> g_spentindex;
-
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
 {
     AssertLockHeld(cs_main);
@@ -437,6 +431,8 @@ CTxMemPool::CTxMemPool(const Options& opts)
       m_permit_bare_multisig{opts.permit_bare_multisig},
       m_max_datacarrier_bytes{opts.max_datacarrier_bytes},
       m_require_standard{opts.require_standard},
+      m_address_index_enabled{opts.address_index_enabled},
+      m_spent_index_enabled{opts.spent_index_enabled},
       m_limits{opts.limits}
 {
     _clear(); //lock free clear
@@ -534,7 +530,7 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
 
 void CTxMemPool::addAddressIndex(const CTxMemPoolEntry& entry, const CCoinsViewCache& view)
 {
-    if (!g_addressindex) return;
+    if (!m_address_index_enabled) return;
 
     LOCK(cs);
     const CTransaction& tx = entry.GetTx();
@@ -604,7 +600,7 @@ void CTxMemPool::removeAddressIndex(const uint256 txhash)
 
 void CTxMemPool::addSpentIndex(const CTxMemPoolEntry& entry, const CCoinsViewCache& view)
 {
-    if (!g_spentindex) return;
+    if (!m_spent_index_enabled) return;
 
     LOCK(cs);
 
@@ -1792,7 +1788,6 @@ void CTxMemPool::SetLoadTried(bool load_tried)
     LOCK(cs);
     m_load_tried = load_tried;
 }
-
 
 std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
 {
