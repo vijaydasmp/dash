@@ -19,6 +19,7 @@
 #include <evo/chainhelper.h>
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
+#include <index/spentindex.h>
 #include <index/timestampindex.h>
 #include <index/txindex.h>
 #include <kernel/coinstats.h>
@@ -83,7 +84,7 @@ static GlobalMutex cs_blockchange;
 static std::condition_variable cond_blockchange;
 static CUpdatedBlock latestblock GUARDED_BY(cs_blockchange);
 
-extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, const CTxMemPool& mempool, const Chainstate& active_chainstate, const chainlock::Chainlocks& chainlocks, const llmq::CInstantSendManager& isman, UniValue& entry, TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS);
+extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, const CTxMemPool& mempool, const Chainstate& active_chainstate, const chainlock::Chainlocks& chainlocks, const llmq::CInstantSendManager& isman, const SpentIndex* spent_index, UniValue& entry, TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS);
 
 /* Calculate the difficulty for a given block index.
  */
@@ -2474,7 +2475,7 @@ static RPCHelpMan getspecialtxes()
             case 2 :
                 {
                     UniValue objTx(UniValue::VOBJ);
-                    TxToJSON(*tx, blockhash, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, objTx);
+                    TxToJSON(*tx, blockhash, mempool, chainman.ActiveChainstate(), *node.chainlocks, *llmq_ctx.isman, g_spentindex.get(), objTx);
                     result.push_back(objTx);
                     break;
                 }
