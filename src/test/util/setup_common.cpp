@@ -221,6 +221,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
     m_node.sporkman = std::make_unique<CSporkManager>();
     m_node.chainlocks = std::make_unique<chainlock::Chainlocks>(*m_node.sporkman);
     m_node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
+    m_node.dmnman = std::make_unique<CDeterministicMNManager>(*m_node.evodb, *m_node.mn_metaman);
 
     static bool noui_connected = false;
     if (!noui_connected) {
@@ -236,6 +237,7 @@ BasicTestingSetup::~BasicTestingSetup()
     SetMockTime(0s); // Reset mocktime for following tests
     LogInstance().DisconnectTestLogger();
     // Close disk-backed EvoDB before deleting its data directory.
+    m_node.dmnman.reset();
     m_node.evodb.reset();
     fs::remove_all(m_path_root);
     gArgs.ClearArgs();
@@ -300,7 +302,6 @@ node::ChainstateLoadOptions ChainTestingSetup::ChainstateLoadOptionsForTest()
 {
     node::ChainstateLoadOptions options;
     options.mempool = Assert(m_node.mempool.get());
-    options.mn_metaman = Assert(m_node.mn_metaman.get());
     options.sporkman = Assert(m_node.sporkman.get());
     options.chainlocks = Assert(m_node.chainlocks.get());
     options.mn_sync = Assert(m_node.mn_sync.get());
@@ -322,9 +323,19 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
 {
     auto& chainman{*Assert(m_node.chainman)};
 
-    const node::ChainstateLoadOptions options{ChainstateLoadOptionsForTest()};
+    node::ChainstateLoadOptions options{ChainstateLoadOptionsForTest()};
 
-    auto [status, error] = LoadChainstate(chainman, m_cache_sizes, options, m_node.evodb, m_node.dmnman, m_node.llmq_ctx,
+    if (options.reindex || options.reindex_chainstate) {
+        // A reindex wipes the Dash databases at open, which AppInitMain does by
+        // recreating them. Mirror that here.
+        m_node.dmnman.reset();
+        m_node.evodb.reset();
+        m_node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
+        m_node.dmnman = std::make_unique<CDeterministicMNManager>(*m_node.evodb, *m_node.mn_metaman);
+        options = ChainstateLoadOptionsForTest();
+    }
+
+    auto [status, error] = LoadChainstate(chainman, m_cache_sizes, options, *m_node.evodb, *m_node.dmnman, m_node.llmq_ctx,
                                           m_node.chain_helper);
     assert(status == node::ChainstateLoadStatus::SUCCESS);
 

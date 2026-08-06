@@ -1223,7 +1223,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_missing_base_fails_load, Snap
     {
         ASSERT_DEBUG_LOG("missing from the block index");
         std::tie(status, error) = node::LoadChainstate(chainman, m_cache_sizes, ChainstateLoadOptionsForTest(),
-                                                       m_node.evodb, m_node.dmnman, m_node.llmq_ctx,
+                                                       *m_node.evodb, *m_node.dmnman, m_node.llmq_ctx,
                                                        m_node.chain_helper);
     }
     BOOST_CHECK(status == node::ChainstateLoadStatus::FAILURE);

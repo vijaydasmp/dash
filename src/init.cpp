@@ -1949,6 +1949,13 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     LogPrintf("* Using %.1f MiB for in-memory UTXO set (plus up to %.1f MiB of unused mempool space)\n", cache_sizes.coins * (1.0 / 1024 / 1024), mempool_opts.max_size_bytes * (1.0 / 1024 / 1024));
 
     for (bool fLoaded = false; !fLoaded && !ShutdownRequested();) {
+        // On a retry iteration the previous instances still hold the on-disk
+        // database locks, so release them before opening the databases again.
+        node.dmnman.reset();
+        node.evodb.reset();
+        node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
+        node.dmnman = std::make_unique<CDeterministicMNManager>(*node.evodb, *node.mn_metaman);
+
         node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
 
         const ChainstateManager::Options chainman_opts{
@@ -1969,7 +1976,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
         node::ChainstateLoadOptions options;
         options.mempool = Assert(node.mempool.get());
-        options.mn_metaman = Assert(node.mn_metaman.get());
         options.sporkman = Assert(node.sporkman.get());
         options.chainlocks = Assert(node.chainlocks.get());
         options.mn_sync = Assert(node.mn_sync.get());
@@ -2008,7 +2014,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                 return std::make_tuple(node::ChainstateLoadStatus::FAILURE, _("Error opening block database"));
             }
         };
-        auto [status, error] = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, node.evodb, node.dmnman, node.llmq_ctx, node.chain_helper); });
+        auto [status, error] = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, *node.evodb, *node.dmnman, node.llmq_ctx, node.chain_helper); });
         if (status == node::ChainstateLoadStatus::SUCCESS) {
             uiInterface.InitMessage(_("Verifying blocks…").translated);
             if (chainman.m_blockman.m_have_pruned && options.check_blocks > MIN_BLOCKS_TO_KEEP) {
