@@ -22,6 +22,7 @@
 #include <chainlock/handler.h>
 #include <coinjoin/coinjoin.h>
 #include <coinjoin/walletman.h>
+#include <dsnotificationinterface.h>
 #include <evo/chainhelper.h>
 #include <evo/creditpool.h>
 #include <evo/deterministicmns.h>

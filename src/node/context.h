@@ -21,6 +21,7 @@ class AddrMan;
 class CBlockPolicyEstimator;
 class CConnman;
 class CDeterministicMNManager;
+class CDSNotificationInterface;
 class CDSTXManager;
 class CChainstateHelper;
 class ChainstateManager;
@@ -106,6 +107,7 @@ struct NodeContext {
     std::unique_ptr<chainlock::Chainlocks> chainlocks;
     std::unique_ptr<chainlock::ChainlockHandler> clhandler;
     //! Dash contexts
+    std::unique_ptr<CDSNotificationInterface> ds_notification_interface;
     std::unique_ptr<ActiveContext> active_ctx;
     std::unique_ptr<LLMQContext> llmq_ctx;
     std::unique_ptr<llmq::ObserverContext> observer_ctx;
