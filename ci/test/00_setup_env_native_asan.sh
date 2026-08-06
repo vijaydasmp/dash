@@ -11,6 +11,7 @@ export PACKAGES="clang-19 llvm-19 libclang-rt-19-dev python3-zmq qtbase5-dev qtt
 # Reuses the depends built for the linux64 target, which uses the defaults.
 export DEP_OPTS=""
 export TEST_RUNNER_EXTRA="--timeout-factor=4 -j2"  # Increase timeout because sanitizers slow down
+export CI_LIMIT_STACK_SIZE=1
 export GOAL="install"
 export BITCOIN_CONFIG="--enable-zmq --enable-crash-hooks --with-gui=qt5 --without-bdb --with-sqlite \
 --with-sanitizers=address,float-divide-by-zero,integer,undefined \
