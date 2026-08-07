@@ -2102,6 +2102,10 @@ void PeerManagerImpl::StartScheduledTasks(CScheduler& scheduler)
  */
 void PeerManagerImpl::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex)
 {
+    // Orphans included in or conflicted by the block can never be accepted, so drop them before
+    // reconsidering the ones the block may have just made acceptable.
+    m_orphanage.EraseForBlock(*pblock);
+
     // Candidates are sourced from a block and therefore cannot be attributed to a peer, we use -1 as the identifier
     bool have_candidates{true};
     {
@@ -2117,7 +2121,6 @@ void PeerManagerImpl::BlockConnected(const std::shared_ptr<const CBlock>& pblock
         }
     }
 
-    m_orphanage.EraseForBlock(*pblock);
     m_last_tip_update = GetTime<std::chrono::seconds>();
 
     {
