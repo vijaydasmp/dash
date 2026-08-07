@@ -1669,6 +1669,7 @@ struct TestMNChainSetup : public TestChainSetup {
         for (int i = 0; i < 2000 && !IsV24Active(); ++i) {
             ProcessBlock();
         }
+        BOOST_REQUIRE(IsV24Active());
     }
 
     ChainstateManager& chainman;
@@ -1783,7 +1784,6 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainV24SignalBeforeV19Setup& setu
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(tx_reg_b.GetHash()));
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // (a) A's service-update migration is rejected cleanly.
@@ -1849,7 +1849,6 @@ void FuncProUpServTxMigratesLegacy(TestChainV24SignalBeforeV19Setup& setup)
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // A BasicBLS service update migrates a legacy masternode in place: it keeps the same operator
     // key (re-encoded to the basic scheme), raises the version, and is NOT PoSe-banned -- no key
@@ -1896,49 +1895,7 @@ BOOST_AUTO_TEST_CASE(proupserv_migrates_legacy)
     FuncProUpServTxMigratesLegacy(setup);
 }
 
-// A legacy masternode migrates to the basic scheme keeping its operator key: SetStateVersion
-// re-encodes the key and UpdateMN re-keys the unique-property map, so no key rotation is forced.
-// A special transaction accepted into the mempool while it was valid is not evicted when a fork
-// activates a rule that invalidates it, and BlockAssembler otherwise trusts mempool validity. It
-// would then select the stale transaction into every template, and every one of those blocks would
-// be rejected by peers, stalling an honest miner.
-// Non-retroactivity. Every consensus rule added here is gated on v24, which is NEVER_ACTIVE on
-// mainnet and testnet, so before activation both transactions the new rules reject must still be
-// accepted exactly as they are on develop today. If this test ever fails, a rule has leaked past its
-// gate and is changing a live chain — that is the one failure mode here that reaches real users, so
-// fix the gating rather than this test.
-// The unique property map is keyed by the scheme-dependent serialization of a BLS key, so one public
-// key occupies a different slot depending on its encoding. The helper must find it under either, and
-// must exclude only the masternode asked about.
-// A ProRegTx must not be able to claim an operator key another masternode already holds, whichever
-// encoding either side uses. ProRegTx never proves ownership of the operator key, so without this a
-// masternode's key can be squatted for the price of a collateral.
-// A registrar update must not be able to claim an operator key another masternode already holds,
-// under either encoding. But the probe must only run when the key is actually CHANGING: an update
-// that keeps its own key cannot create a duplicate, and probing it anyway would let a cross-scheme
-// pair formed before activation permanently block the affected masternode's registrar updates,
-// making an old squat more harmful rather than less.
-// Two in-flight registrar updates must not be able to claim the same operator key under different
-// encodings. Each is valid against the confirmed list -- neither masternode holds the key yet, so
-// each is invisible to the other's consensus check -- and only the mempool sees both. Block assembly
-// does not revalidate special transactions, so admitting both would hand an honest miner a template
-// whose block is invalid.
-// The same-block case. Per-transaction checks run against pindexPrev, so two registrar updates in one
-// block are invisible to each other and could claim one operator key under different encodings. The
-// mempool keeps an honest miner from assembling that pair; this covers a hand-crafted block, which
-// must be rejected cleanly rather than by AddMN/UpdateMN throwing out of block assembly.
-// The activation-boundary case, closed at the root. Nothing evicts mempool entries when v24 activates,
-// and block assembly rechecks each candidate independently against the tip rather than cumulatively,
-// so a pair admitted beforehand would still be selected together afterwards and the rebuild would
-// then reject the whole block -- an honest miner unable to build one at all. The mempool probe is
-// therefore ungated policy: the pair can never become resident in the first place. This asserts that,
-// and that a template still builds afterwards.
-// The same masternode, twice in one block. Each transaction is checked against pindexPrev, where the
-// key is still the original, so both look like genuine rotations and pass. But the rebuild computes
-// operator_changed against the list as rebuilt so far, where the first transaction has already
-// stored the new key -- and operator== ignores the encoding, so the second looks like a no-op, skips
-// SetLegacy(), and yet still raises the version. That is bug A recreated from inside a single block.
-// Codex P1: the SAME masternode, two registrar updates in one block, version-crossing. tx1 rotates a
+// The SAME masternode, two registrar updates in one block, version-crossing. tx1 rotates a
 // legacy MN to a new key at v2 (making it BasicBLS); tx2 then rotates it to another new key at v1.
 // tx2 passes CheckProUpRegTx against pindexPrev (the MN was legacy there), but in the rebuild the MN
 // is already BasicBLS, so the round-3 guard (which keys off old_version == LegacyBLS) does not fire,
@@ -1959,7 +1916,6 @@ void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainV24SignalBeforeV19Se
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CBLSSecretKey key1, key2;
@@ -2046,6 +2002,11 @@ void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainV24SignalBeforeV19Se
     }
 };
 
+// The same masternode, twice in one block. Each transaction is checked against pindexPrev, where the
+// key is still the original, so both look like genuine rotations and pass. But the rebuild computes
+// operator_changed against the list as rebuilt so far, where the first transaction has already
+// stored the new key -- and operator== ignores the encoding, so the second looks like a no-op, skips
+// SetLegacy(), and yet still raises the version. That is bug A recreated from inside a single block.
 void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2061,7 +2022,6 @@ void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& se
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // Both rotate to the SAME new key, one legacy-encoded at v1, one basic-encoded at v2.
@@ -2119,6 +2079,12 @@ void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& se
     BOOST_CHECK(reloaded.GetMN(proTxHash)->pdmnState->pubKeyOperator.Get() == operator_key_new.GetPublicKey());
 };
 
+// The activation-boundary case, closed at the root. Nothing evicts mempool entries when v24 activates,
+// and block assembly rechecks each candidate independently against the tip rather than cumulatively,
+// so a pair admitted beforehand would still be selected together afterwards and the rebuild would
+// then reject the whole block -- an honest miner unable to build one at all. The mempool probe is
+// therefore ungated policy: the pair can never become resident in the first place. This asserts that,
+// and that a template still builds afterwards.
 void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2190,7 +2156,6 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Se
 
     // Activate v24 with the surviving transaction still resident.
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // tx_a is the valid, non-conflicting claim: it must still be resident, not evicted at activation.
     auto& mempool = *Assert(setup.m_node.mempool.get());
@@ -2212,6 +2177,10 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Se
     BOOST_CHECK_MESSAGE(selected_tx_a, "the valid surviving special transaction was not selected into the template");
 };
 
+// The same-block case. Per-transaction checks run against pindexPrev, so two registrar updates in one
+// block are invisible to each other and could claim one operator key under different encodings. The
+// mempool keeps an honest miner from assembling that pair; this covers a hand-crafted block, which
+// must be rejected cleanly rather than by AddMN/UpdateMN throwing out of block assembly.
 void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2228,7 +2197,6 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& s
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2305,6 +2273,11 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& s
     BOOST_CHECK_EQUAL(block_state.GetRejectReason(), "bad-protx-dup-key");
 };
 
+// Two in-flight registrar updates must not be able to claim the same operator key under different
+// encodings. Each is valid against the confirmed list -- neither masternode holds the key yet, so
+// each is invisible to the other's consensus check. Block assembly revalidates each candidate only
+// against the confirmed tip rather than cumulatively, so admitting both would hand an honest miner
+// a template whose block is invalid.
 void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2322,7 +2295,6 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setu
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2391,6 +2363,11 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setu
     }
 };
 
+// A registrar update must not be able to claim an operator key another masternode already holds,
+// under either encoding. Consensus probes when the key changes or a same-key migration re-encodes it.
+// It skips non-migrating same-key updates, which cannot create a duplicate; probing those would let
+// a cross-scheme pair formed before activation permanently block the affected masternode's routine
+// registrar updates, making an old squat more harmful rather than less.
 void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2408,7 +2385,6 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& 
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE(!bls::bls_legacy_scheme.load());
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
@@ -2478,6 +2454,9 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& 
     }
 };
 
+// A ProRegTx must not be able to claim an operator key another masternode already holds, whichever
+// encoding either side uses. ProRegTx never proves ownership of the operator key, so without this a
+// masternode's key can be squatted for the price of a collateral.
 void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2535,7 +2514,6 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& se
     }
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // The main post-v24 vector: reuse the legacy masternode's key, basic-encoded.
     {
@@ -2568,6 +2546,9 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& se
     }
 };
 
+// The unique property map is keyed by the scheme-dependent serialization of a BLS key, so one public
+// key occupies a different slot depending on its encoding. The helper must find it under either, and
+// must exclude only the masternode asked about.
 void FuncHasOperatorKeyUnderAnyScheme(TestChainSetup& setup)
 {
     auto& chainman = *Assert(setup.m_node.chainman.get());
@@ -2602,6 +2583,11 @@ void FuncHasOperatorKeyUnderAnyScheme(TestChainSetup& setup)
     BOOST_CHECK(!list.HasOperatorKeyUnderAnyScheme(other.GetPublicKey(), uint256()));
 };
 
+// Non-retroactivity. Every consensus rule added here is gated on v24, which is NEVER_ACTIVE on
+// mainnet and testnet, so before activation both transactions the new rules reject must still be
+// accepted exactly as they are on develop today. If this test ever fails, a rule has leaked past its
+// gate and is changing a live chain — that is the one failure mode here that reaches real users, so
+// fix the gating rather than this test.
 void FuncPreV24BehaviourUnchanged(TestChainSetup& setup)
 {
     auto& chainman = *Assert(setup.m_node.chainman.get());
@@ -2678,6 +2664,10 @@ void FuncPreV24BehaviourUnchanged(TestChainSetup& setup)
     CheckListRoundTrips(dmnman, "pre-v24 after same-key ProUpRegTx");
 };
 
+// A special transaction accepted into the mempool while it was valid is not evicted when a fork
+// activates a rule that invalidates it, and BlockAssembler otherwise trusts mempool validity. It
+// would then select the stale transaction into every template, and every one of those blocks would
+// be rejected by peers, stalling an honest miner.
 void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2694,7 +2684,6 @@ void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& s
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // A cross-scheme squatter ProRegTx: it reuses the legacy masternode's operator key basic-encoded.
@@ -2750,6 +2739,8 @@ void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& s
     }
 };
 
+// A legacy masternode migrates to the basic scheme keeping its operator key: SetStateVersion
+// re-encodes the key and UpdateMN re-keys the unique-property map, so no key rotation is forced.
 void FuncProUpRegTxMigratesLegacySameKey(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
@@ -2765,7 +2756,6 @@ void FuncProUpRegTxMigratesLegacySameKey(TestChainV24SignalBeforeV19Setup& setup
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     auto build_upreg = [&](const CBLSPublicKey& op_pubkey, uint16_t version) {
