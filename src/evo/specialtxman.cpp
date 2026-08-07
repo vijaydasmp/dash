@@ -42,6 +42,13 @@ static bool AddNetInfoEntries(const std::shared_ptr<NetInfoInterface>& net_info,
     return true;
 }
 
+// Raising a masternode's state version out of the legacy BLS scheme re-encodes its operator key and
+// moves it to a new scheme-dependent unique-property slot; the collision guards key off this.
+static bool IsSchemeMigration(int old_version, int new_version)
+{
+    return old_version == ProTxVersion::LegacyBLS && new_version > ProTxVersion::LegacyBLS;
+}
+
 static bool SetStateVersion(CDeterministicMNState& state_mn, uint16_t nVersion, MnType nType,
                             BlockValidationState& state)
 {
@@ -52,6 +59,19 @@ static bool SetStateVersion(CDeterministicMNState& state_mn, uint16_t nVersion, 
         state_mn.payouts = LegacyPayoutAsList(state_mn.scriptPayout);
         state_mn.scriptPayout.clear();
     }
+
+    // Keep the operator key's BLS encoding a deterministic function of nVersion, matching the SML and
+    // on-disk serialization, so the stored key and the (scheme-dependent) unique-property index use
+    // the same scheme on every node whether the list was built online or reloaded from a snapshot.
+    // Set() rather than SetLegacy(): the latter only flips the flag and leaves the cached
+    // serialization in the old encoding, so a reloaded node would decode a different key. This runs
+    // before the early return because callers pre-set nVersion, so the version may already match here
+    // while the key still needs re-encoding.
+    if (state_mn.pubKeyOperator != CBLSLazyPublicKey()) {
+        const CBLSPublicKey& pubkey{state_mn.pubKeyOperator.Get()};
+        state_mn.pubKeyOperator.Set(pubkey, nVersion == ProTxVersion::LegacyBLS);
+    }
+
     if (state_mn.nVersion == nVersion && state_mn.netInfo->CanStorePlatform() == needs_extended) {
         return true;
     }
@@ -388,6 +408,15 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
             }
             dmn->pdmnState = dmnState;
 
+            // CheckProRegTx ran against pindexPrev, so transactions in this same block are invisible
+            // to each other and two of them could claim one operator key under different encodings.
+            // Re-probe the list as rebuilt so far. AddMN() reports a duplicate by throwing, which
+            // would escape block assembly, so reject cleanly here instead.
+            if (is_v24_deployed &&
+                newList.HasOperatorKeyUnderAnyScheme(dmn->pdmnState->pubKeyOperator.Get(), /*self=*/uint256())) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-protx-dup-key");
+            }
+
             newList.AddMN(dmn);
 
             if (debugLogs) {
@@ -465,6 +494,17 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
                 }
             }
 
+            // Migrating a legacy masternode to the basic scheme re-encodes its stored key
+            // (SetStateVersion), moving it to the basic-scheme slot. Per-transaction checks ran
+            // against pindexPrev, so re-check against the list as rebuilt so far: if another
+            // masternode holds this key under either encoding, the re-key in UpdateMN() would throw
+            // out of block assembly.
+            if (is_v24_deployed && IsSchemeMigration(current_version, target_version) &&
+                newList.HasOperatorKeyUnderAnyScheme(dmn->pdmnState->pubKeyOperator.Get(),
+                                                     /*self=*/opt_proTx->proTxHash)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-protx-dup-key");
+            }
+
             newList.UpdateMN(opt_proTx->proTxHash, newState);
             if (debugLogs) {
                 LogPrintf("%s -- MN %s updated at height %d: %s\n", __func__, opt_proTx->proTxHash.ToString(), nHeight,
@@ -485,6 +525,23 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
             const bool operator_changed{newState->pubKeyOperator != opt_proTx->pubKeyOperator};
             const uint16_t target_version{is_v24_deployed ? std::max<uint16_t>(old_version, opt_proTx->nVersion)
                                                           : (operator_changed ? opt_proTx->nVersion : old_version)};
+
+            // Per-transaction checks ran against pindexPrev, so an earlier transaction in this same
+            // block is invisible to them. Re-evaluate against the list as rebuilt so far: this update
+            // moves the operator key to a new unique-property slot if it rotates the key or crosses
+            // the legacy->basic boundary (which re-encodes the key), and if that slot is held by
+            // another masternode the re-key in UpdateMN() would throw out of block assembly. Reject
+            // cleanly. Scoped to those two cases so a pre-existing cross-scheme pair's non-migrating
+            // routine update is not blocked.
+            {
+                const bool migrating{IsSchemeMigration(old_version, target_version)};
+                if (is_v24_deployed && (operator_changed || migrating) &&
+                    newList.HasOperatorKeyUnderAnyScheme(opt_proTx->pubKeyOperator.Get(),
+                                                         /*self=*/opt_proTx->proTxHash)) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-protx-dup-key");
+                }
+            }
+
             if (operator_changed) {
                 // reset all operator related fields and put MN into PoSe-banned state in case the operator key changes
                 newState->ResetOperatorFields();
@@ -492,11 +549,11 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
                 newState->pubKeyOperator = opt_proTx->pubKeyOperator;
             }
             newState->keyIDVoting = opt_proTx->keyIDVoting;
+            // SetStateVersion() re-encodes the operator key to target_version's scheme, so the stored
+            // key stays consistent with its version whether it was carried in this payload (possibly
+            // under a different version's encoding) or migrated in place.
             if (!SetStateVersion(*newState, target_version, dmn->nType, state)) {
                 return false;
-            }
-            if (operator_changed) {
-                newState->pubKeyOperator.SetLegacy(target_version == ProTxVersion::LegacyBLS);
             }
             if (target_version >= ProTxVersion::ExtAddr) {
                 newState->payouts = opt_proTx->nVersion >= ProTxVersion::ExtAddr
@@ -1139,6 +1196,15 @@ bool CheckProRegTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> pin
             return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
         }
 
+        // The check above only sees the operator key under the encoding this payload happens to use,
+        // so it misses a key an existing masternode holds under the other one. A ProRegTx never
+        // proves ownership of the operator key, so that gap lets anyone claim a masternode's key.
+        // Nothing is excluded here: a duplicate key is never allowed, even for a ProTx replacing an
+        // existing masternode.
+        if (is_v24_active && mnList.HasOperatorKeyUnderAnyScheme(opt_ptx->pubKeyOperator.Get(), /*self=*/uint256())) {
+            return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
+        }
+
         // never allow duplicate platformNodeIds for EvoNodes
         if (opt_ptx->nType == MnType::Evo) {
             if (mnList.HasUniqueProperty(opt_ptx->platformNodeID)) {
@@ -1213,6 +1279,16 @@ bool CheckProUpServTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> 
         return false;
     }
 
+    // A service update carries no operator key, but raising a legacy masternode to the basic scheme
+    // re-encodes its stored key, moving it to the basic-scheme unique-property slot. If another
+    // masternode already holds that key under either encoding, the re-key in UpdateMN() would throw
+    // out of block assembly, so reject the migration cleanly here.
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_V24) &&
+        IsSchemeMigration(dmn->pdmnState->nVersion, opt_ptx->nVersion) &&
+        mnList.HasOperatorKeyUnderAnyScheme(dmn->pdmnState->pubKeyOperator.Get(), /*self=*/opt_ptx->proTxHash)) {
+        return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
+    }
+
     // don't allow updating to addresses already used by other MNs
     for (const auto& entry : opt_ptx->netInfo->GetEntries()) {
         if (const auto service_opt{entry.GetAddrPort()}) {
@@ -1282,6 +1358,20 @@ bool CheckProUpRegTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> p
         return false;
     }
 
+    // This update moves the masternode's operator key to a new unique-property slot when it either
+    // rotates the key or crosses the legacy->basic scheme boundary (which re-encodes the key). Reject
+    // if that target slot is already held by another masternode -- under either encoding -- so the
+    // re-key in UpdateMN() cannot collide and throw out of block assembly. Scoped to those two cases
+    // so a pre-existing cross-scheme pair's non-migrating routine update is not blocked.
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_V24)) {
+        const bool key_changed{!(opt_ptx->pubKeyOperator == dmn->pdmnState->pubKeyOperator)};
+        const bool migrating{IsSchemeMigration(dmn->pdmnState->nVersion, opt_ptx->nVersion)};
+        if ((key_changed || migrating) &&
+            mnList.HasOperatorKeyUnderAnyScheme(opt_ptx->pubKeyOperator.Get(), /*self=*/opt_ptx->proTxHash)) {
+            return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
+        }
+    }
+
     const auto owner_payouts = GetOwnerPayouts(*opt_ptx);
     if (!IsPayoutListTriviallyValid(owner_payouts, dmn->pdmnState->keyIDOwner, opt_ptx->keyIDVoting, state)) return false;
 
@@ -1307,6 +1397,8 @@ bool CheckProUpRegTx(const CTransaction& tx, gsl::not_null<const CBlockIndex*> p
             return state.Invalid(TxValidationResult::TX_BAD_SPECIAL, "bad-protx-dup-key");
         }
     }
+    // Cross-scheme duplicates for this update are rejected earlier (see the collision guard after the
+    // version-change check), which also covers the key-less migration case.
 
     if (!DeploymentDIP0003Enforced(pindexPrev->nHeight, Params().GetConsensus())) {
         if (dmn->pdmnState->keyIDOwner != opt_ptx->keyIDVoting) {

@@ -1008,6 +1008,21 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_CONFLICT, "protx-dup");
     }
 
+    // The check above compares operator keys per BLS encoding, so it cannot see a second in-flight
+    // transaction claiming the same key under the other one. Keeping such a pair out of the mempool
+    // matters because block assembly does not revalidate special transactions cumulatively: it checks
+    // each candidate against the tip, where neither key is yet present, so both would be selected and
+    // the whole block then rejected -- leaving an honest miner unable to produce one at all.
+    //
+    // Deliberately NOT gated on the deployment that makes such a pair a consensus error. A pair
+    // admitted before activation is never evicted by it, so a gated check would leave exactly that
+    // stall reachable across the boundary. This is mempool policy, which is allowed to be stricter
+    // than consensus: a node that rejects the second transaction still accepts a block containing it,
+    // so no chain can split over this.
+    if (m_pool.existsProviderTxCrossSchemeConflict(tx)) {
+        return state.Invalid(TxValidationResult::TX_CONFLICT, "protx-dup");
+    }
+
     return true;
 }
 

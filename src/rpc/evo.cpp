@@ -1252,6 +1252,18 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
         ptx.pubKeyOperator = dmn->pdmnState->pubKeyOperator;
     }
 
+    // A legacy masternode migrates to the basic scheme via a (non-legacy) registrar update, keeping
+    // its operator key (migration) or supplying a new one (rotation). ptx.nVersion is already set from
+    // the deployment state above -- LegacyBLS for the legacy-BLS RPC variant, basic otherwise -- so
+    // only the key encoding needs fixing up here: a reused key is stored in the legacy encoding, so
+    // re-encode it to the basic scheme to keep the stored key consistent with its version (and the
+    // assertion below holding). A freshly parsed key already matches the requested scheme, and basic
+    // masternodes are untouched.
+    if (!use_legacy && ptx.pubKeyOperator != CBLSLazyPublicKey() && ptx.pubKeyOperator.IsLegacy()) {
+        const CBLSPublicKey& pubkey{ptx.pubKeyOperator.Get()};
+        ptx.pubKeyOperator.Set(pubkey, /*specificLegacyScheme=*/false);
+    }
+
     CHECK_NONFATAL(ptx.pubKeyOperator.IsLegacy() == (ptx.nVersion == ProTxVersion::LegacyBLS));
 
     if (!request.params[2].get_str().empty()) {
