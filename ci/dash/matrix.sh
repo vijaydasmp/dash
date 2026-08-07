@@ -11,9 +11,9 @@ export LC_ALL=C.UTF-8
 source ./ci/test/00_setup_env.sh
 
 # Configure sanitizers options
-export ASAN_OPTIONS=""
+export ASAN_OPTIONS="detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1"
 export LSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/lsan"
-export TSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/tsan:halt_on_error=1"
+export TSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/tsan:halt_on_error=1:second_deadlock_stack=1"
 export UBSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/ubsan:print_stacktrace=1:halt_on_error=1:report_error_type=1"
 
 if [ "$BUILD_TARGET" = "aarch64-linux" ]; then
@@ -33,7 +33,11 @@ elif [ "$BUILD_TARGET" = "linux64_sqlite" ]; then
 elif [ "$BUILD_TARGET" = "linux64_tsan" ]; then
   source ./ci/test/00_setup_env_native_tsan.sh
 elif [ "$BUILD_TARGET" = "linux64_ubsan" ]; then
-  source ./ci/test/00_setup_env_native_ubsan.sh
+  # TODO: remove it when #7503 will get merged. That's a temporary workaround to check asan on CI
+  # Compatibility for pull_request_target workflows that still request the legacy target.
+  # Their default-branch container setup does not grant SYS_PTRACE.
+  export ASAN_OPTIONS="detect_leaks=0:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1"
+  source ./ci/test/00_setup_env_native_asan.sh
 elif [ "$BUILD_TARGET" = "linux64_valgrind" ]; then
   source ./ci/test/00_setup_env_native_valgrind.sh
 elif [ "$BUILD_TARGET" = "mac" ]; then
