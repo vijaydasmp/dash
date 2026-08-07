@@ -138,7 +138,19 @@ std::optional<const CGovernanceObject> GovernanceSigner::CreateGovernanceTrigger
 
     // Nobody submitted a trigger we'd like to see, so let's do it but only if we are the payee
     const CBlockIndex* tip = m_chainman.ActiveChain().Tip();
-    const auto mnList = m_dmnman.GetListForBlock(tip);
+    CDeterministicMNList mnList;
+    try {
+        mnList = m_dmnman.GetListForBlock(tip);
+    } catch (const BlockDataUnavailableError& e) {
+        // This runs on the scheduler thread, where an uncaught exception
+        // terminates the node. Unavailable history is expected while a
+        // snapshot's background chainstate is still catching up, so skip this
+        // trigger attempt. Any other exception means local EvoDB/list
+        // corruption and must not be hidden, so it deliberately stays
+        // unhandled.
+        LogPrint(BCLog::GOBJECT, "%s -- masternode list unavailable: %s\n", __func__, e.what());
+        return std::nullopt;
+    }
     const auto mn_payees = mnList.GetProjectedMNPayees(tip);
 
     if (mn_payees.empty()) {

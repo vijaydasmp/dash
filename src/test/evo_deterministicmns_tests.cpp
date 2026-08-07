@@ -1583,6 +1583,25 @@ BOOST_AUTO_TEST_SUITE(evo_dip3_activation_tests)
 // the sixth registration.
 constexpr int DIP3_ACTIVATION_HEIGHT{109};
 
+BOOST_AUTO_TEST_CASE(deterministic_mn_list_diff_serialization_is_canonical)
+{
+    CDeterministicMNListDiff forward;
+    forward.updatedMNs.emplace(1, CDeterministicMNStateDiff{});
+    forward.updatedMNs.emplace(2, CDeterministicMNStateDiff{});
+
+    CDeterministicMNListDiff reverse;
+    reverse.updatedMNs.emplace(2, CDeterministicMNStateDiff{});
+    reverse.updatedMNs.emplace(1, CDeterministicMNStateDiff{});
+
+    CDataStream forward_stream{SER_DISK, CLIENT_VERSION};
+    CDataStream reverse_stream{SER_DISK, CLIENT_VERSION};
+    forward_stream << forward;
+    reverse_stream << reverse;
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(forward_stream.begin(), forward_stream.end(),
+                                  reverse_stream.begin(), reverse_stream.end());
+}
+
 struct TestChainDIP3BeforeActivationSetup : public TestChainSetup {
     TestChainDIP3BeforeActivationSetup() :
         TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, CBaseChainParams::REGTEST, {"-dip3params=109:500"},
