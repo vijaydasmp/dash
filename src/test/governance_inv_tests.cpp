@@ -44,9 +44,9 @@ struct GovernanceInvSetup : public TestingSetup {
         BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
 
         BOOST_REQUIRE(m_node.mn_metaman);
-        // Note: mn_metaman is left unloaded. No test here reaches
-        // CGovernanceObject::ProcessVote, which asserts metaman.IsValid() -- a vote whose
-        // parent object exists would, and would need it loaded first.
+        // Note: mn_metaman is left unloaded. Reaching CGovernanceObject::ProcessVote asserts
+        // metaman.IsValid(), so a test that delivers a vote whose parent object exists must
+        // load it first (see invalid_vote_is_scored_alike_with_and_without_a_parent_object).
         m_node.govman = std::make_unique<CGovernanceManager>(*m_node.mn_metaman, *m_node.chainman, *m_node.chain_helper->superblocks, *m_node.dmnman, *m_node.mn_sync);
         // Match runtime preconditions: NetGovernance::AlreadyHave claims we
         // already have the inv when governance isn't loaded (e.g.

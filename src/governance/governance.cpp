@@ -826,9 +826,7 @@ bool CGovernanceManager::ProcessVote(const CGovernanceVote& vote, CGovernanceExc
 
     auto it = mapObjects.find(nHashGovobj);
     if (it == mapObjects.end()) {
-        // The parent object is unknown, so the vote signal cannot be mapped to a key type the way
-        // CGovernanceObject::ProcessVote does it (see onlyVotingKeyAllowed there). Accept either key.
-        if (!vote.IsValid(tip_mn_list, /*useVotingKey=*/true) && !vote.IsValid(tip_mn_list, /*useVotingKey=*/false)) {
+        if (!vote.IsValidForUnknownParent(tip_mn_list)) {
             std::string msg{strprintf("CGovernanceManager::%s -- Invalid vote for unknown parent object %s, MN outpoint = %s, vote hash = %s",
                 __func__, nHashGovobj.ToString(), vote.GetMasternodeOutpoint().ToStringShort(), nHashVote.ToString())};
             LogPrint(BCLog::GOBJECT, "%s\n", msg);
