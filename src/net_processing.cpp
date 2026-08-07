@@ -3057,7 +3057,7 @@ void PeerManagerImpl::HandleFewUnconnectingHeaders(CNode& pfrom, Peer& peer,
     nodestate->nUnconnectingHeaders++;
     // Try to fill in the missing headers.
     std::string msg_type = UsesCompressedHeaders(peer) ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
-    if (MaybeSendGetHeaders(pfrom, msg_type, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), peer)) {
+    if (MaybeSendGetHeaders(pfrom, msg_type, GetLocator(m_chainman.m_best_header), peer)) {
         LogPrint(BCLog::NET, "received header %s: missing prev block %s, sending %s (%d) to end (peer=%d, nUnconnectingHeaders=%d)\n",
             headers[0].GetHash().ToString(),
             headers[0].hashPrevBlock.ToString(),
@@ -3284,7 +3284,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
     const std::string msg_type = uses_compressed ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
     if (nCount == GetHeadersLimit(pfrom, uses_compressed)) {
         // Headers message had its maximum size; the peer may have more headers.
-        if (MaybeSendGetHeaders(pfrom, msg_type, WITH_LOCK(m_chainman.GetMutex(), return m_chainman.ActiveChain().GetLocator(pindexLast)), peer)) {
+        if (MaybeSendGetHeaders(pfrom, msg_type, GetLocator(pindexLast), peer)) {
             LogPrint(BCLog::NET, "more %s (%d) to end to peer=%d (startheight:%d)\n",
                     msg_type, pindexLast->nHeight, pfrom.GetId(), peer.m_starting_height);
         }
@@ -4454,7 +4454,7 @@ void PeerManagerImpl::ProcessMessage(
             CNodeState& state{*Assert(State(pfrom.GetId()))};
             if (state.fSyncStarted || (!peer->m_inv_triggered_getheaders_before_sync && *best_block != m_last_block_inv_triggering_headers_sync)) {
                 std::string msg_type = UsesCompressedHeaders(*peer) ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
-                if (MaybeSendGetHeaders(pfrom, msg_type, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), *peer)) {
+                if (MaybeSendGetHeaders(pfrom, msg_type, GetLocator(m_chainman.m_best_header), *peer)) {
                     LogPrint(BCLog::NET, "%s (%d) %s to peer=%d\n",
                             msg_type, m_chainman.m_best_header->nHeight, best_block->ToString(),
                             pfrom.GetId());
@@ -4917,7 +4917,7 @@ void PeerManagerImpl::ProcessMessage(
             // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers
             if (!m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
                 std::string ret_val = UsesCompressedHeaders(*peer) ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
-                MaybeSendGetHeaders(pfrom, ret_val, m_chainman.ActiveChain().GetLocator(m_chainman.m_best_header), *peer);
+                MaybeSendGetHeaders(pfrom, ret_val, GetLocator(m_chainman.m_best_header), *peer);
             }
             return;
         }
@@ -5813,7 +5813,7 @@ void PeerManagerImpl::ConsiderEviction(CNode& pto, Peer& peer, std::chrono::seco
                 // still respond to us with a sufficiently high work chain tip.
                 std::string msg_type = UsesCompressedHeaders(peer) ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
                 MaybeSendGetHeaders(pto,
-                        msg_type, m_chainman.ActiveChain().GetLocator(state.m_chain_sync.m_work_header->pprev),
+                        msg_type, GetLocator(state.m_chain_sync.m_work_header->pprev),
                         peer);
                 LogPrint(BCLog::NET, "sending %s to outbound peer=%d to verify chain work (current best known block:%s, benchmark blockhash: %s)\n", msg_type, pto.GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>", state.m_chain_sync.m_work_header->GetBlockHash().ToString());
                 state.m_chain_sync.m_sent_getheaders = true;
@@ -6204,7 +6204,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                 if (pindexStart->pprev)
                     pindexStart = pindexStart->pprev;
                 std::string msg_type = UsesCompressedHeaders(*peer) ? NetMsgType::GETHEADERS2 : NetMsgType::GETHEADERS;
-                if (MaybeSendGetHeaders(*pto, msg_type, m_chainman.ActiveChain().GetLocator(pindexStart), *peer)) {
+                if (MaybeSendGetHeaders(*pto, msg_type, GetLocator(pindexStart), *peer)) {
                     LogPrint(BCLog::NET, "initial %s (%d) to peer=%d (startheight:%d)\n", msg_type, pindexStart->nHeight, pto->GetId(), peer->m_starting_height);
 
                     state.fSyncStarted = true;
