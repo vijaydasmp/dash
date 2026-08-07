@@ -214,6 +214,14 @@ BOOST_FIXTURE_TEST_CASE(chainstate_connectblock_bls_scheme, V19AboveSnapshotSetu
     mineBlocks(9);
     BOOST_REQUIRE(CreateAndActivateUTXOSnapshot(this, NoMalleation, /*reset_chainstate=*/true));
     BOOST_REQUIRE(WITH_LOCK(::cs_main, return chainman.IsSnapshotActive()));
+
+    // The background chainstate was reset to genesis before activation, so
+    // the base MN list was not derivable and no lifecycle marker may have
+    // been captured: deriving one would fabricate an empty list and poison
+    // the shared list cache for the background chainstate's later
+    // re-validation of the base region.
+    uint256 stale_hash;
+    BOOST_CHECK(!m_node.evodb->ReadSnapshotBaseMNListHash(stale_hash));
     mineBlocks(V19_HEIGHT - WITH_LOCK(::cs_main, return chainman.ActiveHeight()));
     BOOST_REQUIRE(!bls::bls_legacy_scheme.load());
 
