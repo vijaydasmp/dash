@@ -12,8 +12,6 @@
 
 constexpr uint8_t DB_TIMESTAMPINDEX{'s'};
 
-std::unique_ptr<TimestampIndex> g_timestampindex;
-
 TimestampIndex::DB::DB(size_t n_cache_size, bool f_memory, bool f_wipe) :
     BaseIndex::DB(gArgs.GetDataDirNet() / "indexes" / "timestampindex", n_cache_size, f_memory, f_wipe)
 {

@@ -85,7 +85,4 @@ public:
                                 std::vector<CAddressUnspentIndexEntry>& entries, const bool height_sort = false) const;
 };
 
-/// Global AddressIndex instance
-extern std::unique_ptr<AddressIndex> g_addressindex;
-
 #endif // BITCOIN_INDEX_ADDRESSINDEX_H
