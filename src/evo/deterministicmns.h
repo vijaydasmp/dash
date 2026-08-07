@@ -459,10 +459,12 @@ public:
      * Both slots are probed even when one resolves to `self`: where a cross-scheme duplicate pair
      * already exists, returning early on a self-match would miss the other member.
      *
-     * Pass uint256() as `self` to exclude nothing.
+     * Pass uint256() as `self` to exclude nothing. An invalid pubkey is never considered held:
+     * it is rejected up front rather than relying on the map never containing a null entry.
      */
     [[nodiscard]] bool HasOperatorKeyUnderAnyScheme(const CBLSPublicKey& pubkey, const uint256& self) const
     {
+        if (!pubkey.IsValid()) return false;
         for (const bool legacy_scheme : {true, false}) {
             CBLSLazyPublicKey wrapped;
             wrapped.Set(pubkey, legacy_scheme);

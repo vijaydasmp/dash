@@ -1415,9 +1415,13 @@ bool CTxMemPool::existsProviderTxCrossSchemeConflict(const CTransaction& tx) con
     if (tx.nType == TRANSACTION_PROVIDER_UPDATE_REGISTRAR) {
         const auto opt_proTx = GetTxPayload<CProUpRegTx>(tx);
         if (!opt_proTx) return true;
-        // Only probe when the operator key is actually changing, matching the consensus checks. An
-        // update keeping its own key cannot create a duplicate, and probing it anyway would let one
-        // member of an existing cross-scheme pair block the other's unrelated registrar updates.
+        // Skipping same-key migrations here (unlike the consensus checks, which
+        // probe them) is safe: a migration payload is basic-encoded, so any
+        // in-flight claim of the same key under the SAME encoding is caught by
+        // existsProviderTxConflict's map lookup, and an in-flight claim under the
+        // encoding the masternode already holds in the list fails CheckSpecialTx
+        // before reaching the mempool. Probing here would wrongly block updates
+        // for one member of a pre-activation cross-scheme pair.
         auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
         if (auto dmn = dmnman->GetListAtChainTip().GetMN(opt_proTx->proTxHash);
             dmn && opt_proTx->pubKeyOperator == dmn->pdmnState->pubKeyOperator) {
