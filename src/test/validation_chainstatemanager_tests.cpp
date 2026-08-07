@@ -138,6 +138,10 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     Chainstate& c2 = *c2_ptr;
     chainstates.push_back(&c2);
 
+    // Only the active chainstate keeps the mempool.
+    BOOST_CHECK_EQUAL(c2.GetMempool(), &mempool);
+    BOOST_CHECK(!c1.GetMempool());
+
     DashChainstateSetup(manager, m_node, /*llmq_dbs_in_memory=*/true, /*llmq_dbs_wipe=*/false);
 
     BOOST_CHECK_EQUAL(manager.SnapshotBlockhash().value(), snapshot_blockhash);
@@ -650,6 +654,10 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_init, SnapshotTestSetup)
 
     auto all_chainstates = chainman.GetAll();
     BOOST_CHECK_EQUAL(all_chainstates.size(), 2);
+
+    // Runtime activation moved the mempool to the (active) snapshot chainstate.
+    BOOST_CHECK_EQUAL(chainman.ActiveChainstate().GetMempool(), m_node.mempool.get());
+    BOOST_CHECK(!bg_chainstate.GetMempool());
 
     // "Rewind" the background chainstate so that its tip is not at the
     // base block of the snapshot - this is so after simulating a node restart,

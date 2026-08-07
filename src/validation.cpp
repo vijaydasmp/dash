@@ -5655,6 +5655,17 @@ bool ChainstateManager::ActivateSnapshot(
         m_active_chainstate = m_snapshot_chainstate.get();
         m_snapshot_chainstate->m_evoDb.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
 
+        // Move the mempool to the snapshot chainstate: only the active
+        // chainstate keeps one, so background block connects cannot touch
+        // mempool state built on the snapshot tip. The mempool is empty at
+        // this point because snapshot activation happens during IBD.
+        Assume(!m_snapshot_chainstate->m_mempool);
+        if (m_ibd_chainstate->m_mempool) {
+            Assume(m_ibd_chainstate->m_mempool->size() == 0);
+            m_snapshot_chainstate->m_mempool = m_ibd_chainstate->m_mempool;
+            m_ibd_chainstate->m_mempool = nullptr;
+        }
+
         LogPrintf("[snapshot] successfully activated snapshot %s\n", base_blockhash.ToString());
         LogPrintf("[snapshot] (%.2f MB)\n",
             m_snapshot_chainstate->CoinsTip().DynamicMemoryUsage() / (1000 * 1000));
@@ -6014,6 +6025,10 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
         LogPrintf("[snapshot] deleting snapshot, reverting to validated chain, and stopping node\n");
 
         m_active_chainstate = m_ibd_chainstate.get();
+        // Hand the mempool back so the again-active background chainstate owns
+        // it for the remainder of this (shutting-down) run.
+        m_ibd_chainstate->m_mempool = m_snapshot_chainstate->m_mempool;
+        m_snapshot_chainstate->m_mempool = nullptr;
         m_snapshot_chainstate->m_disabled = true;
         assert(!this->IsUsable(m_snapshot_chainstate.get()));
         assert(this->IsUsable(m_ibd_chainstate.get()));
@@ -6327,6 +6342,12 @@ Chainstate* ChainstateManager::ActivateExistingSnapshot(CTxMemPool* mempool, uin
         base_blockhash);
     LogPrintf("[snapshot] switching active chainstate to %s\n", m_snapshot_chainstate->ToString());
     m_active_chainstate = m_snapshot_chainstate.get();
+    // Only the active chainstate keeps the mempool: the background chainstate
+    // connects historical blocks and must not touch mempool state built on the
+    // snapshot tip (e.g. removeExpiredAssetUnlock with a lower height).
+    if (m_ibd_chainstate) {
+        m_ibd_chainstate->m_mempool = nullptr;
+    }
     evo_db.SetDefaultIdentity(EvoDbIdentity::SNAPSHOT);
     return m_snapshot_chainstate.get();
 }
