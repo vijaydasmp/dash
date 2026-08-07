@@ -187,7 +187,8 @@ void CHDChain::AddAccount()
 bool CHDChain::GetAccount(uint32_t nAccountIndex, CHDAccount& hdAccountRet)
 {
     LOCK(cs);
-    if (nAccountIndex > mapAccounts.size() - 1)
+    // A chain stored without accounts creates one on first use, with zeroed counters.
+    if (!mapAccounts.empty() && nAccountIndex >= mapAccounts.size())
         return false;
     hdAccountRet = mapAccounts[nAccountIndex];
     return true;
@@ -197,7 +198,7 @@ bool CHDChain::SetAccount(uint32_t nAccountIndex, const CHDAccount& hdAccount)
 {
     LOCK(cs);
     // can only replace existing accounts
-    if (nAccountIndex > mapAccounts.size() - 1)
+    if (!mapAccounts.empty() && nAccountIndex >= mapAccounts.size())
         return false;
     mapAccounts[nAccountIndex] = hdAccount;
     return true;
