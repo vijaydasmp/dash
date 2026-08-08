@@ -934,7 +934,6 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
                     LOCK(pwallet->cs_wallet);
                     // lets prove we own the collateral
                     CScript scriptPubKey = GetScriptForDestination(txDest);
-                    std::unique_ptr<SigningProvider> provider = pwallet->GetSolvingProvider(scriptPubKey);
 
                     std::string signed_payload;
                     SigningResult err = pwallet->SignMessage(ptx.MakeSignString(), *pkhash, signed_payload);
@@ -1450,7 +1449,7 @@ static bool CheckWalletOwnsKey(const CWallet* const pwallet, const CKeyID& keyID
 }
 #endif
 
-static UniValue BuildDMNListEntry(const CWallet* const pwallet, const CDeterministicMN& dmn, CMasternodeMetaMan& mn_metaman, bool detailed, const ChainstateManager& chainman, const CBlockIndex* pindex = nullptr)
+static UniValue BuildDMNListEntry(const CWallet* const pwallet, const CDeterministicMN& dmn, const CMasternodeMetaMan& mn_metaman, bool detailed, const ChainstateManager& chainman, const CBlockIndex* pindex = nullptr)
 {
     if (!detailed) {
         return dmn.proTxHash.ToString();
@@ -1539,7 +1538,7 @@ static RPCHelpMan protx_list()
     const ChainstateManager& chainman = EnsureChainman(node);
 
     CDeterministicMNManager& dmnman = *CHECK_NONFATAL(node.dmnman);
-    CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
+    const CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
 
     std::shared_ptr<CWallet> wallet{nullptr};
 #ifdef ENABLE_WALLET
@@ -1651,7 +1650,7 @@ static RPCHelpMan protx_info()
     const ChainstateManager& chainman = EnsureChainman(node);
 
     CDeterministicMNManager& dmnman = *CHECK_NONFATAL(node.dmnman);
-    CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
+    const CMasternodeMetaMan& mn_metaman = *CHECK_NONFATAL(node.mn_metaman);
 
     std::shared_ptr<CWallet> wallet{nullptr};
 #ifdef ENABLE_WALLET
@@ -1805,14 +1804,6 @@ static RPCHelpMan protx_listdiff()
     const CBlockIndex* pBaseBlockIndex = ParseBlockIndex(request.params[0], chainman, "baseBlock");
     const CBlockIndex* pTargetBlockIndex = ParseBlockIndex(request.params[1], chainman, "block");
 
-    if (pBaseBlockIndex == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Base block not found");
-    }
-
-    if (pTargetBlockIndex == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
-    }
-
     ret.pushKV("baseHeight", pBaseBlockIndex->nHeight);
     ret.pushKV("blockHeight", pTargetBlockIndex->nHeight);
 
@@ -1914,14 +1905,14 @@ static UniValue evodb_verify_or_repair_impl(const JSONRPCRequest& request, bool 
     };
 
     // Call the dmnman method to do the work
-    auto recalc_result = dmnman.RecalculateAndRepairDiffs(start_index, stop_index, chainman, build_list_func, repair);
+    auto recalc_result = dmnman.RecalculateAndRepairDiffs(start_index, stop_index, build_list_func, repair);
 
     // Convert result to UniValue
     UniValue result(UniValue::VOBJ);
     UniValue verification_errors(UniValue::VARR);
 
-    for (const auto& error : recalc_result.verification_errors) {
-        verification_errors.push_back(error);
+    for (const auto& verification_error : recalc_result.verification_errors) {
+        verification_errors.push_back(verification_error);
     }
 
     result.pushKV("startHeight", recalc_result.start_height);
@@ -1933,8 +1924,8 @@ static UniValue evodb_verify_or_repair_impl(const JSONRPCRequest& request, bool 
     // Only include repair errors if we're in repair mode
     if (repair) {
         UniValue repair_errors(UniValue::VARR);
-        for (const auto& error : recalc_result.repair_errors) {
-            repair_errors.push_back(error);
+        for (const auto& repair_error : recalc_result.repair_errors) {
+            repair_errors.push_back(repair_error);
         }
         result.pushKV("repairErrors", repair_errors);
     }
@@ -2181,7 +2172,7 @@ Span<const CRPCCommand> GetWalletEvoRPCCommands()
 }
 #endif // ENABLE_WALLET
 
-void RegisterEvoRPCCommands(CRPCTable& tableRPC)
+void RegisterEvoRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"evo", &bls_help},
@@ -2198,7 +2189,7 @@ void RegisterEvoRPCCommands(CRPCTable& tableRPC)
         {"evo", &protx_info},
     };
     for (const auto& command : commands) {
-        tableRPC.appendCommand(command.name, &command);
+        t.appendCommand(command.name, &command);
     }
     // If we aren't compiling with wallet support, we still need to register RPCs that are
     // capable of working without wallet support. We have to do this even if wallet support
@@ -2212,7 +2203,7 @@ void RegisterEvoRPCCommands(CRPCTable& tableRPC)
 #endif // ENABLE_WALLET
     ) {
         for (const auto& command : commands_wallet) {
-            tableRPC.appendCommand(command.name, &command);
+            t.appendCommand(command.name, &command);
         }
     }
 }

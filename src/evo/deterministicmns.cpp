@@ -1135,8 +1135,7 @@ bool CDeterministicMNManager::MigrateLegacyDiffs(const CBlockIndex* const tip_in
 }
 
 CDeterministicMNManager::RecalcDiffsResult CDeterministicMNManager::RecalculateAndRepairDiffs(
-    const CBlockIndex* start_index, const CBlockIndex* stop_index, ChainstateManager& chainman,
-    BuildListFromBlockFunc build_list_func, bool repair)
+    const CBlockIndex* start_index, const CBlockIndex* stop_index, BuildListFromBlockFunc build_list_func, bool repair)
 {
     RecalcDiffsResult result;
     result.start_height = start_index->nHeight;
@@ -1237,7 +1236,7 @@ CDeterministicMNManager::RecalcDiffsResult CDeterministicMNManager::RecalculateA
 
     // Write repaired diffs to database
     if (repair) {
-        WriteRepairedDiffs(recalculated_diffs, result);
+        WriteRepairedDiffs(recalculated_diffs);
     }
 
     return result;
@@ -1426,7 +1425,7 @@ std::vector<std::pair<uint256, CDeterministicMNListDiff>> CDeterministicMNManage
 }
 
 void CDeterministicMNManager::WriteRepairedDiffs(
-    const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs, RecalcDiffsResult& result)
+    const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs)
 {
     AssertLockNotHeld(cs);
 

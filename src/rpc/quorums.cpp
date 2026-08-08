@@ -1304,7 +1304,7 @@ static RPCHelpMan verifyislock()
         signHeight = pindexMined->nHeight;
     }
 
-    CBlockIndex* pBlockIndex{nullptr};
+    const CBlockIndex* pBlockIndex{nullptr};
     {
         LOCK(cs_main);
         if (signHeight == -1) {
@@ -1388,7 +1388,7 @@ static RPCHelpMan submitchainlock()
 }
 
 
-void RegisterQuorumsRPCCommands(CRPCTable &tableRPC)
+void RegisterQuorumsRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"evo", &quorum_help},
@@ -1413,6 +1413,6 @@ void RegisterQuorumsRPCCommands(CRPCTable &tableRPC)
         {"evo", &verifyislock},
     };
     for (const auto& command : commands) {
-        tableRPC.appendCommand(command.name, &command);
+        t.appendCommand(command.name, &command);
     }
 }

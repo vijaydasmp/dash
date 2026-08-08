@@ -23,10 +23,9 @@ namespace {
 constexpr std::chrono::seconds GOVERNANCE_FUDGE_WINDOW{2h};
 } // anonymous namespace
 
-GovernanceSigner::GovernanceSigner(CConnman& connman, CDeterministicMNManager& dmnman, CGovernanceManager& govman,
+GovernanceSigner::GovernanceSigner(CDeterministicMNManager& dmnman, CGovernanceManager& govman,
                                    governance::SuperblockManager& superblocks, const CActiveMasternodeManager& mn_activeman,
                                    const ChainstateManager& chainman, const CMasternodeSync& mn_sync) :
-    m_connman{connman},
     m_dmnman{dmnman},
     m_govman{govman},
     m_superblocks{superblocks},
@@ -280,7 +279,7 @@ bool GovernanceSigner::VoteFundingTrigger(const uint256& nHash, const vote_outco
     vote.SetSignature(m_mn_activeman.SignBasic(vote.GetSignatureHash()));
 
     CGovernanceException exception;
-    if (!m_govman.ProcessVoteAndRelay(vote, exception, m_connman)) {
+    if (!m_govman.ProcessVoteAndRelay(vote, exception)) {
         LogPrint(BCLog::GOBJECT, "%s -- Vote FUNDING %d for trigger:%s failed:%s\n", __func__, outcome,
                  nHash.ToString(), exception.what());
         return false;

@@ -41,7 +41,8 @@ protected:
 
         /// Read address transaction history
         bool ReadAddressIndex(const uint160& address_hash, const AddressType type,
-                              std::vector<CAddressIndexEntry>& entries, const int32_t start = 0, const int32_t end = 0);
+                              std::vector<CAddressIndexEntry>& entries, const int32_t start_height = 0,
+                              const int32_t end_height = 0);
 
         /// Read address unspent outputs
         bool ReadAddressUnspentIndex(const uint160& address_hash, const AddressType type,
@@ -78,7 +79,7 @@ public:
 
     /// Query address transaction history
     bool GetAddressIndex(const uint160& address_hash, const AddressType type, std::vector<CAddressIndexEntry>& entries,
-                         const int32_t start = 0, const int32_t end = 0) const;
+                         const int32_t start_height = 0, const int32_t end_height = 0) const;
 
     /// Query address unspent outputs
     bool GetAddressUnspentIndex(const uint160& address_hash, const AddressType type,

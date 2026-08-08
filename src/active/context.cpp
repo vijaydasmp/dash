@@ -42,7 +42,7 @@ ActiveContext::ActiveContext(CBLSWorker& bls_worker, ChainstateManager& chainman
     dkgdbgman{std::make_unique<llmq::CDKGDebugManager>(dmnman, qsnapman, chainman)},
     qdkgsman{std::make_unique<llmq::CDKGSessionManager>(dmnman, qsnapman, chainman, sporkman, db_params)},
     shareman{std::make_unique<llmq::CSigSharesManager>(connman, chainman, sigman, *nodeman, qman, sporkman)},
-    gov_signer{std::make_unique<GovernanceSigner>(connman, dmnman, govman, superblocks, *nodeman, chainman, mn_sync)},
+    gov_signer{std::make_unique<GovernanceSigner>(dmnman, govman, superblocks, *nodeman, chainman, mn_sync)},
     ehf_sighandler{std::make_unique<llmq::CEHFSignalsHandler>(chainman, sigman, *shareman, qman)},
     cl_signer{std::make_unique<chainlock::ChainLockSigner>(chainman, chainlocks, clhandler, isman,
                                                            qman, sigman, *shareman, mn_sync)},

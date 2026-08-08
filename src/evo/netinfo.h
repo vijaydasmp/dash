@@ -325,6 +325,7 @@ public:
         }
     }
 
+    // cppcheck-suppress functionStatic
     void Serialize(CSizeComputer& s) const
     {
         s.seek(::GetSerializeSize(CService{}, s.GetVersion()));
@@ -375,10 +376,10 @@ private:
     bool IsAddrPortDuplicate(const NetInfoEntry& candidate) const;
 
     /** Returns true if there are addr duplicates within a given address list */
-    bool HasAddrDuplicates(const NetInfoList& entries) const;
+    static bool HasAddrDuplicates(const NetInfoList& entries);
 
     /** Returns true if candidate is an addr duplicate within a given address list */
-    bool IsAddrDuplicate(const NetInfoEntry& candidate, const NetInfoList& entries) const;
+    static bool IsAddrDuplicate(const NetInfoEntry& candidate, const NetInfoList& entries);
 
     /** Validate uniqueness requirements and add to object if passed */
     NetInfoStatus ProcessCandidate(const NetInfoPurpose purpose, const NetInfoEntry& candidate);

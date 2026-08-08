@@ -500,7 +500,7 @@ std::optional<std::pair<QcHashMap, QcIndexedHashMap>> CQuorumBlockProcessor::Get
     return std::make_pair(m_qc_hashes_cached, m_qc_indexed_hashes_cached);
 }
 
-bool CQuorumBlockProcessor::UndoBlock(Chainstate& chainstate, const CBlock& block, gsl::not_null<const CBlockIndex*> pindex)
+bool CQuorumBlockProcessor::UndoBlock(const Chainstate& chainstate, const CBlock& block, gsl::not_null<const CBlockIndex*> pindex)
 {
     AssertLockHeld(::cs_main);
 

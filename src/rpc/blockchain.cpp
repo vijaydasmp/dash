@@ -567,9 +567,7 @@ static RPCHelpMan getblockhashes()
     unsigned int low = request.params[1].getInt<int>();
     std::vector<uint256> blockHashes;
 
-    if (!node.timestamp_index->GetBlockHashes(high, low, blockHashes)) {
-        throw JSONRPCError(RPC_MISC_ERROR, "Failed to read timestamp index.");
-    }
+    node.timestamp_index->GetBlockHashes(high, low, blockHashes);
 
     UniValue result(UniValue::VARR);
     for (const auto& hash : blockHashes) {

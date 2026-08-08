@@ -786,7 +786,7 @@ bool CGovernanceManager::MasternodeRateCheck(const CGovernanceObject& govobj, bo
     return false;
 }
 
-bool CGovernanceManager::ProcessVoteAndRelay(const CGovernanceVote& vote, CGovernanceException& exception, CConnman& connman)
+bool CGovernanceManager::ProcessVoteAndRelay(const CGovernanceVote& vote, CGovernanceException& exception)
 {
     AssertLockNotHeld(cs_store);
     AssertLockNotHeld(cs_relay);
@@ -1167,7 +1167,7 @@ void CGovernanceManager::RemoveInvalidVotes()
             if (removed.empty()) {
                 continue;
             }
-            for (auto& voteHash : removed) {
+            for (const auto& voteHash : removed) {
                 cmapVoteToObject.Erase(voteHash);
                 cmapInvalidVotes.Erase(voteHash);
                 cmmapOrphanVotes.Erase(voteHash);

@@ -114,7 +114,7 @@ std::string CBatchedSigShares::ToInvString() const
     return inv.ToString();
 }
 
-static void InitSession(CSigSharesNodeState::Session& s, const llmq::SignHash& signHash, CSigBase from)
+static void InitSession(CSigSharesNodeState::Session& s, const llmq::SignHash& signHash, const CSigBase& from)
 {
     const auto& llmq_params_opt = Params().GetLLMQ(from.getLlmqType());
     assert(llmq_params_opt.has_value());

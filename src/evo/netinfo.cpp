@@ -400,7 +400,7 @@ bool ExtNetInfo::IsAddrPortDuplicate(const NetInfoEntry& candidate) const
                        [&candidate](const auto& entry) { return candidate == entry; });
 }
 
-bool ExtNetInfo::HasAddrDuplicates(const NetInfoList& entries) const
+bool ExtNetInfo::HasAddrDuplicates(const NetInfoList& entries)
 {
     std::unordered_set<std::string> known{};
     for (const auto& entry : entries) {
@@ -412,7 +412,7 @@ bool ExtNetInfo::HasAddrDuplicates(const NetInfoList& entries) const
     return false;
 }
 
-bool ExtNetInfo::IsAddrDuplicate(const NetInfoEntry& candidate, const NetInfoList& entries) const
+bool ExtNetInfo::IsAddrDuplicate(const NetInfoEntry& candidate, const NetInfoList& entries)
 {
     const std::string& candidate_str{candidate.ToStringAddr()};
     return std::any_of(entries.begin(), entries.end(),

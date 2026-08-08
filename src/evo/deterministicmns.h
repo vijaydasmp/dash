@@ -517,7 +517,7 @@ public:
 
 private:
     template <typename T>
-    [[nodiscard]] uint256 GetUniquePropertyHash(const T& v) const
+    [[nodiscard]] static uint256 GetUniquePropertyHash(const T& v)
     {
 #define DMNL_NO_TEMPLATE(name) \
     static_assert(!std::is_same_v<std::decay_t<T>, name>, "GetUniquePropertyHash cannot be templated against " #name)
@@ -805,7 +805,7 @@ public:
         CDeterministicMNList& mnListRet)>;
 
     [[nodiscard]] RecalcDiffsResult RecalculateAndRepairDiffs(const CBlockIndex* start_index,
-                                                              const CBlockIndex* stop_index, ChainstateManager& chainman,
+                                                              const CBlockIndex* stop_index,
                                                               BuildListFromBlockFunc build_list_func, bool repair)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
     [[nodiscard]] bool IsRepaired() const;
@@ -820,15 +820,16 @@ private:
     CDeterministicMNList GetListForBlockInternal(gsl::not_null<const CBlockIndex*> pindex) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     // Helper methods for RecalculateAndRepairDiffs
-    std::vector<const CBlockIndex*> CollectSnapshotBlocks(const CBlockIndex* start_index, const CBlockIndex* stop_index,
-                                                          const Consensus::Params& consensus_params);
+    static std::vector<const CBlockIndex*> CollectSnapshotBlocks(const CBlockIndex* start_index,
+                                                                 const CBlockIndex* stop_index,
+                                                                 const Consensus::Params& consensus_params);
     bool VerifySnapshotPair(const CBlockIndex* from_index, const CBlockIndex* to_index,
                             const CDeterministicMNList& from_snapshot, const CDeterministicMNList& to_snapshot,
                             RecalcDiffsResult& result);
-    std::vector<std::pair<uint256, CDeterministicMNListDiff>> RepairSnapshotPair(
+    static std::vector<std::pair<uint256, CDeterministicMNListDiff>> RepairSnapshotPair(
         const CBlockIndex* from_index, const CBlockIndex* to_index, const CDeterministicMNList& from_snapshot,
         const CDeterministicMNList& to_snapshot, BuildListFromBlockFunc build_list_func, RecalcDiffsResult& result);
-    void WriteRepairedDiffs(const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs,
-                            RecalcDiffsResult& result) EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    void WriteRepairedDiffs(const std::vector<std::pair<uint256, CDeterministicMNListDiff>>& recalculated_diffs)
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
 };
 #endif // BITCOIN_EVO_DETERMINISTICMNS_H

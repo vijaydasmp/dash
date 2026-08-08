@@ -677,7 +677,7 @@ static RPCHelpMan getaddressbalance()
         LOCK(::cs_main);
         for (const auto& address : addresses) {
             if (!node.address_index->GetAddressIndex(address.first, address.second, addressIndex,
-                                                 /*start=*/0, /*end=*/0)) {
+                                                 /*start_height=*/0, /*end_height=*/0)) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available for address");
             }
         }

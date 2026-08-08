@@ -293,6 +293,7 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
 {
     // Verify that prevList either represents an empty/initial state (default-constructed),
     // or it matches the previous block's hash.
+    // cppcheck-suppress assertWithSideEffect
     assert(prevList == CDeterministicMNList() || prevList.GetBlockHash() == pindexPrev->GetBlockHash());
 
     int nHeight = pindexPrev->nHeight + 1;
@@ -699,9 +700,6 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
         static int64_t nTimeLoop = 0;
         static int64_t nTimeQuorum = 0;
         static int64_t nTimeDMN = 0;
-        static int64_t nTimeMerkleMNL = 0;
-        static int64_t nTimeMerkleQuorums = 0;
-        static int64_t nTimeCbTxCL = 0;
         static int64_t nTimeMnehf = 0;
         static int64_t nTimePayload = 0;
         static int64_t nTimeCreditPool = 0;
@@ -809,6 +807,10 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
                  nTimeDMN * 0.000001);
 
         if (opt_cbTx.has_value()) {
+            static int64_t nTimeMerkleMNL = 0;
+            static int64_t nTimeMerkleQuorums = 0;
+            static int64_t nTimeCbTxCL = 0;
+
             uint256 calculatedMerkleRootMNL;
             if (!CalcCbTxMerkleRootMNList(calculatedMerkleRootMNL, mn_list.to_sml(), state)) {
                 // pass the state returned by the function above
@@ -882,7 +884,7 @@ bool CSpecialTxProcessor::ProcessSpecialTxsInBlock(Chainstate& chainstate, const
     return true;
 }
 
-bool CSpecialTxProcessor::UndoSpecialTxsInBlock(Chainstate& chainstate, const CBlock& block, const CBlockIndex* pindex, std::optional<MNListUpdates>& updatesRet)
+bool CSpecialTxProcessor::UndoSpecialTxsInBlock(const Chainstate& chainstate, const CBlock& block, const CBlockIndex* pindex, std::optional<MNListUpdates>& updatesRet)
 {
     AssertLockHeld(::cs_main);
 
