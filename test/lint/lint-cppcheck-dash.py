@@ -117,10 +117,11 @@ def main():
         '-DDEBUG',
         '-DUSE_EPOLL',
         '-DCHAR_BIT=8',
-        # Function-like macro that cppcheck cannot evaluate on its own; leaving
-        # it undefined aborts analysis of Qt translation units with a fatal
+        # Function-like macros that cppcheck cannot evaluate on its own; leaving
+        # them undefined aborts analysis of Qt translation units with a fatal
         # syntaxError ("failed to evaluate #if condition").
         '-DQT_VERSION_CHECK(major,minor,patch)=((major<<16)|(minor<<8)|(patch))',
+        '-DQT_CONFIG(x)=0',
         '-I', 'src/',
         '-q',
     ] + files
