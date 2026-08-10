@@ -35,11 +35,9 @@ class ChainlockHandler;
 namespace Consensus { struct Params; };
 namespace llmq {
 class CQuorumBlockProcessor;
-class CQuorumManager;
 } // namespace llmq
 
 namespace node {
-class BlockManager;
 struct NodeContext;
 
 static const bool DEFAULT_PRINTPRIORITY = false;
@@ -167,7 +165,6 @@ private:
     int nHeight;
     int64_t m_lock_time_cutoff;
 
-    BlockManager& m_blockman;
     CChainstateHelper& m_chain_helper;
     Chainstate& m_chainstate;
     CEvoDB& m_evoDb;
@@ -176,7 +173,6 @@ private:
     const CChainParams& chainparams;
     const CTxMemPool* const m_mempool;
     const llmq::CQuorumBlockProcessor& m_quorum_block_processor;
-    const llmq::CQuorumManager& m_qman;
 
 public:
     struct Options {
