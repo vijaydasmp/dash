@@ -1648,7 +1648,12 @@ std::string Chainstate::EvoDbInconsistencyMessage()
 const CBlockIndex* Chainstate::SnapshotBase()
 {
     if (!m_from_snapshot_blockhash) return nullptr;
-    if (!m_cached_snapshot_base) m_cached_snapshot_base = Assert(m_chainman.m_blockman.LookupBlockIndex(*m_from_snapshot_blockhash));
+    // Unlike upstream, a missing base block is not Assert()ed away: synthetic
+    // unit fixtures activate a snapshot chainstate before inserting its base
+    // into the block index, and ChainstateManager::LoadBlockIndex() reports a
+    // missing on-disk base as a startup error rather than an abort. Callers
+    // that require existence Assert at the call site.
+    if (!m_cached_snapshot_base) m_cached_snapshot_base = m_chainman.m_blockman.LookupBlockIndex(*m_from_snapshot_blockhash);
     return m_cached_snapshot_base;
 }
 
@@ -4855,6 +4860,18 @@ bool ChainstateManager::LoadBlockIndex()
 
         m_blockman.ScanAndUnlinkAlreadyPrunedFiles();
 
+        // Candidate admission below Asserts the snapshot base for the
+        // background chainstate, so a base missing from the on-disk block
+        // index must be reported here, as a recoverable startup error, before
+        // any admission runs. -reindex discards the snapshot chainstate and
+        // its EvoDB markers, so the standard rebuild advice recovers.
+        if (const auto base_hash{SnapshotBlockhash()}) {
+            if (!m_blockman.LookupBlockIndex(*base_hash)) {
+                return error("[snapshot] base block %s of the active snapshot chainstate is missing from the block index",
+                             base_hash->ToString());
+            }
+        }
+
         std::vector<CBlockIndex*> vSortedByHeight{m_blockman.GetAllBlockIndices()};
         std::sort(vSortedByHeight.begin(), vSortedByHeight.end(),
                   CBlockIndexHeightOnlyComparator());
@@ -6393,15 +6410,7 @@ util::Result<void> Chainstate::InvalidateCoinsDBOnDisk()
 
 const CBlockIndex* ChainstateManager::GetSnapshotBaseBlock() const
 {
-    // Deliberately bypass Chainstate::SnapshotBase(), which Asserts a missing
-    // base block out of existence: startup snapshot completion must be able to
-    // observe "base not in the block index" and fail with
-    // BASE_BLOCKHASH_MISMATCH instead of aborting the node. Callers that
-    // require existence Assert at the call site.
-    if (!m_active_chainstate || !m_active_chainstate->m_from_snapshot_blockhash) {
-        return nullptr;
-    }
-    return m_blockman.LookupBlockIndex(*m_active_chainstate->m_from_snapshot_blockhash);
+    return m_active_chainstate ? m_active_chainstate->SnapshotBase() : nullptr;
 }
 
 std::optional<int> ChainstateManager::GetSnapshotBaseHeight() const

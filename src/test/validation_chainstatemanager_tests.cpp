@@ -1169,6 +1169,31 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_base_is_cached, SnapshotTestS
     }
 }
 
+//! A snapshot chainstate whose base block is missing from the on-disk block
+//! index must fail startup with a recoverable error (reindex discards the
+//! snapshot), not abort in candidate admission.
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_missing_base_fails_load, SnapshotTestSetup)
+{
+    this->SetupSnapshot();
+    this->SimulateNodeRestart();
+
+    // Simulate a block-tree database that has lost the snapshot's history
+    // (wiped or swapped blocks/index) while the snapshot chainstate directory
+    // and its EvoDB marker survive.
+    fs::remove_all(gArgs.GetDataDirNet() / "blocks" / "index");
+
+    ChainstateManager& chainman = *Assert(m_node.chainman);
+    node::ChainstateLoadStatus status;
+    bilingual_str error;
+    {
+        ASSERT_DEBUG_LOG("missing from the block index");
+        std::tie(status, error) = node::LoadChainstate(chainman, m_cache_sizes, ChainstateLoadOptionsForTest(),
+                                                       m_node.evodb, m_node.dmnman, m_node.llmq_ctx,
+                                                       m_node.chain_helper);
+    }
+    BOOST_CHECK(status == node::ChainstateLoadStatus::FAILURE);
+}
+
 BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_completion_without_base_list_marker, SnapshotTestSetup)
 {
     this->SetupSnapshot();
