@@ -1,6 +1,7 @@
 src/active/*.cpp
 src/active/*.h
 src/batchedlogger.*
+src/bench/blockfilter_index.cpp
 src/bench/bls*.cpp
 src/bls/*.cpp
 src/bls/*.h
