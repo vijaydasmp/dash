@@ -3776,6 +3776,15 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
     }
 
     int nHeight = pindex->nHeight;
+    // Candidate admission is deferred to a second pass over every usable
+    // chainstate (upstream reinserts inline into the invoking chainstate
+    // only). The failure flags cleared below are ChainstateManager-wide, and
+    // in Dash this function also runs during dual-chainstate operation via
+    // ChainLock enforcement, so an inline insert would leave the other
+    // chainstate -- possibly the active one -- blind to a now-valid most-work
+    // block. Routing through TryAddBlockIndexCandidate also applies the
+    // ChainLock-conflict and ancestor-of-base filters that the multi-chainstate
+    // CheckBlockIndex invariants require.
     std::vector<CBlockIndex*> reconsidered_blocks;
 
     // Remove the invalidity flag from this block and all its descendants.
