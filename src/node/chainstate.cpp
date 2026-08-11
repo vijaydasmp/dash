@@ -54,8 +54,7 @@ static bool RecoverSnapshotCleanup(CEvoDB& evodb, const fs::path& data_dir, bili
     if (fs::exists(to_delete) && fs::exists(snapshot) && !fs::exists(normal)) {
         LogPrintf("[snapshot] rolling back interrupted background chainstate rename\n");
         try {
-            fs::rename(to_delete, normal);
-            DirectoryCommit(data_dir);
+            RenameDurably(to_delete, normal);
         } catch (const fs::filesystem_error& e) {
             error = strprintf(_("Failed to recover interrupted snapshot cleanup: %s"), e.what());
             return false;
@@ -92,8 +91,7 @@ static bool RecoverSnapshotCleanup(CEvoDB& evodb, const fs::path& data_dir, bili
             }
             if (fs::exists(to_delete)) {
                 try {
-                    fs::remove_all(to_delete);
-                    DirectoryCommit(data_dir);
+                    RemoveAllDurably(to_delete);
                 } catch (const fs::filesystem_error& e) {
                     LogPrintf("[snapshot] unable to remove recovered background chainstate directory: %s\n", e.what());
                 }
@@ -123,8 +121,7 @@ static bool RecoverSnapshotCleanup(CEvoDB& evodb, const fs::path& data_dir, bili
     // directory. Treat that retry as success and finish the nonessential deletion.
     if (!has_metadata && fs::exists(normal) && !fs::exists(snapshot) && fs::exists(to_delete)) {
         try {
-            fs::remove_all(to_delete);
-            DirectoryCommit(data_dir);
+            RemoveAllDurably(to_delete);
         } catch (const fs::filesystem_error& e) {
             LogPrintf("[snapshot] unable to remove promoted background chainstate directory: %s\n", e.what());
         }

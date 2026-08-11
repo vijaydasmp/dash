@@ -6390,8 +6390,7 @@ util::Result<void> Chainstate::InvalidateCoinsDBOnDisk()
     // want to do forensics later during issue investigation. The user is instructed
     // accordingly in MaybeCompleteSnapshotValidation().
     try {
-        fs::rename(snapshot_datadir, invalid_path);
-        DirectoryCommit(snapshot_datadir.parent_path());
+        RenameDurably(snapshot_datadir, invalid_path);
     } catch (const fs::filesystem_error& e) {
         auto src_str = fs::PathToString(snapshot_datadir);
         auto dest_str = fs::PathToString(invalid_path);
@@ -6479,8 +6478,7 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
     };
 
     try {
-        fs::rename(ibd_chainstate_path, tmp_old);
-        DirectoryCommit(ibd_chainstate_path.parent_path());
+        RenameDurably(ibd_chainstate_path, tmp_old);
     } catch (const fs::filesystem_error& e) {
         rename_failed_abort(ibd_chainstate_path, tmp_old, e);
         throw;
@@ -6491,8 +6489,7 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
               fs::PathToString(snapshot_chainstate_path), fs::PathToString(ibd_chainstate_path));
 
     try {
-        fs::rename(snapshot_chainstate_path, ibd_chainstate_path);
-        DirectoryCommit(snapshot_chainstate_path.parent_path());
+        RenameDurably(snapshot_chainstate_path, ibd_chainstate_path);
     } catch (const fs::filesystem_error& e) {
         rename_failed_abort(snapshot_chainstate_path, ibd_chainstate_path, e);
         throw;
