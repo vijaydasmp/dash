@@ -8,6 +8,7 @@ from test_framework.test_framework import BitcoinTestFramework
 
 from test_framework.script_util import (
     keyhash_to_p2pkh_script,
+    scripthash_to_p2sh_script,
 )
 from test_framework.segwit_addr import (
     DIP18_TYPE_P2PKH,
@@ -22,6 +23,7 @@ from test_framework.util import (
 
 PLATFORM_HRP = 'tdash'
 PLATFORM_KEYHASH = bytes.fromhex('f7da0a2b5cbd4ff6bb2c4d89b67d2f3ffeec0525')
+PLATFORM_SCRIPTHASH = bytes.fromhex('43fa183cf3fb6e9e7dc62b692aeb4fc8d8045636')
 
 
 def platform_address(encoding, type_byte, payload):
@@ -79,13 +81,15 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
         else:
             assert_equal(res['error_locations'], [])
 
-    def check_platform(self, addr, normalized):
+    def check_platform(self, addr, normalized, script, is_script):
         res = self.nodes[0].validateaddress(addr)
         assert_equal(res['isvalid'], True)
         assert_equal(res['isplatform'], True)
         assert_equal(res['address'], normalized)
-        # A Platform address has no layer-1 output script
-        assert 'scriptPubKey' not in res
+        # Described against the credit output script an asset lock would carry
+        # for it, consistent with getaddressinfo
+        assert_equal(res['scriptPubKey'], script.hex())
+        assert_equal(res['isscript'], is_script)
         assert 'error' not in res
         assert 'error_locations' not in res
 
@@ -106,9 +110,11 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
         self.check_invalid(BECH32_INVALID_SIZE, 'Invalid Platform address payload length')
 
         # Valid Bech32m: DIP-18 Platform addresses, reported as such and normalized to lower case
-        self.check_platform(BECH32_VALID, BECH32_VALID)
-        self.check_platform(BECH32_VALID_CAPITALS, BECH32_VALID)
-        self.check_platform(BECH32_VALID_P2SH, BECH32_VALID_P2SH)
+        p2pkh_script = keyhash_to_p2pkh_script(PLATFORM_KEYHASH)
+        p2sh_script = scripthash_to_p2sh_script(PLATFORM_SCRIPTHASH)
+        self.check_platform(BECH32_VALID, BECH32_VALID, p2pkh_script, False)
+        self.check_platform(BECH32_VALID_CAPITALS, BECH32_VALID, p2pkh_script, False)
+        self.check_platform(BECH32_VALID_P2SH, BECH32_VALID_P2SH, p2sh_script, True)
 
         # Invalid Base58
         self.check_invalid(BASE58_INVALID_PREFIX, 'Invalid prefix for Base58-encoded address')

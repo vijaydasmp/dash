@@ -422,7 +422,8 @@ RPCHelpMan getaddressinfo()
                 "\nReturn information about the given Dash address.\n"
                 "Some of the information will only be present if the address is in the active wallet.\n"
                 "A DIP-18 Dash Platform address is described against the credit output script an asset\n"
-                "lock would carry for it.\n",
+                "lock would carry for it; fields like \"ismine\" and \"solvable\" then refer to that\n"
+                "script, not to ownership of a Platform identity.\n",
                 {
                     {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The Dash address for which to get information."},
                 },
