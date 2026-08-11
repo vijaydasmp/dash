@@ -1132,6 +1132,41 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_invalid_rena
         WITH_LOCK(::cs_main, return restarted.ActiveChainstate().CoinsTip().GetBestBlock())));
 }
 
+//! Pin the documented promote/discard overlap in RecoverSnapshotCleanup: a
+//! crash between an invalid-snapshot rename and its marker discard while the
+//! SNAPSHOT marker equals the background coins tip (completion failed with the
+//! snapshot chainstate still at its base) makes recovery take the promote
+//! branch. That must produce the same end state a completed discard would.
+BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_overlap_promote_equals_discard, SnapshotTestSetup)
+{
+    Chainstate* background_chainstate = std::get<0>(this->SetupSnapshot());
+    const uint256 bg_tip = WITH_LOCK(::cs_main, return background_chainstate->CoinsTip().GetBestBlock());
+
+    ChainstateManager& restarted = this->SimulateNodeRestart();
+    const fs::path data_dir{gArgs.GetDataDirNet()};
+    // Rewind the on-disk SNAPSHOT marker to the base block, as if the snapshot
+    // chainstate had never advanced past its base when completion failed, then
+    // simulate the crash after InvalidateCoinsDBOnDisk's rename.
+    SeedSnapshotMarker(*m_node.evodb, bg_tip);
+    fs::rename(data_dir / "chainstate_snapshot", data_dir / "chainstate_snapshot_INVALID");
+
+    this->LoadVerifyActivateChainstate();
+
+    BOOST_CHECK(fs::exists(data_dir / "chainstate_snapshot_INVALID"));
+    BOOST_CHECK(!fs::exists(data_dir / "chainstate_snapshot"));
+    BOOST_CHECK(!m_node.evodb->HasDualChainstateMarker());
+    uint256 obsolete;
+    BOOST_CHECK(!m_node.evodb->ReadBestBlock(EvoDbIdentity::SNAPSHOT, obsolete));
+    BOOST_CHECK(!m_node.evodb->ReadSnapshotBaseMNListHash(obsolete));
+    {
+        LOCK(::cs_main);
+        BOOST_CHECK_EQUAL(restarted.GetAll().size(), 1);
+        BOOST_CHECK(!restarted.IsSnapshotActive());
+        BOOST_CHECK(m_node.evodb->VerifyBestBlock(
+            EvoDbIdentity::NORMAL, restarted.ActiveChainstate().CoinsTip().GetBestBlock()));
+    }
+}
+
 BOOST_FIXTURE_TEST_CASE(chainstatemanager_snapshot_cleanup_recovers_promoted_swap, SnapshotTestSetup)
 {
     this->SetupSnapshot();

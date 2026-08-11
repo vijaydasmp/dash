@@ -239,6 +239,7 @@ BOOST_AUTO_TEST_CASE(snapshot_markers_can_be_discarded)
         {
             auto tx = db.BeginTransaction(EvoDbIdentity::SNAPSHOT);
             db.WriteSnapshotBaseMNListHash(BlockHash(4));
+            db.WriteBackgroundMNListHash(BlockHash(40), BlockHash(4));
             db.WriteDualChainstateMarker();
             tx->Commit();
         }
@@ -258,8 +259,10 @@ BOOST_AUTO_TEST_CASE(snapshot_markers_can_be_discarded)
     }
     CEvoDB reopened{util::DbWrapperParams{.path = path, .memory = false, .wipe = false}};
     uint256 hash;
+    uint256 hash2;
     BOOST_CHECK(!reopened.ReadBestBlock(EvoDbIdentity::SNAPSHOT, hash));
     BOOST_CHECK(!reopened.ReadSnapshotBaseMNListHash(hash));
+    BOOST_CHECK(!reopened.ReadBackgroundMNListHash(hash, hash2));
     BOOST_CHECK(!reopened.HasDualChainstateMarker());
 }
 
