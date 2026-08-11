@@ -6,6 +6,9 @@
 
 from test_framework.test_framework import BitcoinTestFramework
 
+from test_framework.script_util import (
+    keyhash_to_p2pkh_script,
+)
 from test_framework.segwit_addr import (
     DIP18_TYPE_P2PKH,
     Encoding,
@@ -69,11 +72,22 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
     def check_invalid(self, addr, error_str, error_locations=None):
         res = self.nodes[0].validateaddress(addr)
         assert not res['isvalid']
+        assert 'isplatform' not in res
         assert_equal(res['error'], error_str)
         if error_locations:
             assert_equal(res['error_locations'], error_locations)
         else:
             assert_equal(res['error_locations'], [])
+
+    def check_platform(self, addr, normalized):
+        res = self.nodes[0].validateaddress(addr)
+        assert_equal(res['isvalid'], True)
+        assert_equal(res['isplatform'], True)
+        assert_equal(res['address'], normalized)
+        # A Platform address has no layer-1 output script
+        assert 'scriptPubKey' not in res
+        assert 'error' not in res
+        assert 'error_locations' not in res
 
     def test_validateaddress(self):
         # Invalid Bech32
@@ -91,10 +105,10 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
         self.check_invalid(BECH32_INVALID_TYPE_BYTE, 'Unknown DIP-18 type byte')
         self.check_invalid(BECH32_INVALID_SIZE, 'Invalid Platform address payload length')
 
-        # Valid Bech32m: Platform addresses are not Dash Core addresses
-        self.check_invalid(BECH32_VALID, 'This is a Dash Platform address, not a Dash Core address')
-        self.check_invalid(BECH32_VALID_CAPITALS, 'This is a Dash Platform address, not a Dash Core address')
-        self.check_invalid(BECH32_VALID_P2SH, 'This is a Dash Platform address, not a Dash Core address')
+        # Valid Bech32m: DIP-18 Platform addresses, reported as such and normalized to lower case
+        self.check_platform(BECH32_VALID, BECH32_VALID)
+        self.check_platform(BECH32_VALID_CAPITALS, BECH32_VALID)
+        self.check_platform(BECH32_VALID_P2SH, BECH32_VALID_P2SH)
 
         # Invalid Base58
         self.check_invalid(BASE58_INVALID_PREFIX, 'Invalid prefix for Base58-encoded address')
@@ -118,6 +132,21 @@ class InvalidAddressErrorMessageTest(BitcoinTestFramework):
         assert_raises_rpc_error(-5, "Invalid prefix for Base58-encoded address", node.getaddressinfo, BASE58_INVALID_PREFIX)
 
         assert_raises_rpc_error(-5, "Not a valid Bech32m or Base58 encoding", node.getaddressinfo, INVALID_ADDRESS)
+
+        # A DIP-18 Platform address is described against the credit output script an
+        # asset lock would carry for it
+        info = node.getaddressinfo(BECH32_VALID)
+        assert_equal(info['isplatform'], True)
+        assert_equal(info['address'], BECH32_VALID)
+        assert_equal(info['isscript'], False)
+        assert_equal(info['scriptPubKey'], keyhash_to_p2pkh_script(PLATFORM_KEYHASH).hex())
+
+        info = node.getaddressinfo(BECH32_VALID_P2SH)
+        assert_equal(info['isplatform'], True)
+        assert_equal(info['isscript'], True)
+
+        # A regular Dash address is not reported as a Platform one
+        assert 'isplatform' not in node.getaddressinfo(BASE58_VALID)
 
     def run_test(self):
         self.test_validateaddress()
