@@ -348,8 +348,19 @@ public:
             return false;
         }
         // A friendship that is already imported matches its existing spk_man
-        // and is updated in place (AddWalletDescriptor), so re-imports during
-        // recovery are safe.
+        // and is updated in place (AddWalletDescriptor). The update must keep
+        // the existing range, derivation progress and earliest birth time:
+        // TopUp() may have grown the range past the initial one (a shrinking
+        // update throws in CanUpdateToWalletDescriptor), and a later creation
+        // time could exclude old history from rescans.
+        if (auto* existing = m_wallet->GetDescriptorScriptPubKeyMan(wallet_descriptor)) {
+            LOCK(existing->cs_desc_man);
+            const WalletDescriptor current{existing->GetWalletDescriptor()};
+            wallet_descriptor.range_start = current.range_start;
+            wallet_descriptor.range_end = std::max(wallet_descriptor.range_end, current.range_end);
+            wallet_descriptor.next_index = current.next_index;
+            wallet_descriptor.creation_time = std::min(wallet_descriptor.creation_time, current.creation_time);
+        }
         if (!m_wallet->AddWalletDescriptor(wallet_descriptor, provider, label, /*internal=*/false)) {
             if (error.empty()) error = "could not import receiving friendship descriptor";
             return false;

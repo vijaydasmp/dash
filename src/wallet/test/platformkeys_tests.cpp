@@ -17,11 +17,13 @@
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
+#include <wallet/walletdb.h>
 
 #include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -530,6 +532,47 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
     }
     for (uint32_t index = 0; index < 5; ++index) {
         BOOST_CHECK_EQUAL(IsMine(PaymentDestination(m_my_id, m_their_id, index)), ISMINE_SPENDABLE);
+    }
+
+    // Normal use after import: observing a payment to index 0 advances the
+    // descriptor's next_index and lets TopUp() grow its range past the
+    // initial one.
+    const CScript used_script{GetScriptForDestination(PaymentDestination(m_my_id, m_their_id, 0))};
+    DescriptorScriptPubKeyMan* friendship_spk_man{nullptr};
+    {
+        LOCK(m_wallet->cs_wallet);
+        WalletBatch batch{m_wallet->GetDatabase()};
+        for (auto* spk_man : m_wallet->GetScriptPubKeyMans(used_script)) {
+            friendship_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man);
+            if (!friendship_spk_man) continue;
+            spk_man->MarkUnusedAddresses(batch, used_script, std::nullopt);
+            BOOST_REQUIRE(spk_man->TopUp());
+            break;
+        }
+    }
+    BOOST_REQUIRE(friendship_spk_man);
+    int32_t used_next_index;
+    int32_t used_range_end;
+    {
+        LOCK(friendship_spk_man->cs_desc_man);
+        const auto used_descriptor{friendship_spk_man->GetWalletDescriptor()};
+        used_next_index = used_descriptor.next_index;
+        used_range_end = used_descriptor.range_end;
+    }
+    BOOST_REQUIRE_EQUAL(used_next_index, 1);
+    BOOST_REQUIRE_GT(used_range_end, 1000);
+
+    // Re-import after use must still succeed and keep the grown range,
+    // derivation progress, and the earliest creation time.
+    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
+                                                             /*creation_time=*/1'700'000'000, "DashPay friend", error),
+                          error);
+    {
+        LOCK(friendship_spk_man->cs_desc_man);
+        const auto reimported{friendship_spk_man->GetWalletDescriptor()};
+        BOOST_CHECK_EQUAL(reimported.next_index, used_next_index);
+        BOOST_CHECK_EQUAL(reimported.range_end, used_range_end);
+        BOOST_CHECK_EQUAL(reimported.creation_time, 0);
     }
 }
 
