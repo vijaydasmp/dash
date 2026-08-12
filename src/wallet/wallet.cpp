@@ -3811,6 +3811,36 @@ bool CWallet::WriteGovernanceObject(const Governance::Object& obj)
     return batch.WriteGovernanceObject(obj) && LoadGovernanceObject(obj);
 }
 
+void CWallet::LoadPlatformData(const std::string& key, const std::vector<unsigned char>& value)
+{
+    AssertLockHeld(cs_wallet);
+    m_platform_data[key] = value;
+}
+
+bool CWallet::WritePlatformData(const std::string& key, const std::vector<unsigned char>& value)
+{
+    AssertLockHeld(cs_wallet);
+    WalletBatch batch(GetDatabase());
+    if (value.empty()) {
+        m_platform_data.erase(key);
+        return batch.ErasePlatformData(key);
+    }
+    if (!batch.WritePlatformData(key, value)) return false;
+    m_platform_data[key] = value;
+    return true;
+}
+
+std::map<std::string, std::vector<unsigned char>> CWallet::GetPlatformData(const std::string& prefix) const
+{
+    AssertLockHeld(cs_wallet);
+    std::map<std::string, std::vector<unsigned char>> ret;
+    for (auto it = m_platform_data.lower_bound(prefix); it != m_platform_data.end(); ++it) {
+        if (it->first.compare(0, prefix.size(), prefix) != 0) break;
+        ret.emplace(it->first, it->second);
+    }
+    return ret;
+}
+
 std::vector<const Governance::Object*> CWallet::GetGovernanceObjects()
 {
     AssertLockHeld(cs_wallet);

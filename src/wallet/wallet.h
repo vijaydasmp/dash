@@ -488,6 +488,10 @@ public:
     // Map from governance object hash to governance object, they are added by gobject_prepare.
     std::map<uint256, Governance::Object> m_gobjects;
 
+    // Generic per-wallet key/value records used by Dash Platform integration
+    // (opaque to the wallet; persisted as DBKeys::PLATFORM_DATA).
+    std::map<std::string, std::vector<unsigned char>> m_platform_data;
+
     typedef std::map<unsigned int, CMasterKey> MasterKeyMap;
     MasterKeyMap mapMasterKeys;
     unsigned int nMasterKeyMaxID = 0;
@@ -1002,6 +1006,13 @@ public:
     bool WriteGovernanceObject(const Governance::Object& obj) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Returns a vector containing pointers to the governance objects in m_gobjects */
     std::vector<const Governance::Object*> GetGovernanceObjects() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    /** Load a Platform data record into m_platform_data (wallet load). */
+    void LoadPlatformData(const std::string& key, const std::vector<unsigned char>& value) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Write (or, with an empty value, erase) a Platform data record. */
+    bool WritePlatformData(const std::string& key, const std::vector<unsigned char>& value) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** All Platform data records whose key starts with prefix. */
+    std::map<std::string, std::vector<unsigned char>> GetPlatformData(const std::string& prefix) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
      * Blocks until the wallet state is up-to-date to /at least/ the current

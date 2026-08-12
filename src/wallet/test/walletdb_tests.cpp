@@ -61,5 +61,40 @@ BOOST_AUTO_TEST_CASE(walletdb_hdchain_type_mismatch)
     BOOST_CHECK_EQUAL(strErr, "Error reading wallet database: HD chain type mismatch");
 }
 
+BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
+{
+    LOCK(m_wallet.cs_wallet);
+
+    // Round-trip through the in-memory map: write, prefix query, erase.
+    const std::vector<unsigned char> value_a{0x01, 0x02};
+    const std::vector<unsigned char> value_b{0x03};
+    BOOST_CHECK(m_wallet.WritePlatformData("platform/identity/0", value_a));
+    BOOST_CHECK(m_wallet.WritePlatformData("platform/identity/1", value_b));
+    BOOST_CHECK(m_wallet.WritePlatformData("platform/seed-id", value_b));
+
+    auto records{m_wallet.GetPlatformData("platform/identity/")};
+    BOOST_CHECK_EQUAL(records.size(), 2U);
+    BOOST_CHECK(records.at("platform/identity/0") == value_a);
+    BOOST_CHECK(records.at("platform/identity/1") == value_b);
+    BOOST_CHECK_EQUAL(m_wallet.GetPlatformData("").size(), 3U);
+    BOOST_CHECK(m_wallet.GetPlatformData("platform/idem").empty());
+
+    // An empty value erases the record.
+    BOOST_CHECK(m_wallet.WritePlatformData("platform/identity/0", {}));
+    records = m_wallet.GetPlatformData("platform/identity/");
+    BOOST_CHECK_EQUAL(records.size(), 1U);
+    BOOST_CHECK_EQUAL(records.count("platform/identity/0"), 0U);
+
+    // The wallet-load path (ReadKeyValue) must populate the same map.
+    CDataStream ssKey(SER_DISK, CLIENT_VERSION);
+    CDataStream ssValue(SER_DISK, CLIENT_VERSION);
+    ssKey << std::make_pair(DBKeys::PLATFORM_DATA, std::string{"platform/loaded"});
+    ssValue << value_a;
+    std::string strType, strErr;
+    BOOST_CHECK(ReadKeyValue(&m_wallet, ssKey, ssValue, strType, strErr));
+    BOOST_CHECK_EQUAL(strType, DBKeys::PLATFORM_DATA);
+    BOOST_CHECK(m_wallet.GetPlatformData("platform/loaded").at("platform/loaded") == value_a);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 } // namespace wallet

@@ -170,6 +170,14 @@ public:
     //! Save or remove receive request.
     virtual bool setAddressReceiveRequest(const CTxDestination& dest, const std::string& id, const std::string& value) = 0;
 
+    //! Write (or, with an empty value, erase) a generic Platform data
+    //! record. Records are persisted in the wallet database and travel with
+    //! backups; they are opaque to the wallet itself.
+    virtual bool writePlatformData(const std::string& key, const std::vector<unsigned char>& value) = 0;
+
+    //! All Platform data records whose key starts with prefix.
+    virtual std::map<std::string, std::vector<unsigned char>> getPlatformData(const std::string& prefix) = 0;
+
     //! Display address on external signer
     virtual bool displayAddress(const CTxDestination& dest) = 0;
 

@@ -55,6 +55,7 @@ const std::string MINVERSION{"minversion"};
 const std::string NAME{"name"};
 const std::string OLD_KEY{"wkey"};
 const std::string ORDERPOSNEXT{"orderposnext"};
+const std::string PLATFORM_DATA{"platform_data"};
 const std::string POOL{"pool"};
 const std::string PURPOSE{"purpose"};
 const std::string PRIVATESEND_SALT{"ps_salt"};
@@ -245,6 +246,16 @@ bool WalletBatch::WriteCoinJoinPendingObs(const std::map<COutPoint, int64_t>& pe
 bool WalletBatch::WriteGovernanceObject(const Governance::Object& obj)
 {
     return WriteIC(std::make_pair(DBKeys::G_OBJECT, obj.GetHash()), obj, false);
+}
+
+bool WalletBatch::WritePlatformData(const std::string& key, const std::vector<unsigned char>& value)
+{
+    return WriteIC(std::make_pair(DBKeys::PLATFORM_DATA, key), value, true);
+}
+
+bool WalletBatch::ErasePlatformData(const std::string& key)
+{
+    return EraseIC(std::make_pair(DBKeys::PLATFORM_DATA, key));
 }
 
 bool WalletBatch::WriteActiveScriptPubKeyMan(const uint256& id, bool internal)
@@ -645,6 +656,12 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 strErr = "Invalid governance object: LoadGovernanceObject";
                 return false;
             }
+        } else if (strType == DBKeys::PLATFORM_DATA) {
+            std::string strKey;
+            std::vector<unsigned char> vchValue;
+            ssKey >> strKey;
+            ssValue >> vchValue;
+            pwallet->LoadPlatformData(strKey, vchValue);
         } else if (strType == DBKeys::OLD_KEY) {
             strErr = "Found unsupported 'wkey' record, try loading with version 0.17";
             return false;

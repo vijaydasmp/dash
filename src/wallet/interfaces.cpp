@@ -316,6 +316,16 @@ public:
         return value.empty() ? m_wallet->EraseAddressReceiveRequest(batch, dest, id)
                              : m_wallet->SetAddressReceiveRequest(batch, dest, id, value);
     }
+    bool writePlatformData(const std::string& key, const std::vector<unsigned char>& value) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->WritePlatformData(key, value);
+    }
+    std::map<std::string, std::vector<unsigned char>> getPlatformData(const std::string& prefix) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->GetPlatformData(prefix);
+    }
     bool displayAddress(const CTxDestination& dest) override
     {
         LOCK(m_wallet->cs_wallet);
