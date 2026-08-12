@@ -3,3 +3,7 @@ leak:libQt5Widgets
 leak:QDBusConnectionPrivate
 leak:QDBusConnectionManager
 leak:QLayoutPrivate
+# QDBusConnectionManager lazily spawns a watcher QThread that is never joined
+# before process exit; the manager itself is suppressed above but the thread
+# object's allocation carries only the QThread constructor frame.
+leak:QThread::QThread
