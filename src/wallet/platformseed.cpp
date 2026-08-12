@@ -60,6 +60,11 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
         return true;
     }
 
+    // A mixing-only unlock keeps vMasterKey populated while the wallet is
+    // meant to allow only CoinJoin operations, and GetDecryptedHDChain()
+    // decrypts with it regardless; require a full unlock before serving the
+    // seed. Descriptor wallets enforce this inside GetMnemonicString().
+    if (wallet.IsLocked()) return false;
     const auto* spk_man = wallet.GetLegacyScriptPubKeyMan();
     if (!spk_man) return false;
     CHDChain hd_chain;
