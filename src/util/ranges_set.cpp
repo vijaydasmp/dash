@@ -4,6 +4,8 @@
 
 #include <util/ranges_set.h>
 
+#include <limits>
+
 CRangesSet::Range::Range() : CRangesSet::Range::Range(0, 0) {}
 
 CRangesSet::Range::Range(uint64_t begin_in, uint64_t end_in) :
@@ -81,7 +83,9 @@ size_t CRangesSet::Size() const noexcept
 {
     size_t result{0};
     for (auto i : ranges) {
-        result += i.end - i.begin;
+        // end == 0 is the half-open representation of a range containing
+        // UINT64_MAX. Avoid the unsigned subtraction wrap for that range.
+        result += i.end == 0 ? std::numeric_limits<uint64_t>::max() - i.begin + 1 : i.end - i.begin;
     }
     return result;
 }
@@ -93,5 +97,5 @@ bool CRangesSet::Contains(uint64_t value) const noexcept
     if (it == ranges.begin()) return false;
     auto prev = it;
     --prev;
-    return prev->begin <= value && prev->end > value;
+    return prev->begin <= value && (prev->end == 0 || prev->end > value);
 }
