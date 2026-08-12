@@ -373,6 +373,11 @@ BOOST_FIXTURE_TEST_CASE(platform_seed_selection_deterministic, Dip14WalletSetup)
     BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {unmatched.begin(), unmatched.end()}));
     BOOST_CHECK(!m_iface->getPlatformSeedId());
 
+    // A malformed pin (wrong size) must also fail closed rather than being
+    // treated as "no pin".
+    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {0x01, 0x02, 0x03}));
+    BOOST_CHECK(!m_iface->getPlatformSeedId());
+
     // Erasing the pin restores the deterministic fallback.
     BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {}));
     seed_id = m_iface->getPlatformSeedId();

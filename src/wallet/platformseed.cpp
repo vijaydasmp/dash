@@ -27,7 +27,11 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
         {
             const auto records{wallet.GetPlatformData("platform/seed-id")};
             const auto it{records.find("platform/seed-id")};
-            if (it != records.end() && it->second.size() == 8) {
+            if (it != records.end()) {
+                // A malformed pin fails closed like an unmatched one:
+                // treating it as "no pin" could resume signing, ECDH and
+                // friendship derivation under a different seed.
+                if (it->second.size() != 8) return false;
                 std::array<uint8_t, 8> id;
                 std::copy(it->second.begin(), it->second.end(), id.begin());
                 preferred_id = id;
