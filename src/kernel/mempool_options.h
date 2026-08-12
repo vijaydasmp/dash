@@ -37,9 +37,9 @@ namespace kernel {
 struct MemPoolOptions {
     /* Used to estimate appropriate transaction fees. */
     CBlockPolicyEstimator* estimator{nullptr};
-    /* Used to validate special transactions; may be unset in tests that do not need them. */
+    /* Used to validate special transactions; required, must outlive the mempool. */
     CDeterministicMNManager* dmnman{nullptr};
-    /* Used to protect InstantSend-locked transactions; may be unset in tests that do not need them. */
+    /* Used to protect InstantSend-locked transactions; required, must outlive the mempool. */
     llmq::CInstantSendManager* isman{nullptr};
     /* The ratio used to determine how often sanity checks will run.  */
     int check_ratio{0};

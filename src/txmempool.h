@@ -447,8 +447,8 @@ protected:
     const int m_check_ratio; //!< Value n means that 1 times in n we check.
     std::atomic<unsigned int> nTransactionsUpdated{0}; //!< Used by getblocktemplate to trigger CreateNewBlock() invocation
     CBlockPolicyEstimator* const minerPolicyEstimator;
-    CDeterministicMNManager* const m_dmnman;
-    llmq::CInstantSendManager* const m_isman;
+    CDeterministicMNManager& m_dmnman;
+    llmq::CInstantSendManager& m_isman;
 
     uint64_t totalTxSize GUARDED_BY(cs);      //!< sum of all mempool tx' byte sizes
     CAmount m_total_fee GUARDED_BY(cs);       //!< sum of all mempool tx's fees (NOT modified fee)
@@ -765,10 +765,7 @@ public:
       */
     void TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpendsRemaining = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions.
-     * @pre Requires a CInstantSendManager passed via Options at construction
-     *      for InstantSend awareness
-    */
+    /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions. */
     int Expire(std::chrono::seconds time) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /**
@@ -819,10 +816,6 @@ public:
     TxMempoolInfo info(const uint256& hash) const;
     std::vector<TxMempoolInfo> infoAll() const;
 
-    /**
-     * @pre Requires a CDeterministicMNManager passed via Options at
-     *      construction of the CTxMemPool instance.
-     */
     bool existsProviderTxConflict(const CTransaction &tx) const;
 
     /**
@@ -923,8 +916,7 @@ private:
     /**
      * addUnchecked extension for Dash-specific transactions (ProTx).
      */
-    void addUncheckedProTx(CDeterministicMNManager& dmnman, indexed_transaction_set::iterator& newit,
-                           const CTransaction& tx);
+    void addUncheckedProTx(indexed_transaction_set::iterator& newit, const CTransaction& tx);
 
     /** Before calling removeUnchecked for a given transaction,
      *  UpdateForRemoveFromMempool must be called on the entire (dependent) set
