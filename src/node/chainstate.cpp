@@ -11,6 +11,7 @@
 #include <deploymentstatus.h>
 #include <node/blockstorage.h>
 #include <node/caches.h>
+#include <node/utxo_snapshot.h>
 #include <sync.h>
 #include <threadsafety.h>
 #include <tinyformat.h>
@@ -39,9 +40,12 @@ namespace node {
 static bool RecoverSnapshotCleanup(CEvoDB& evodb, const fs::path& data_dir, bilingual_str& error)
 {
     const fs::path normal{data_dir / "chainstate"};
-    const fs::path snapshot{data_dir / "chainstate_snapshot"};
-    const fs::path to_delete{data_dir / "chainstate_todelete"};
-    const fs::path invalid{data_dir / "chainstate_snapshot_INVALID"};
+    fs::path snapshot{normal};
+    snapshot += SNAPSHOT_CHAINSTATE_SUFFIX;
+    fs::path to_delete{normal};
+    to_delete += SNAPSHOT_TODELETE_SUFFIX;
+    fs::path invalid{snapshot};
+    invalid += SNAPSHOT_INVALID_SUFFIX;
 
     uint256 snapshot_tip;
     const bool has_snapshot_tip{evodb.ReadBestBlock(EvoDbIdentity::SNAPSHOT, snapshot_tip)};
