@@ -5,14 +5,13 @@
 #include <llmq/context.h>
 
 #include <bls/bls_worker.h>
-#include <instantsend/instantsend.h>
 #include <llmq/blockprocessor.h>
 #include <llmq/quorumsman.h>
 #include <llmq/signing.h>
 #include <llmq/snapshot.h>
 #include <validation.h>
 
-LLMQContext::LLMQContext(CDeterministicMNManager& dmnman, CEvoDB& evo_db, CSporkManager& sporkman,
+LLMQContext::LLMQContext(CDeterministicMNManager& dmnman, CEvoDB& evo_db, llmq::CInstantSendManager& isman,
                          ChainstateManager& chainman, const util::DbWrapperParams& db_params, int8_t bls_threads,
                          int16_t worker_count, int64_t max_recsigs_age) :
     bls_worker{std::make_shared<CBLSWorker>()},
@@ -22,7 +21,7 @@ LLMQContext::LLMQContext(CDeterministicMNManager& dmnman, CEvoDB& evo_db, CSpork
     qman{std::make_unique<llmq::CQuorumManager>(*bls_worker, dmnman, evo_db, *quorum_block_processor, *qsnapman,
                                                 chainman, db_params)},
     sigman{std::make_unique<llmq::CSigningManager>(*qman, db_params, max_recsigs_age)},
-    isman{std::make_unique<llmq::CInstantSendManager>(sporkman, db_params)}
+    isman{isman}
 {
     // Have to start it early to let VerifyDB check ChainLock signatures in coinbase
     bls_worker->Start(worker_count);

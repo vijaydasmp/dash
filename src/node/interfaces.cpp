@@ -546,10 +546,10 @@ public:
     }
     InstantSendCounts getInstantSendCounts() override
     {
-        if (!context().llmq_ctx || !context().llmq_ctx->isman) {
+        if (!context().isman) {
             return {};
         }
-        const auto counts{context().llmq_ctx->isman->GetCounts()};
+        const auto counts{context().isman->GetCounts()};
         return {
             .m_verified = counts.m_verified,
             .m_unverified = counts.m_unverified,
@@ -1383,8 +1383,8 @@ public:
     }
     bool isInstantSendLockedTx(const uint256& hash) override
     {
-        if (m_node.llmq_ctx == nullptr || m_node.llmq_ctx->isman == nullptr) return false;
-        return m_node.llmq_ctx->isman->IsLocked(hash);
+        if (m_node.isman == nullptr) return false;
+        return m_node.isman->IsLocked(hash);
     }
     bool hasChainLock(int height, const uint256& hash) override
     {

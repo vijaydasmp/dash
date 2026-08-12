@@ -70,6 +70,7 @@
 #include <evo/specialtxman.h>
 #include <flat-database.h>
 #include <governance/governance.h>
+#include <instantsend/instantsend.h>
 #include <llmq/context.h>
 #include <llmq/signing.h>
 #include <masternode/meta.h>
@@ -222,6 +223,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
     m_node.chainlocks = std::make_unique<chainlock::Chainlocks>(*m_node.sporkman);
     m_node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
     m_node.dmnman = std::make_unique<CDeterministicMNManager>(*m_node.evodb, *m_node.mn_metaman);
+    m_node.isman = std::make_unique<llmq::CInstantSendManager>(*m_node.sporkman, util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
 
     static bool noui_connected = false;
     if (!noui_connected) {
@@ -236,7 +238,8 @@ BasicTestingSetup::~BasicTestingSetup()
 {
     SetMockTime(0s); // Reset mocktime for following tests
     LogInstance().DisconnectTestLogger();
-    // Close disk-backed EvoDB before deleting its data directory.
+    // Close the disk-backed databases before deleting their data directory.
+    m_node.isman.reset();
     m_node.dmnman.reset();
     m_node.evodb.reset();
     fs::remove_all(m_path_root);
@@ -302,7 +305,7 @@ node::ChainstateLoadOptions ChainTestingSetup::ChainstateLoadOptionsForTest()
 {
     node::ChainstateLoadOptions options;
     options.mempool = Assert(m_node.mempool.get());
-    options.sporkman = Assert(m_node.sporkman.get());
+    options.isman = Assert(m_node.isman.get());
     options.chainlocks = Assert(m_node.chainlocks.get());
     options.mn_sync = Assert(m_node.mn_sync.get());
     options.data_dir = Assert(m_node.args)->GetDataDirNet();
@@ -328,10 +331,12 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
     if (options.reindex || options.reindex_chainstate) {
         // A reindex wipes the Dash databases at open, which AppInitMain does by
         // recreating them. Mirror that here.
+        m_node.isman.reset();
         m_node.dmnman.reset();
         m_node.evodb.reset();
         m_node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
         m_node.dmnman = std::make_unique<CDeterministicMNManager>(*m_node.evodb, *m_node.mn_metaman);
+        m_node.isman = std::make_unique<llmq::CInstantSendManager>(*m_node.sporkman, util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
         options = ChainstateLoadOptionsForTest();
     }
 
@@ -369,7 +374,7 @@ TestingSetup::TestingSetup(
 #ifdef ENABLE_WALLET
     // The test suite doesn't use masternode mode, so we may initialize it
     m_node.cj_walletman = CJWalletManager::make(*m_node.chainman, *m_node.dmnman, *m_node.mn_metaman, *m_node.mempool,
-                                                *m_node.mn_sync, *m_node.llmq_ctx->isman, /*relay_txes=*/true);
+                                                *m_node.mn_sync, *m_node.isman, /*relay_txes=*/true);
     assert(m_node.cj_walletman);
 
     // WalletInit::Construct()-like logic needed for wallet tests that run on

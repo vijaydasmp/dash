@@ -2319,8 +2319,8 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
             // crafted invalid DSTX-es and potentially cause high load cheaply, because
             // corresponding checks in ProcessMessage won't let it to send DSTX-es too often.
             bool fIgnoreRecentRejects = inv.IsMsgDstx() ||
-                                        m_llmq_ctx->isman->IsWaitingForTx(inv.hash) ||
-                                        m_llmq_ctx->isman->IsLocked(inv.hash);
+                                        m_llmq_ctx->isman.IsWaitingForTx(inv.hash) ||
+                                        m_llmq_ctx->isman.IsLocked(inv.hash);
 
             return (!fIgnoreRecentRejects && m_recent_rejects.contains(inv.hash)) ||
                    (inv.IsMsgDstx() && static_cast<bool>(m_dstxman.GetDSTX(inv.hash))) ||
@@ -2359,7 +2359,7 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
         return m_clhandler.AlreadyHave(inv);
     // TODO: move it to NetInstantSend
     case MSG_ISDLOCK:
-        return m_llmq_ctx->isman->AlreadyHave(inv);
+        return m_llmq_ctx->isman.AlreadyHave(inv);
     case MSG_PLATFORM_BAN:
         return m_mn_metaman.AlreadyHavePlatformBan(inv.hash);
 
@@ -2961,7 +2961,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && inv.type == MSG_ISDLOCK) {
             instantsend::InstantSendLock o;
-            if (m_llmq_ctx->isman->GetInstantSendLockByHash(inv.hash, o)) {
+            if (m_llmq_ctx->isman.GetInstantSendLockByHash(inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::ISDLOCK, o));
                 push = true;
             }
@@ -2996,7 +2996,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
     if (it != peer.m_getdata_requests.end() && !pfrom.fPauseSend) {
         const CInv &inv = *it++;
         if (inv.IsGenBlkMsg()) {
-            ProcessGetBlockData(pfrom, peer, inv, *m_llmq_ctx->isman);
+            ProcessGetBlockData(pfrom, peer, inv, m_llmq_ctx->isman);
         }
         // else: If the first item on the queue is an unknown type, we erase it
         // and continue processing the queue on the next call.
@@ -4859,7 +4859,7 @@ void PeerManagerImpl::ProcessMessage(
                 // parents so avoid re-requesting it from other peers.
                 m_recent_rejects.insert(tx.GetHash());
                 ForgetTx(tx.GetHash());
-                m_llmq_ctx->isman->TransactionIsRemoved(ptx);
+                m_llmq_ctx->isman.TransactionIsRemoved(ptx);
             }
         } else {
             m_recent_rejects.insert(tx.GetHash());
@@ -4891,7 +4891,7 @@ void PeerManagerImpl::ProcessMessage(
                 pfrom.GetId(),
                 state.ToString());
             MaybePunishNodeForTx(pfrom.GetId(), state);
-            m_llmq_ctx->isman->TransactionIsRemoved(ptx);
+            m_llmq_ctx->isman.TransactionIsRemoved(ptx);
         }
         return;
     }
@@ -6468,7 +6468,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
 
-                    const auto islock = m_llmq_ctx->isman->GetInstantSendLockByTxid(hash);
+                    const auto islock = m_llmq_ctx->isman.GetInstantSendLockByTxid(hash);
                     if (islock == nullptr) continue;
                     uint256 isLockHash{::SerializeHash(*islock)};
                     tx_relay->m_tx_inventory_known_filter.insert(isLockHash);

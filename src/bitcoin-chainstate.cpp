@@ -22,6 +22,7 @@
 #include <evo/deterministicmns.h>
 #include <evo/evodb.h>
 #include <init/common.h>
+#include <instantsend/instantsend.h>
 #include <llmq/context.h>
 #include <masternode/meta.h>
 #include <masternode/sync.h>
@@ -98,6 +99,7 @@ int main(int argc, char* argv[])
     CMasternodeSync mn_sync{std::make_unique<NullNodeSyncNotifier>()};
     CSporkManager sporkman;
     chainlock::Chainlocks chainlocks(sporkman);
+    llmq::CInstantSendManager isman{sporkman, util::DbWrapperParams{.path = gArgs.GetDataDirNet(), .memory = false, .wipe = false}};
 
     std::unique_ptr<LLMQContext> llmq_ctx;
     std::unique_ptr<CChainstateHelper> chain_helper;
@@ -107,7 +109,7 @@ int main(int argc, char* argv[])
     cache_sizes.coins_db = 2 << 22;
     cache_sizes.coins = (450 << 20) - (2 << 20) - (2 << 22);
     node::ChainstateLoadOptions options;
-    options.sporkman = &sporkman;
+    options.isman = &isman;
     options.chainlocks = &chainlocks;
     options.mn_sync = &mn_sync;
     options.data_dir = gArgs.GetDataDirNet();

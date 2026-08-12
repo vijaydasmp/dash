@@ -154,16 +154,16 @@ static ChainstateLoadResult CompleteChainstateInitialization(ChainstateManager& 
 
     // Initialize llmq_ctx and connection to mempool
     llmq_ctx.reset();
-    llmq_ctx = std::make_unique<LLMQContext>(dmnman, evodb, *options.sporkman, chainman,
+    llmq_ctx = std::make_unique<LLMQContext>(dmnman, evodb, *options.isman, chainman,
                                              util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data},
                                              options.bls_threads, options.worker_count, options.max_recsigs_age);
     if (options.mempool) {
-        options.mempool->ConnectManagers(&dmnman, llmq_ctx->isman.get());
+        options.mempool->ConnectManagers(&dmnman, options.isman);
     }
 
     // Initialize chain_helper
     chain_helper.reset();
-    chain_helper = std::make_unique<CChainstateHelper>(evodb, dmnman, *options.mn_sync, *(llmq_ctx->isman), *(llmq_ctx->quorum_block_processor),
+    chain_helper = std::make_unique<CChainstateHelper>(evodb, dmnman, *options.mn_sync, llmq_ctx->isman, *(llmq_ctx->quorum_block_processor),
                                                        *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), *options.chainlocks,
                                                        *(llmq_ctx->qman));
 
@@ -301,7 +301,7 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
                                     CDeterministicMNManager& dmnman, std::unique_ptr<LLMQContext>& llmq_ctx,
                                     std::unique_ptr<CChainstateHelper>& chain_helper)
 {
-    assert(options.sporkman);
+    assert(options.isman);
     assert(options.chainlocks);
     assert(options.mn_sync);
 
@@ -370,8 +370,8 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         // Do nothing; expected case.
     } else if (snapshot_completion == SnapshotCompletionResult::SUCCESS) {
         LogPrintf("[snapshot] cleaning up unneeded background chainstate, then reinitializing\n");
-        // The mempool holds a raw pointer to llmq_ctx->isman, so it has to
-        // let go of it before the LLMQ context is destroyed.
+        // ConnectManagers() in the reinitialization below forbids
+        // double-initialization, so detach the mempool's managers first.
         if (options.mempool) {
             options.mempool->DisconnectManagers();
         }

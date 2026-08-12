@@ -1286,7 +1286,7 @@ void FuncTestMempoolReorg(TestChainSetup& setup)
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
     if (setup.m_node.dmnman) {
-        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.llmq_ctx->isman.get());
+        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
     }
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);
@@ -1373,7 +1373,7 @@ void FuncTestMempoolProTxKeyChangedConflictChain(TestChainSetup& setup)
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
     BOOST_REQUIRE(setup.m_node.dmnman);
-    testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.llmq_ctx->isman.get());
+    testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);
 
@@ -1416,7 +1416,7 @@ void FuncTestMempoolDualProregtx(TestChainSetup& setup)
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
     if (setup.m_node.dmnman) {
-        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.llmq_ctx->isman.get());
+        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
     }
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);

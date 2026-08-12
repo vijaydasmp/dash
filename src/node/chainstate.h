@@ -21,11 +21,11 @@ class CDeterministicMNManager;
 class CEvoDB;
 class ChainstateManager;
 class CMasternodeSync;
-class CSporkManager;
 class CTxMemPool;
 struct LLMQContext;
 
 namespace chainlock { class Chainlocks; }
+namespace llmq { class CInstantSendManager; }
 
 namespace node {
 
@@ -33,7 +33,7 @@ struct CacheSizes;
 
 struct ChainstateLoadOptions {
     CTxMemPool* mempool{nullptr};
-    CSporkManager* sporkman{nullptr};
+    llmq::CInstantSendManager* isman{nullptr};
     chainlock::Chainlocks* chainlocks{nullptr};
     const CMasternodeSync* mn_sync{nullptr};
     fs::path data_dir;
