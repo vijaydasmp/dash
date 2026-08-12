@@ -604,9 +604,6 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             continue;
         }
 
-        // This transaction will make it in; reset the failed counter.
-        nConsecutiveFailed = 0;
-
         // Package can be added. Sort the entries in a valid order.
         std::vector<CTxMemPool::txiter> sortedEntries;
         SortForBlock(ancestors, sortedEntries);
@@ -644,6 +641,9 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             }
             continue;
         }
+
+        // This transaction will make it in; reset the failed counter.
+        nConsecutiveFailed = 0;
         signals = std::move(packageSignals);
 
         for (size_t i = 0; i < sortedEntries.size(); ++i) {
