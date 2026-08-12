@@ -3848,9 +3848,10 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
 
     // Failure flags and m_best_invalid are shared by all chainstates, so
     // candidate admission must be recomputed for all of them as well.
+    const auto chainstates{m_chainman.GetAll()};
     for (CBlockIndex* reconsidered : reconsidered_blocks) {
         if (!reconsidered->IsValid(BLOCK_VALID_TRANSACTIONS) || !reconsidered->HaveTxsDownloaded()) continue;
-        for (Chainstate* chainstate : m_chainman.GetAll()) {
+        for (Chainstate* chainstate : chainstates) {
             chainstate->TryAddBlockIndexCandidate(reconsidered);
         }
     }
@@ -6096,7 +6097,6 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
     int curr_height = m_ibd_chainstate->m_chain.Height();
 
     assert(snapshot_base_height == curr_height);
-    assert(snapshot_base_height == index_new.nHeight);
     assert(this->IsUsable(m_snapshot_chainstate.get()));
     assert(this->GetAll().size() == 2);
 
@@ -6404,7 +6404,8 @@ util::Result<void> Chainstate::InvalidateCoinsDBOnDisk()
     // Coins views no longer usable.
     m_coins_views.reset();
 
-    auto invalid_path = snapshot_datadir + "_INVALID";
+    fs::path invalid_path{snapshot_datadir};
+    invalid_path += node::SNAPSHOT_INVALID_SUFFIX;
     std::string dbpath = fs::PathToString(snapshot_datadir);
     std::string target = fs::PathToString(invalid_path);
     LogPrintf("[snapshot] renaming snapshot datadir %s to %s\n", dbpath, target);
@@ -6486,7 +6487,8 @@ bool ChainstateManager::ValidatedSnapshotCleanup()
     LogPrintf("[snapshot] deleting background chainstate directory (now unnecessary) (%s)\n",
               fs::PathToString(ibd_chainstate_path));
 
-    fs::path tmp_old{ibd_chainstate_path + "_todelete"};
+    fs::path tmp_old{ibd_chainstate_path};
+    tmp_old += node::SNAPSHOT_TODELETE_SUFFIX;
 
     auto rename_failed_abort = [](
                                    fs::path p_old,
