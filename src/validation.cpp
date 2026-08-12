@@ -3848,9 +3848,10 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex, bool ignore_chainlo
 
     // Failure flags and m_best_invalid are shared by all chainstates, so
     // candidate admission must be recomputed for all of them as well.
+    const auto chainstates{m_chainman.GetAll()};
     for (CBlockIndex* reconsidered : reconsidered_blocks) {
         if (!reconsidered->IsValid(BLOCK_VALID_TRANSACTIONS) || !reconsidered->HaveTxsDownloaded()) continue;
-        for (Chainstate* chainstate : m_chainman.GetAll()) {
+        for (Chainstate* chainstate : chainstates) {
             chainstate->TryAddBlockIndexCandidate(reconsidered);
         }
     }
