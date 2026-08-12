@@ -3822,8 +3822,9 @@ bool CWallet::WritePlatformData(const std::string& key, const std::vector<unsign
     AssertLockHeld(cs_wallet);
     WalletBatch batch(GetDatabase());
     if (value.empty()) {
+        if (!batch.ErasePlatformData(key)) return false;
         m_platform_data.erase(key);
-        return batch.ErasePlatformData(key);
+        return true;
     }
     if (!batch.WritePlatformData(key, value)) return false;
     m_platform_data[key] = value;
