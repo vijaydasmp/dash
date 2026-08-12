@@ -97,7 +97,10 @@ bool DeriveExtKey(Span<const uint8_t> seed, const Path& path, ExtKey256& out)
 
 bool DerivePubKey(const ExtPubKey256& parent, const PathElement& element, ExtPubKey256& out)
 {
-    if (element.hardened) return false;
+    // CPubKey::Derive() asserts a valid compressed parent; contact xpubs are
+    // externally supplied, so reject them here instead. A syntactically
+    // compressed but invalid curve point is caught by pubkey parsing inside.
+    if (element.hardened || !parent.pubkey.IsCompressed()) return false;
     if (const auto* index32 = std::get_if<uint32_t>(&element.index)) {
         if (*index32 >> 31) return false;
         return parent.pubkey.Derive(out.pubkey, out.chaincode, *index32, parent.chaincode);

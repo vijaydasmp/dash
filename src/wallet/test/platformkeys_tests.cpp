@@ -140,6 +140,16 @@ BOOST_AUTO_TEST_CASE(dip14_public_derivation_matches)
     ExtPubKey256 unused;
     BOOST_CHECK(!DerivePubKey(pub_parent, PathElement{id_a, true}, unused));
     BOOST_CHECK(!DerivePubKey(pub_parent, PathElement::Hardened(0), unused));
+
+    // Invalid or uncompressed parents (contact xpubs are externally supplied)
+    // must fail instead of tripping CPubKey::Derive() asserts.
+    const ExtPubKey256 invalid_parent{CPubKey{}, parent.chaincode};
+    BOOST_CHECK(!DerivePubKey(invalid_parent, PathElement::Normal(0), unused));
+    CKey uncompressed_key;
+    uncompressed_key.MakeNewKey(/*fCompressed=*/false);
+    const ExtPubKey256 uncompressed_parent{uncompressed_key.GetPubKey(), parent.chaincode};
+    BOOST_CHECK(!DerivePubKey(uncompressed_parent, PathElement::Normal(0), unused));
+    BOOST_CHECK(!DerivePubKey(uncompressed_parent, PathElement::Normal256(id_a), unused));
 }
 
 //! ECDH secrets must be symmetric and match the libsecp256k1 KDF
