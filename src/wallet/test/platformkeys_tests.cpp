@@ -363,6 +363,19 @@ BOOST_FIXTURE_TEST_CASE(platform_seed_selection_deterministic, Dip14WalletSetup)
     seed_id = m_iface->getPlatformSeedId();
     BOOST_REQUIRE(seed_id);
     BOOST_CHECK(*seed_id == other_fingerprint);
+
+    // A pin that matches no active seed must fail seed selection entirely
+    // rather than silently fall back to a different seed's platform universe.
+    auto unmatched{other_fingerprint};
+    unmatched[0] ^= 0xff;
+    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {unmatched.begin(), unmatched.end()}));
+    BOOST_CHECK(!m_iface->getPlatformSeedId());
+
+    // Erasing the pin restores the deterministic fallback.
+    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {}));
+    seed_id = m_iface->getPlatformSeedId();
+    BOOST_REQUIRE(seed_id);
+    BOOST_CHECK(*seed_id == lowest_id_fingerprint);
 }
 
 //! Two independent wallet instances restored from the same recovery phrase:

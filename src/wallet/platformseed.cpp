@@ -48,7 +48,10 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
             }
             candidates.emplace(desc_spk_man->GetID(), std::move(seed));
         }
-        if (candidates.empty()) return false;
+        // An unmatched pin must fail rather than silently fall back: platform
+        // data created from the pinned seed must never be signed over with
+        // another seed. The lowest-ID fallback is only for unpinned wallets.
+        if (preferred_id || candidates.empty()) return false;
         seed_out = std::move(candidates.begin()->second);
         return true;
     }
