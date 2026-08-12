@@ -458,6 +458,8 @@ static RPCHelpMan getcoinjoininfo()
                             {RPCResult::Type::STR_HEX, "state", "Current state of the mixing session"},
                             {RPCResult::Type::NUM, "entries_count", "The number of entries in the mixing session"},
                         }},
+                    RPCResult{"for non-masternodes without wallet support",
+                      RPCResult::Type::OBJ, "", /*optional=*/false, "", {}},
                 },
                 RPCExamples{
                     HelpExampleCli("getcoinjoininfo", "")
