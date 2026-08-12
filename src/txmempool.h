@@ -20,7 +20,6 @@
 #include <coins.h>
 #include <consensus/amount.h>
 #include <evo/netinfo.h>
-#include <gsl/pointers.h>
 #include <index/addressindex_types.h>
 #include <index/spentindex_types.h>
 #include <indirectmap.h>
@@ -448,8 +447,8 @@ protected:
     const int m_check_ratio; //!< Value n means that 1 times in n we check.
     std::atomic<unsigned int> nTransactionsUpdated{0}; //!< Used by getblocktemplate to trigger CreateNewBlock() invocation
     CBlockPolicyEstimator* const minerPolicyEstimator;
-    std::atomic<CDeterministicMNManager*> m_dmnman{nullptr};
-    std::atomic<llmq::CInstantSendManager*> m_isman{nullptr};
+    CDeterministicMNManager* const m_dmnman;
+    llmq::CInstantSendManager* const m_isman;
 
     uint64_t totalTxSize GUARDED_BY(cs);      //!< sum of all mempool tx' byte sizes
     CAmount m_total_fee GUARDED_BY(cs);       //!< sum of all mempool tx's fees (NOT modified fee)
@@ -611,21 +610,6 @@ public:
     explicit CTxMemPool(const Options& opts);
 
     /**
-     * Set CDeterministicMNManager and CInstantSendManager pointers.
-     *
-     * Separated from constructor as it's initialized after CTxMemPool
-     * is created. Required for ProTx processing.
-     */
-    void ConnectManagers(gsl::not_null<CDeterministicMNManager*> dmnman, gsl::not_null<llmq::CInstantSendManager*> isman);
-
-    /**
-     * Reset CDeterministicMNManager and CInstantSendManager pointers.
-     *
-     * @pre Must be called before CDeterministicMNManager and CInstantSendManager are destroyed.
-     */
-    void DisconnectManagers();
-
-    /**
      * If sanity-checking is turned on, check makes sure the pool is
      * consistent (does not contain two transactions that spend the same inputs,
      * all inputs are in the mapNextTx array). If sanity-checking is turned off,
@@ -782,8 +766,8 @@ public:
     void TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpendsRemaining = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions.
-     * @pre Caller must ensure that CInstantSendManager exists and has been set using
-     *      ConnectManagers() for InstantSend awareness
+     * @pre Requires a CInstantSendManager passed via Options at construction
+     *      for InstantSend awareness
     */
     int Expire(std::chrono::seconds time) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
@@ -836,8 +820,8 @@ public:
     std::vector<TxMempoolInfo> infoAll() const;
 
     /**
-     * @pre Caller must ensure that CDeterministicMNManager exists and has been
-     *      set using ConnectManagers() for the CTxMemPool instance.
+     * @pre Requires a CDeterministicMNManager passed via Options at
+     *      construction of the CTxMemPool instance.
      */
     bool existsProviderTxConflict(const CTransaction &tx) const;
 

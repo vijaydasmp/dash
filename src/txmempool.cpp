@@ -423,6 +423,8 @@ void CTxMemPoolEntry::UpdateAncestorState(int64_t modifySize, CAmount modifyFee,
 CTxMemPool::CTxMemPool(const Options& opts)
     : m_check_ratio{opts.check_ratio},
       minerPolicyEstimator{opts.estimator},
+      m_dmnman{opts.dmnman},
+      m_isman{opts.isman},
       m_max_size_bytes{opts.max_size_bytes},
       m_expiry{opts.expiry},
       m_incremental_relay_feerate{opts.incremental_relay_feerate},
@@ -436,21 +438,6 @@ CTxMemPool::CTxMemPool(const Options& opts)
       m_limits{opts.limits}
 {
     _clear(); //lock free clear
-}
-
-void CTxMemPool::ConnectManagers(gsl::not_null<CDeterministicMNManager*> dmnman, gsl::not_null<llmq::CInstantSendManager*> isman)
-{
-    // Do not allow double-initialization
-    assert(m_dmnman.load(std::memory_order_acquire) == nullptr);
-    m_dmnman.store(dmnman, std::memory_order_release);
-    assert(m_isman.load(std::memory_order_acquire) == nullptr);
-    m_isman.store(isman, std::memory_order_release);
-}
-
-void CTxMemPool::DisconnectManagers()
-{
-    m_dmnman.store(nullptr, std::memory_order_release);
-    m_isman.store(nullptr, std::memory_order_release);
 }
 
 bool CTxMemPool::isSpent(const COutPoint& outpoint) const
@@ -523,8 +510,8 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
     // Invalid ProTxes should never get this far because transactions should be
     // fully checked by AcceptToMemoryPool() at this point, so we just assume that
     // everything is fine here.
-    if (auto dmnman = m_dmnman.load(std::memory_order_acquire); dmnman) {
-        addUncheckedProTx(*dmnman, newit, tx);
+    if (m_dmnman) {
+        addUncheckedProTx(*m_dmnman, newit, tx);
     }
 }
 
@@ -736,7 +723,7 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     } else
         vTxHashes.clear();
 
-    if (m_dmnman.load(std::memory_order_acquire)) {
+    if (m_dmnman) {
         removeUncheckedProTx(it->GetTx());
     }
 
@@ -957,7 +944,7 @@ void CTxMemPool::removeProTxCollateralConflicts(const CTransaction &tx, const CO
 
 void CTxMemPool::removeProTxSpentCollateralConflicts(const CTransaction &tx)
 {
-    auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
+    auto dmnman = Assert(m_dmnman);
 
     // Remove TXs that refer to a MN for which the collateral was spent
     auto removeSpentCollateralConflict = [&](const uint256& proTxHash) EXCLUSIVE_LOCKS_REQUIRED(cs) {
@@ -1114,7 +1101,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
             RemoveStaged(stage, true, MemPoolRemovalReason::BLOCK);
         }
         removeConflicts(*tx);
-        if (m_dmnman.load(std::memory_order_acquire)) {
+        if (m_dmnman) {
             removeProTxConflicts(*tx);
         }
         ClearPrioritisation(tx->GetHash());
@@ -1418,7 +1405,7 @@ bool CTxMemPool::existsProviderTxCrossSchemeConflict(const CTransaction& tx) con
         // encoding the masternode already holds in the list fails CheckSpecialTx
         // before reaching the mempool. Probing here would wrongly block updates
         // for one member of a pre-activation cross-scheme pair.
-        auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
+        auto dmnman = Assert(m_dmnman);
         if (auto dmn = dmnman->GetListAtChainTip().GetMN(opt_proTx->proTxHash);
             dmn && opt_proTx->pubKeyOperator == dmn->pdmnState->pubKeyOperator) {
             return false;
@@ -1429,7 +1416,7 @@ bool CTxMemPool::existsProviderTxCrossSchemeConflict(const CTransaction& tx) con
 }
 
 bool CTxMemPool::existsProviderTxConflict(const CTransaction &tx) const {
-    auto dmnman = Assert(m_dmnman.load(std::memory_order_acquire));
+    auto dmnman = Assert(m_dmnman);
 
     LOCK(cs);
 
@@ -1675,7 +1662,7 @@ void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPool
 int CTxMemPool::Expire(std::chrono::seconds time)
 {
     AssertLockHeld(cs);
-    auto isman = Assert(m_isman.load(std::memory_order_acquire));
+    auto isman = Assert(m_isman);
     indexed_transaction_set::index<entry_time>::type::iterator it = mapTx.get<entry_time>().begin();
     setEntries toremove;
     while (it != mapTx.get<entry_time>().end() && it->GetTime() < time) {

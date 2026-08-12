@@ -330,13 +330,18 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
 
     if (options.reindex || options.reindex_chainstate) {
         // A reindex wipes the Dash databases at open, which AppInitMain does by
-        // recreating them. Mirror that here.
+        // recreating them together with the mempool bound to them. Mirror that
+        // here, including the chainlock handler that references the mempool.
+        m_node.clhandler.reset();
+        m_node.mempool.reset();
         m_node.isman.reset();
         m_node.dmnman.reset();
         m_node.evodb.reset();
         m_node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
         m_node.dmnman = std::make_unique<CDeterministicMNManager>(*m_node.evodb, *m_node.mn_metaman);
         m_node.isman = std::make_unique<llmq::CInstantSendManager>(*m_node.sporkman, util::DbWrapperParams{.path = m_node.args->GetDataDirNet(), .memory = m_dash_dbs_in_memory, .wipe = true});
+        m_node.mempool = std::make_unique<CTxMemPool>(MemPoolOptionsForTest(m_node));
+        m_node.clhandler = std::make_unique<chainlock::ChainlockHandler>(*m_node.chainlocks, chainman, *m_node.mempool, *m_node.mn_sync);
         options = ChainstateLoadOptionsForTest();
     }
 
@@ -426,12 +431,8 @@ TestingSetup::~TestingSetup()
     // in init.cpp). Keep this defensive for fixtures that construct govman.
     m_node.govman.reset();
 
-    if (m_node.mempool) {
-        m_node.mempool->DisconnectManagers();
-    }
     m_node.chain_helper.reset();
     m_node.llmq_ctx.reset();
-    m_node.dmnman.reset();
 }
 
 TestChain100Setup::TestChain100Setup(

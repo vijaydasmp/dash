@@ -16,7 +16,6 @@
 #include <threadsafety.h>
 #include <tinyformat.h>
 #include <txdb.h>
-#include <txmempool.h>
 #include <uint256.h>
 #include <util/fs.h>
 #include <util/fs_helpers.h>
@@ -152,14 +151,11 @@ static ChainstateLoadResult CompleteChainstateInitialization(ChainstateManager& 
     pblocktree.reset();
     pblocktree.reset(new CBlockTreeDB(cache_sizes.block_tree_db, options.block_tree_db_in_memory, options.reindex));
 
-    // Initialize llmq_ctx and connection to mempool
+    // Initialize llmq_ctx
     llmq_ctx.reset();
     llmq_ctx = std::make_unique<LLMQContext>(dmnman, evodb, *options.isman, chainman,
                                              util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data},
                                              options.bls_threads, options.worker_count, options.max_recsigs_age);
-    if (options.mempool) {
-        options.mempool->ConnectManagers(&dmnman, options.isman);
-    }
 
     // Initialize chain_helper
     chain_helper.reset();
@@ -370,11 +366,6 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         // Do nothing; expected case.
     } else if (snapshot_completion == SnapshotCompletionResult::SUCCESS) {
         LogPrintf("[snapshot] cleaning up unneeded background chainstate, then reinitializing\n");
-        // ConnectManagers() in the reinitialization below forbids
-        // double-initialization, so detach the mempool's managers first.
-        if (options.mempool) {
-            options.mempool->DisconnectManagers();
-        }
         chain_helper.reset();
         llmq_ctx.reset();
         if (!chainman.ValidatedSnapshotCleanup()) {

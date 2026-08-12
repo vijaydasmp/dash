@@ -429,11 +429,9 @@ void PrepareShutdown(NodeContext& node)
                 chainstate->ResetCoinsViews();
             }
         }
-        // The mempool holds raw pointers to dmnman and isman, so it has to
-        // let go of them before either manager is destroyed.
-        if (node.mempool) {
-            node.mempool->DisconnectManagers();
-        }
+        // The mempool holds raw pointers to dmnman and isman, so it must be
+        // destroyed before either manager.
+        node.mempool.reset();
         node.chain_helper.reset();
         node.llmq_ctx.reset();
         node.isman.reset();
@@ -1952,6 +1950,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     for (bool fLoaded = false; !fLoaded && !ShutdownRequested();) {
         // On a retry iteration the previous instances still hold the on-disk
         // database locks, so release them before opening the databases again.
+        node.mempool.reset();
         node.isman.reset();
         node.dmnman.reset();
         node.evodb.reset();
@@ -1959,6 +1958,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         node.dmnman = std::make_unique<CDeterministicMNManager>(*node.evodb, *node.mn_metaman);
         node.isman = std::make_unique<llmq::CInstantSendManager>(*node.sporkman, util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
 
+        mempool_opts.dmnman = node.dmnman.get();
+        mempool_opts.isman = node.isman.get();
         node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
 
         const ChainstateManager::Options chainman_opts{

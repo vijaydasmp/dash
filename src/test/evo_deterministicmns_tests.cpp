@@ -1285,9 +1285,6 @@ void FuncTestMempoolReorg(TestChainSetup& setup)
     auto tx_reg = CreateProRegTxExternalCollateral(chainman, utxos, 1, collateralOutpoint, scriptPayout, ownerKey, operatorKey, collateralKey, setup.coinbaseKey);
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
-    if (setup.m_node.dmnman) {
-        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
-    }
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);
 
@@ -1372,8 +1369,6 @@ void FuncTestMempoolProTxKeyChangedConflictChain(TestChainSetup& setup)
     auto tx_revoke = CreateProUpRevTx(chainman, utxos, proTxHash, operatorKey, setup.coinbaseKey);
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
-    BOOST_REQUIRE(setup.m_node.dmnman);
-    testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);
 
@@ -1415,9 +1410,6 @@ void FuncTestMempoolDualProregtx(TestChainSetup& setup)
     auto tx_reg2 = CreateProRegTxExternalCollateral(chainman, utxos, 2, collateralOutpoint, scriptPayout, ownerKey, operatorKey, collateralKey, setup.coinbaseKey);
 
     CTxMemPool testPool{MemPoolOptionsForTest(setup.m_node)};
-    if (setup.m_node.dmnman) {
-        testPool.ConnectManagers(setup.m_node.dmnman.get(), setup.m_node.isman.get());
-    }
     TestMemPoolEntryHelper entry;
     LOCK2(cs_main, testPool.cs);
 

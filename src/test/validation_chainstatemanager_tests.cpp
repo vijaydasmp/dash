@@ -61,10 +61,6 @@ static void DashChainstateSetup(ChainstateManager& chainman,
     node.llmq_ctx = std::make_unique<LLMQContext>(*node.dmnman, *node.evodb, *Assert(node.isman.get()), chainman,
                                                   util::DbWrapperParams{.path = node.args->GetDataDirNet(), .memory = llmq_dbs_in_memory, .wipe = llmq_dbs_wipe},
                                                   llmq::DEFAULT_BLSCHECK_THREADS, llmq::DEFAULT_WORKER_COUNT, llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE);
-    if (node.mempool) {
-        node.mempool->ConnectManagers(node.dmnman.get(), node.isman.get());
-    }
-
     // Initialize chain_helper
     node.chain_helper.reset();
     node.chain_helper = std::make_unique<CChainstateHelper>(*node.evodb, *node.dmnman, *Assert(node.mn_sync), node.llmq_ctx->isman, *(node.llmq_ctx->quorum_block_processor),
@@ -74,9 +70,6 @@ static void DashChainstateSetup(ChainstateManager& chainman,
 
 static void DashChainstateSetupClose(node::NodeContext& node)
 {
-    if (node.mempool) {
-        node.mempool->DisconnectManagers();
-    }
     node.chain_helper.reset();
     node.llmq_ctx.reset();
 }
@@ -89,7 +82,6 @@ BOOST_AUTO_TEST_CASE(chainstatemanager)
     ChainstateManager& manager = *m_node.chainman;
     CTxMemPool& mempool = *m_node.mempool;
     CEvoDB& evodb = *m_node.evodb;
-    m_node.dmnman = std::make_unique<CDeterministicMNManager>(evodb, *Assert(m_node.mn_metaman.get()));
     std::vector<Chainstate*> chainstates;
 
     BOOST_CHECK(!manager.SnapshotBlockhash().has_value());
