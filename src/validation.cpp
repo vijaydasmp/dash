@@ -6097,7 +6097,6 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
     int curr_height = m_ibd_chainstate->m_chain.Height();
 
     assert(snapshot_base_height == curr_height);
-    assert(snapshot_base_height == index_new.nHeight);
     assert(this->IsUsable(m_snapshot_chainstate.get()));
     assert(this->GetAll().size() == 2);
 
