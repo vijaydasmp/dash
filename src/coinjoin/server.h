@@ -72,6 +72,7 @@ private:
 
     /// Is this nDenom and txCollateral acceptable?
     bool IsAcceptableDSA(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) const;
+    bool IsCurrentSession(int session_id, int session_denom, PoolState state) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
     /// Record an accepted collateral and index its input prevouts
     void CommitSessionCollateral(const CMutableTransaction& txCollateral) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
     bool CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);

@@ -200,7 +200,7 @@ void CCoinJoinServer::ProcessDSQUEUE(NodeId from, CDataStream& vRecv)
 void CCoinJoinServer::ProcessDSVIN(CNode& peer, CDataStream& vRecv)
 {
     //do we have enough users in the current session?
-    if (!IsSessionReady()) {
+    if (!WITH_LOCK(cs_coinjoin, return IsSessionReady())) {
         LogPrint(BCLog::COINJOIN, "DSVIN -- session not complete!\n");
         PushStatus(peer, STATUS_REJECTED, ERR_SESSION);
         return;
@@ -620,10 +620,21 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
 {
     AssertLockNotHeld(cs_coinjoin);
 
-    if (size_t(GetEntriesCount()) >= vecSessionCollaterals.size()) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entries is full!\n", __func__);
-        nMessageIDRet = ERR_ENTRIES_FULL;
-        return false;
+    int session_id;
+    int session_denom;
+    {
+        LOCK(cs_coinjoin);
+        if (nSessionID == 0 || nState != POOL_STATE_ACCEPTING_ENTRIES) {
+            nMessageIDRet = ERR_SESSION;
+            return false;
+        }
+        if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entries is full!\n", __func__);
+            nMessageIDRet = ERR_ENTRIES_FULL;
+            return false;
+        }
+        session_id = nSessionID;
+        session_denom = nSessionDenom;
     }
 
     if (entry.vecTxDSIn.size() > COINJOIN_ENTRY_MAX_SIZE || entry.vecTxOut.size() > COINJOIN_ENTRY_MAX_SIZE) {
@@ -635,11 +646,13 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         CTransactionRef txCollateralToConsume;
         {
             LOCK(cs_coinjoin);
-            const auto it = std::ranges::find_if(vecSessionCollaterals, [&entry](const auto& txCollateral) {
-                return *entry.txCollateral == *txCollateral;
-            });
-            if (it != vecSessionCollaterals.end()) {
-                txCollateralToConsume = *it;
+            if (IsCurrentSession(session_id, session_denom, POOL_STATE_ACCEPTING_ENTRIES)) {
+                const auto it = std::ranges::find_if(vecSessionCollaterals, [&entry](const auto& txCollateral) {
+                    return *entry.txCollateral == *txCollateral;
+                });
+                if (it != vecSessionCollaterals.end()) {
+                    txCollateralToConsume = *it;
+                }
             }
         }
         if (txCollateralToConsume) {
@@ -655,34 +668,62 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
     }
 
     std::vector<CTxIn> vin;
+    vin.reserve(entry.vecTxDSIn.size());
     for (const auto& txin : entry.vecTxDSIn) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- txin=%s\n", __func__, txin.ToString());
-        LOCK(cs_coinjoin);
-        for (const auto& inner_entry : vecEntries) {
-            if (std::ranges::any_of(inner_entry.vecTxDSIn,
-                                    [&txin](const auto& txdsin) { return txdsin.prevout == txin.prevout; })) {
-                LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: already have this txin in entries\n", __func__);
-                nMessageIDRet = ERR_ALREADY_HAVE;
-                // Two peers sent the same input? Can't really say who is the malicious one here,
-                // could be that someone is picking someone else's inputs randomly trying to force
-                // collateral consumption. Do not punish.
-                return false;
-            }
-        }
         vin.emplace_back(txin);
     }
 
     bool fConsumeCollateral{false};
-    if (!IsValidInOuts(m_chainman.ActiveChainstate(), m_isman, mempool, vin, entry.vecTxOut, nMessageIDRet,
-                       &fConsumeCollateral)) {
+    if (!IsValidInOuts(m_chainman.ActiveChainstate(), m_isman, mempool, vin, entry.vecTxOut, session_denom,
+                       nMessageIDRet, &fConsumeCollateral)) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageIDRet).translated);
         if (fConsumeCollateral) {
-            ConsumeCollateral(entry.txCollateral);
+            CTransactionRef txCollateralToConsume;
+            {
+                LOCK(cs_coinjoin);
+                if (IsCurrentSession(session_id, session_denom, POOL_STATE_ACCEPTING_ENTRIES)) {
+                    const auto it = std::ranges::find_if(vecSessionCollaterals, [&entry](const auto& txCollateral) {
+                        return *entry.txCollateral == *txCollateral;
+                    });
+                    if (it != vecSessionCollaterals.end()) {
+                        txCollateralToConsume = *it;
+                    }
+                }
+            }
+            if (txCollateralToConsume) {
+                ConsumeCollateral(txCollateralToConsume);
+            }
         }
         return false;
     }
 
-    WITH_LOCK(cs_coinjoin, vecEntries.push_back(entry));
+    {
+        LOCK(cs_coinjoin);
+        if (!IsCurrentSession(session_id, session_denom, POOL_STATE_ACCEPTING_ENTRIES)) {
+            nMessageIDRet = ERR_SESSION;
+            return false;
+        }
+        if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
+            nMessageIDRet = ERR_ENTRIES_FULL;
+            return false;
+        }
+        for (const auto& txin : vin) {
+            for (const auto& inner_entry : vecEntries) {
+                if (std::ranges::any_of(inner_entry.vecTxDSIn,
+                                        [&txin](const auto& txdsin) { return txdsin.prevout == txin.prevout; })) {
+                    LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: already have this txin in entries\n",
+                             __func__);
+                    nMessageIDRet = ERR_ALREADY_HAVE;
+                    // Two peers sent the same input? Can't really say who is the malicious one here,
+                    // could be that someone is picking someone else's inputs randomly trying to force
+                    // collateral consumption. Do not punish.
+                    return false;
+                }
+            }
+        }
+        vecEntries.push_back(entry);
+    }
 
     LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- adding entry %d of %d required\n", __func__, GetEntriesCount(), CoinJoin::GetMaxPoolParticipants());
     nMessageIDRet = MSG_ENTRIES_ADDED;
@@ -765,6 +806,12 @@ void CCoinJoinServer::CommitSessionCollateral(const CMutableTransaction& txColla
     for (const auto& txin : txCollateral.vin) {
         setSessionCollateralPrevouts.insert(txin.prevout);
     }
+}
+
+bool CCoinJoinServer::IsCurrentSession(int session_id, int session_denom, PoolState state) const
+{
+    AssertLockHeld(cs_coinjoin);
+    return nSessionID == session_id && nSessionDenom == session_denom && nState == state;
 }
 
 bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet)
