@@ -94,6 +94,22 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
     BOOST_CHECK(ReadKeyValue(&m_wallet, ssKey, ssValue, strType, strErr));
     BOOST_CHECK_EQUAL(strType, DBKeys::PLATFORM_DATA);
     BOOST_CHECK(m_wallet.GetPlatformData("platform/loaded").at("platform/loaded") == value_a);
+
+    // A truncated value must fail the read and identify PLATFORM_DATA as the
+    // failing type: LoadWallet() treats that as corruption instead of loading
+    // the wallet without the record, which could silently unpin the platform
+    // seed in a multi-seed wallet.
+    CDataStream ssGood(SER_DISK, CLIENT_VERSION);
+    ssGood << value_a;
+    CDataStream ssBadKey(SER_DISK, CLIENT_VERSION);
+    CDataStream ssBadValue(SER_DISK, CLIENT_VERSION);
+    ssBadKey << std::make_pair(DBKeys::PLATFORM_DATA, std::string{"platform/corrupt"});
+    ssBadValue.write({ssGood.data(), ssGood.size() - 1});
+    strType.clear();
+    strErr.clear();
+    BOOST_CHECK(!ReadKeyValue(&m_wallet, ssBadKey, ssBadValue, strType, strErr));
+    BOOST_CHECK_EQUAL(strType, DBKeys::PLATFORM_DATA);
+    BOOST_CHECK(m_wallet.GetPlatformData("platform/corrupt").empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

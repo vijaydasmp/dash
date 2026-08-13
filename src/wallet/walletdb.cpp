@@ -926,6 +926,10 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
                 } else if (strType == DBKeys::FLAGS) {
                     // reading the wallet flags can only fail if unknown flags are present
                     result = DBErrors::TOO_NEW;
+                } else if (strType == DBKeys::PLATFORM_DATA) {
+                    // A silently dropped record could unpin the Platform seed
+                    // and let a multi-seed wallet sign under another identity.
+                    result = DBErrors::CORRUPT;
                 } else if (wss.tx_corrupt) {
                     pwallet->WalletLogPrintf("Error: Corrupt transaction found. This can be fixed by removing transactions from wallet and rescanning.\n");
                     // Set tx_corrupt back to false so that the error is only printed once (per corrupt tx)
