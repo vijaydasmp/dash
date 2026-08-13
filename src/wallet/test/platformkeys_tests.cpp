@@ -154,6 +154,37 @@ BOOST_AUTO_TEST_CASE(dip14_public_derivation_matches)
     BOOST_CHECK(!DerivePubKey(uncompressed_parent, PathElement::Normal256(id_a), unused));
 }
 
+//! Cross-implementation vector: the same friendship path derived by
+//! rust-dashcore's key-wallet crate (`key_wallet::bip32` with
+//! `ChildNumber::Normal256` — the derivation backend behind
+//! dashwallet-ios/android via rs-platform-wallet) from this seed and these
+//! identity ids yields exactly these key bytes. The identity ids are
+//! asymmetric byte sequences, so a byte-order reversal anywhere between the
+//! raw Platform identifier bytes and the DIP-14 256-bit index would change
+//! the result; symmetric fixtures cannot catch that. Identifier bytes enter
+//! the path exactly as Platform serves them (big-endian number, the same
+//! bytes base58-encoded in identity ids) — callers must not round-trip them
+//! through uint256S() of a natural-order hex string, which reverses.
+//! Vector generated with key-wallet at rust-dashcore 36b49cb7f9c0:
+//!   seed = Dip14Seed(), path m/9'/1'/15'/0'/(id_a)/(id_b).
+BOOST_AUTO_TEST_CASE(friendship_derivation_matches_key_wallet)
+{
+    std::array<uint8_t, 32> id_a, id_b;
+    for (size_t i{0}; i < 32; ++i) {
+        id_a[i] = static_cast<uint8_t>(i);          // 000102..1f
+        id_b[i] = static_cast<uint8_t>(0xff - i);   // fffefd..e0
+    }
+    const auto path{FriendshipPath(/*coin_type=*/1, /*account=*/0, id_a, id_b)};
+    ExtKey256 out;
+    BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), path, out));
+    BOOST_CHECK_EQUAL(HexStr(Span{out.key.begin(), out.key.size()}),
+                      "815adcfab00d029d50a044a255cebc510fe6800c46082cf679dae8c46ca5e1f5");
+    BOOST_CHECK_EQUAL(HexStr(out.chaincode),
+                      "1ed00e776865c0308fddae8d22fb3ae47ffd51ce409b298d1987aafdec6bef6b");
+    BOOST_CHECK_EQUAL(HexStr(out.key.GetPubKey()),
+                      "025b4ff1b10b9e1990df46dfa2f986300a7e6eb4a85289f4419581950edd3760bf");
+}
+
 //! ECDH secrets must be symmetric and match the libsecp256k1 KDF
 //! (SHA256 of compressed shared point), as used by DashPay contact requests.
 BOOST_AUTO_TEST_CASE(ecdh_symmetry)
