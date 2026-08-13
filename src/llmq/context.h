@@ -16,7 +16,6 @@ class CEvoDB;
 class PeerManager;
 
 namespace llmq {
-class CInstantSendManager;
 class CQuorumBlockProcessor;
 class CQuorumManager;
 class CQuorumSnapshotManager;
@@ -31,9 +30,9 @@ public:
     LLMQContext() = delete;
     LLMQContext(const LLMQContext&) = delete;
     LLMQContext& operator=(const LLMQContext&) = delete;
-    explicit LLMQContext(CDeterministicMNManager& dmnman, CEvoDB& evo_db, llmq::CInstantSendManager& isman,
-                         ChainstateManager& chainman, const util::DbWrapperParams& db_params, int8_t bls_threads,
-                         int16_t worker_count, int64_t max_recsigs_age);
+    explicit LLMQContext(CDeterministicMNManager& dmnman, CEvoDB& evo_db, ChainstateManager& chainman,
+                         const util::DbWrapperParams& db_params, int8_t bls_threads, int16_t worker_count,
+                         int64_t max_recsigs_age);
     ~LLMQContext();
 
     /** Guaranteed if LLMQContext is initialized then all members are valid too
@@ -47,7 +46,6 @@ public:
     const std::unique_ptr<llmq::CQuorumBlockProcessor> quorum_block_processor;
     const std::unique_ptr<llmq::CQuorumManager> qman;
     const std::unique_ptr<llmq::CSigningManager> sigman;
-    llmq::CInstantSendManager& isman;
 };
 
 #endif // BITCOIN_LLMQ_CONTEXT_H

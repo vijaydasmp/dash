@@ -648,10 +648,10 @@ public:
     }
     std::vector<uint8_t> getInstantSendLock(const uint256& txid) override
     {
-        if (!context().llmq_ctx || !context().llmq_ctx->isman) {
+        if (!context().isman) {
             return {};
         }
-        const auto islock{context().llmq_ctx->isman->GetInstantSendLockByTxid(txid)};
+        const auto islock{context().isman->GetInstantSendLockByTxid(txid)};
         if (!islock) {
             return {};
         }

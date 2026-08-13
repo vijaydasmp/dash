@@ -298,7 +298,7 @@ struct InOutsChecker : CCoinJoinBaseSession
 BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
 {
     Chainstate& chainstate{Assert(m_node.chainman)->ActiveChainstate()};
-    const auto& isman{*Assert(m_node.llmq_ctx->isman)};
+    const auto& isman{*Assert(m_node.isman)};
     const auto& mempool{*Assert(m_node.mempool)};
 
     const int session_denom{CoinJoin::AmountToDenomination(CoinJoin::GetSmallestDenomination())};

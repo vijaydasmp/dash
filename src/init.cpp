@@ -2108,7 +2108,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                                      chainman, *node.mempool, *node.mn_metaman, *node.mn_sync,
                                      *node.sporkman, *node.chainlocks, *node.clhandler,
                                      node.active_ctx ? node.active_ctx->nodeman.get() : nullptr,
-                                     node.dmnman, node.cj_walletman, node.llmq_ctx, ignores_incoming_txs);
+                                     node.dmnman, node.cj_walletman, *node.isman, node.llmq_ctx, ignores_incoming_txs);
     RegisterValidationInterface(node.peerman.get());
 
     node.ds_notification_interface = std::make_unique<CDSNotificationInterface>(

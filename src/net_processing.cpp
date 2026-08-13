@@ -572,6 +572,7 @@ public:
                     CActiveMasternodeManager* nodeman,
                     const std::unique_ptr<CDeterministicMNManager>& dmnman,
                     const std::unique_ptr<CJWalletManager>& cj_walletman,
+                    llmq::CInstantSendManager& isman,
                     const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
 
     ~PeerManagerImpl()
@@ -809,6 +810,7 @@ private:
     CActiveMasternodeManager* const m_nodeman; //!< null if non-masternode mode; non-null implies masternode mode
     const std::unique_ptr<CDeterministicMNManager>& m_dmnman;
     const std::unique_ptr<CJWalletManager>& m_cj_walletman;
+    llmq::CInstantSendManager& m_isman;
     const std::unique_ptr<LLMQContext>& m_llmq_ctx;
     CMasternodeMetaMan& m_mn_metaman;
     CMasternodeSync& m_mn_sync;
@@ -867,7 +869,7 @@ private:
      */
     bool BlockRequestAllowed(const CBlockIndex* pindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     bool AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv, llmq::CInstantSendManager& isman) EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
+    void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
 
     /**
      * Validation logic for compact filters request handling.
@@ -2041,9 +2043,10 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                CActiveMasternodeManager* nodeman,
                                                const std::unique_ptr<CDeterministicMNManager>& dmnman,
                                                const std::unique_ptr<CJWalletManager>& cj_walletman,
+                                               llmq::CInstantSendManager& isman,
                                                const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
 {
-    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, llmq_ctx, ignore_incoming_txs);
+    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, isman, llmq_ctx, ignore_incoming_txs);
 }
 
 PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* banman,
@@ -2055,6 +2058,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
                                  CActiveMasternodeManager* nodeman,
                                  const std::unique_ptr<CDeterministicMNManager>& dmnman,
                                  const std::unique_ptr<CJWalletManager>& cj_walletman,
+                                 llmq::CInstantSendManager& isman,
                                  const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
     : m_chainparams(chainman.GetParams()),
       m_connman(connman),
@@ -2066,6 +2070,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
       m_nodeman(nodeman),
       m_dmnman(dmnman),
       m_cj_walletman(cj_walletman),
+      m_isman(isman),
       m_llmq_ctx(llmq_ctx),
       m_mn_metaman(mn_metaman),
       m_mn_sync(mn_sync),
@@ -2319,8 +2324,8 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
             // crafted invalid DSTX-es and potentially cause high load cheaply, because
             // corresponding checks in ProcessMessage won't let it to send DSTX-es too often.
             bool fIgnoreRecentRejects = inv.IsMsgDstx() ||
-                                        m_llmq_ctx->isman.IsWaitingForTx(inv.hash) ||
-                                        m_llmq_ctx->isman.IsLocked(inv.hash);
+                                        m_isman.IsWaitingForTx(inv.hash) ||
+                                        m_isman.IsLocked(inv.hash);
 
             return (!fIgnoreRecentRejects && m_recent_rejects.contains(inv.hash)) ||
                    (inv.IsMsgDstx() && static_cast<bool>(m_dstxman.GetDSTX(inv.hash))) ||
@@ -2359,7 +2364,7 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
         return m_clhandler.AlreadyHave(inv);
     // TODO: move it to NetInstantSend
     case MSG_ISDLOCK:
-        return m_llmq_ctx->isman.AlreadyHave(inv);
+        return m_isman.AlreadyHave(inv);
     case MSG_PLATFORM_BAN:
         return m_mn_metaman.AlreadyHavePlatformBan(inv.hash);
 
@@ -2652,7 +2657,7 @@ void PeerManagerImpl::RelayAddress(NodeId originator,
     }
 }
 
-void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv, llmq::CInstantSendManager& isman)
+void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv)
 {
     std::shared_ptr<const CBlock> a_recent_block;
     std::shared_ptr<const CBlockHeaderAndShortTxIDs> a_recent_compact_block;
@@ -2773,7 +2778,7 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
                     m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::TX, *pblock->vtx[pair.first]));
                 }
                 for (PairType &pair : merkleBlock.vMatchedTxn) {
-                    auto islock = isman.GetInstantSendLockByTxid(pair.second);
+                    auto islock = m_isman.GetInstantSendLockByTxid(pair.second);
                     if (islock != nullptr) {
                         m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::ISDLOCK, *islock));
                     }
@@ -2961,7 +2966,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && inv.type == MSG_ISDLOCK) {
             instantsend::InstantSendLock o;
-            if (m_llmq_ctx->isman.GetInstantSendLockByHash(inv.hash, o)) {
+            if (m_isman.GetInstantSendLockByHash(inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::ISDLOCK, o));
                 push = true;
             }
@@ -2996,7 +3001,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
     if (it != peer.m_getdata_requests.end() && !pfrom.fPauseSend) {
         const CInv &inv = *it++;
         if (inv.IsGenBlkMsg()) {
-            ProcessGetBlockData(pfrom, peer, inv, m_llmq_ctx->isman);
+            ProcessGetBlockData(pfrom, peer, inv);
         }
         // else: If the first item on the queue is an unknown type, we erase it
         // and continue processing the queue on the next call.
@@ -4859,7 +4864,7 @@ void PeerManagerImpl::ProcessMessage(
                 // parents so avoid re-requesting it from other peers.
                 m_recent_rejects.insert(tx.GetHash());
                 ForgetTx(tx.GetHash());
-                m_llmq_ctx->isman.TransactionIsRemoved(ptx);
+                m_isman.TransactionIsRemoved(ptx);
             }
         } else {
             m_recent_rejects.insert(tx.GetHash());
@@ -4891,7 +4896,7 @@ void PeerManagerImpl::ProcessMessage(
                 pfrom.GetId(),
                 state.ToString());
             MaybePunishNodeForTx(pfrom.GetId(), state);
-            m_llmq_ctx->isman.TransactionIsRemoved(ptx);
+            m_isman.TransactionIsRemoved(ptx);
         }
         return;
     }
@@ -6468,7 +6473,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
 
-                    const auto islock = m_llmq_ctx->isman.GetInstantSendLockByTxid(hash);
+                    const auto islock = m_isman.GetInstantSendLockByTxid(hash);
                     if (islock == nullptr) continue;
                     uint256 isLockHash{::SerializeHash(*islock)};
                     tx_relay->m_tx_inventory_known_filter.insert(isLockHash);

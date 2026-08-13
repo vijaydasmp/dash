@@ -58,12 +58,12 @@ static void DashChainstateSetup(ChainstateManager& chainman,
                          bool llmq_dbs_wipe)
 {
     node.llmq_ctx.reset();
-    node.llmq_ctx = std::make_unique<LLMQContext>(*node.dmnman, *node.evodb, *Assert(node.isman.get()), chainman,
+    node.llmq_ctx = std::make_unique<LLMQContext>(*node.dmnman, *node.evodb, chainman,
                                                   util::DbWrapperParams{.path = node.args->GetDataDirNet(), .memory = llmq_dbs_in_memory, .wipe = llmq_dbs_wipe},
                                                   llmq::DEFAULT_BLSCHECK_THREADS, llmq::DEFAULT_WORKER_COUNT, llmq::DEFAULT_MAX_RECOVERED_SIGS_AGE);
     // Initialize chain_helper
     node.chain_helper.reset();
-    node.chain_helper = std::make_unique<CChainstateHelper>(*node.evodb, *node.dmnman, *Assert(node.mn_sync), node.llmq_ctx->isman, *(node.llmq_ctx->quorum_block_processor),
+    node.chain_helper = std::make_unique<CChainstateHelper>(*node.evodb, *node.dmnman, *Assert(node.mn_sync), *Assert(node.isman), *(node.llmq_ctx->quorum_block_processor),
                                                             *(node.llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), *Assert(node.chainlocks),
                                                             *(node.llmq_ctx->qman));
 }

@@ -153,13 +153,13 @@ static ChainstateLoadResult CompleteChainstateInitialization(ChainstateManager& 
 
     // Initialize llmq_ctx
     llmq_ctx.reset();
-    llmq_ctx = std::make_unique<LLMQContext>(dmnman, evodb, *options.isman, chainman,
+    llmq_ctx = std::make_unique<LLMQContext>(dmnman, evodb, chainman,
                                              util::DbWrapperParams{.path = options.data_dir, .memory = options.dash_dbs_in_memory, .wipe = to_wipe_data},
                                              options.bls_threads, options.worker_count, options.max_recsigs_age);
 
     // Initialize chain_helper
     chain_helper.reset();
-    chain_helper = std::make_unique<CChainstateHelper>(evodb, dmnman, *options.mn_sync, llmq_ctx->isman, *(llmq_ctx->quorum_block_processor),
+    chain_helper = std::make_unique<CChainstateHelper>(evodb, dmnman, *options.mn_sync, *options.isman, *(llmq_ctx->quorum_block_processor),
                                                        *(llmq_ctx->qsnapman), chainman, chainman.GetConsensus(), *options.chainlocks,
                                                        *(llmq_ctx->qman));
 
