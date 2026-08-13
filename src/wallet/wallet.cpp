@@ -3910,9 +3910,8 @@ bool CWallet::IsLocked(bool fForMixing) const
     if (!IsCrypted())
         return false;
 
-    if(!fForMixing && fOnlyMixingAllowed) return true;
-
     LOCK(cs_wallet);
+    if (!fForMixing && fOnlyMixingAllowed) return true;
     return vMasterKey.empty();
 }
 
@@ -3921,15 +3920,17 @@ bool CWallet::Lock(bool fAllowMixing)
     if (!IsCrypted())
         return false;
 
-    if(!fAllowMixing) {
+    {
         LOCK(cs_wallet);
-        if (!vMasterKey.empty()) {
-            memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
-            vMasterKey.clear();
+        if (!fAllowMixing) {
+            if (!vMasterKey.empty()) {
+                memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
+                vMasterKey.clear();
+            }
         }
+        fOnlyMixingAllowed = fAllowMixing;
     }
 
-    fOnlyMixingAllowed = fAllowMixing;
     NotifyStatusChanged(this);
     return true;
 }

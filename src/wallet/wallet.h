@@ -290,7 +290,7 @@ private:
     CKeyingMaterial vMasterKey GUARDED_BY(cs_wallet);
 
     //! if fOnlyMixingAllowed is true, only mixing should be allowed in unlocked wallet
-    bool fOnlyMixingAllowed{false};
+    bool fOnlyMixingAllowed GUARDED_BY(cs_wallet){false};
 
     bool Unlock(const CKeyingMaterial& vMasterKeyIn, bool fForMixingOnly = false);
 
