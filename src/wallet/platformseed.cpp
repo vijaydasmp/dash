@@ -44,6 +44,10 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
             if (!desc_spk_man) continue;
             SecureString mnemonic, mnemonic_passphrase;
             if (!desc_spk_man->GetMnemonicString(mnemonic, mnemonic_passphrase)) continue;
+            // Descriptors imported from a raw xprv store an empty mnemonic;
+            // ToSeed("") would yield the publicly reproducible empty-mnemonic
+            // seed rather than a wallet secret.
+            if (mnemonic.empty()) continue;
             SecureVector seed;
             CMnemonic::ToSeed(mnemonic, mnemonic_passphrase, seed);
             if (seed.empty()) continue;

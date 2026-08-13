@@ -7,6 +7,8 @@
 #include <interfaces/wallet.h>
 #include <key.h>
 #include <key_io.h>
+#include <script/descriptor.h>
+#include <script/signingprovider.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
@@ -414,6 +416,35 @@ BOOST_FIXTURE_TEST_CASE(platform_seed_selection_deterministic, Dip14WalletSetup)
     seed_id = m_iface->getPlatformSeedId();
     BOOST_REQUIRE(seed_id);
     BOOST_CHECK(*seed_id == lowest_id_fingerprint);
+}
+
+//! An active descriptor imported from a raw xprv stores an empty mnemonic.
+//! Platform seed selection must fail for such a wallet instead of deriving
+//! from the publicly reproducible empty-mnemonic BIP39 seed.
+BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_seed, FriendshipWalletSetup)
+{
+    auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
+                                            CreateMockWalletDatabase());
+    wallet->LoadWallet();
+
+    CExtKey master;
+    master.SetSeed(MakeByteSpan(Dip14Seed()));
+    FlatSigningProvider provider;
+    std::string error;
+    auto parsed = Parse("pkh(" + EncodeExtKey(master) + "/*)", provider, error, /*require_checksum=*/false);
+    BOOST_REQUIRE_MESSAGE(parsed, error);
+    WalletDescriptor descriptor(std::move(parsed), /*creation_time=*/0, /*range_start=*/0,
+                                /*range_end=*/10, /*next_index=*/0);
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+        auto* spk_man = wallet->AddWalletDescriptor(descriptor, provider, "", /*internal=*/false);
+        BOOST_REQUIRE(spk_man);
+        wallet->AddActiveScriptPubKeyMan(spk_man->GetID(), /*internal=*/false);
+    }
+
+    auto iface = interfaces::MakeWallet(m_context, wallet);
+    BOOST_CHECK(!iface->getPlatformSeedId());
 }
 
 //! Two independent wallet instances restored from the same recovery phrase:
