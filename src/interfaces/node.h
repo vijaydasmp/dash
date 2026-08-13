@@ -75,6 +75,11 @@ public:
 
     virtual bool isBanned() const = 0;
     virtual CService getNetInfoPrimary() const = 0;
+    //! Platform HTTPS (DAPI gateway) endpoints from the extended address
+    //! list; empty for non-evo masternodes. Domain-based entries are
+    //! skipped rather than resolved here — the first entry is always a
+    //! CService, so an evonode never contributes an empty set.
+    virtual std::vector<CService> getPlatformHTTPSAddrs() const = 0;
     virtual MnType getType() const = 0;
     virtual UniValue toJson() const = 0;
     virtual const CKeyID& getKeyIdOwner() const = 0;
@@ -235,6 +240,19 @@ public:
         int32_t m_expiry_height{0};
     };
     virtual std::vector<QuorumInfo> getQuorumStats() = 0;
+    struct PlatformQuorum {
+        uint256 m_quorum_hash{};
+        std::vector<uint8_t> m_pubkey{}; //!< serialized BLS public key (basic scheme)
+        int32_t m_height{0};
+    };
+    //! Locally retained quorums of the given LLMQ type with their public
+    //! keys. Used by the GUI Platform client to verify Platform state-root
+    //! quorum signatures against locally synced quorum data. This includes
+    //! retained signing quorums that are no longer in the active signing set.
+    virtual std::vector<PlatformQuorum> getPlatformQuorums(uint8_t llmq_type) = 0;
+    //! Serialized InstantSend lock for the given txid, or empty if the
+    //! transaction has no islock (used to build asset lock proofs).
+    virtual std::vector<uint8_t> getInstantSendLock(const uint256& txid) = 0;
     virtual void setContext(node::NodeContext* context) {}
 };
 
