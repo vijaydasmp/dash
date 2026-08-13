@@ -183,7 +183,7 @@ public:
     //! creation_time (0 = unknown/genesis) bounds later rescans; re-importing
     //! an already-imported friendship updates it in place.
     virtual bool importFriendshipKeychains(uint32_t account, const uint256& my_id,
-        const uint256& their_id, int64_t creation_time, const std::string& label, std::string& error) = 0;
+        const uint256& their_id, int64_t creation_time, std::string& error) = 0;
 
     //! Derive a contact payment destination from their serialized DIP-15
     //! friendship xpub without advancing any wallet-global keypool.

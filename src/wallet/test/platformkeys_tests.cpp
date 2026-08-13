@@ -290,7 +290,7 @@ struct FriendshipWalletSetup : public TestChain100Setup {
 BOOST_FIXTURE_TEST_CASE(friendship_own_chain_is_spendable, FriendshipWalletSetup)
 {
     std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, "DashPay friend", error),
+    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, error),
                           error);
 
     // Reaching the destination through getFriendshipXpub also pins that the
@@ -319,7 +319,7 @@ BOOST_FIXTURE_TEST_CASE(friendship_own_chain_is_spendable, FriendshipWalletSetup
 BOOST_FIXTURE_TEST_CASE(friendship_contact_chain_is_not_ours, FriendshipWalletSetup)
 {
     std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, "DashPay friend", error),
+    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, error),
                           error);
 
     // The contact's receiving chain for this friendship is the reversed id
@@ -570,7 +570,7 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_after_restore_is_spendable, SeededWallet
 
     std::string error;
     BOOST_REQUIRE_MESSAGE(m_iface_b->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                               /*creation_time=*/0, "DashPay friend", error),
+                                                               /*creation_time=*/0, error),
                           error);
 
     LOCK(m_wallet_b->cs_wallet);
@@ -587,7 +587,7 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
 {
     std::string error;
     BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/0, "DashPay friend", error),
+                                                             /*creation_time=*/0, error),
                           error);
     size_t spk_mans_after_first;
     {
@@ -596,7 +596,7 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
     }
 
     BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/1'600'000'000, "DashPay friend",
+                                                             /*creation_time=*/1'600'000'000,
                                                              error),
                           error);
     {
@@ -638,7 +638,7 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
     // Re-import after use must still succeed and keep the grown range,
     // derivation progress, and the earliest creation time.
     BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/1'700'000'000, "DashPay friend", error),
+                                                             /*creation_time=*/1'700'000'000, error),
                           error);
     {
         LOCK(friendship_spk_man->cs_desc_man);

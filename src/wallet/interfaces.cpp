@@ -316,7 +316,7 @@ public:
         return true;
     }
     bool importFriendshipKeychains(uint32_t account, const uint256& my_id, const uint256& their_id,
-                                   int64_t creation_time, const std::string& label, std::string& error) override
+                                   int64_t creation_time, std::string& error) override
     {
         SecureVector seed;
         if (!getPlatformSeed(seed)) { error = "wallet must be unlocked"; return false; }
@@ -364,7 +364,7 @@ public:
             wallet_descriptor.next_index = current.next_index;
             wallet_descriptor.creation_time = std::min(wallet_descriptor.creation_time, current.creation_time);
         }
-        if (!m_wallet->AddWalletDescriptor(wallet_descriptor, provider, label, /*internal=*/false)) {
+        if (!m_wallet->AddWalletDescriptor(wallet_descriptor, provider, /*label=*/"", /*internal=*/false)) {
             if (error.empty()) error = "could not import receiving friendship descriptor";
             return false;
         }
