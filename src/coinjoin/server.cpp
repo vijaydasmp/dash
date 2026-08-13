@@ -490,7 +490,15 @@ void CCoinJoinServer::ChargeFees() const
 */
 void CCoinJoinServer::ChargeRandomFees() const
 {
-    for (const auto& txCollateral : vecSessionCollaterals) {
+    AssertLockNotHeld(cs_coinjoin);
+
+    std::vector<CTransactionRef> session_collaterals;
+    {
+        LOCK(cs_coinjoin);
+        session_collaterals = vecSessionCollaterals;
+    }
+
+    for (const auto& txCollateral : session_collaterals) {
         if (GetRand<int>(/*nMax=*/100) > 10) return;
         LogPrint(BCLog::COINJOIN, /* Continued */
                  "CCoinJoinServer::ChargeRandomFees -- charging random fees, txCollateral=%s", txCollateral->ToString());
