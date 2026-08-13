@@ -464,6 +464,12 @@ struct SeededWalletPair : public Dip14WalletSetup {
 BOOST_FIXTURE_TEST_CASE(recovery_auth_key_rederivation, SeededWalletPair)
 {
     using KeyType = interfaces::Wallet::PlatformKeyType;
+
+    // A key-type value outside the enum must fail instead of deriving with an
+    // empty path, which would expose the BIP32 master key.
+    CPubKey bogus;
+    BOOST_CHECK(!m_iface->getPlatformPubKey(static_cast<KeyType>(0xff), 0, 0, bogus));
+
     const auto coin_type{static_cast<uint32_t>(Params().ExtCoinType())};
     for (uint32_t identity = 0; identity < 2; ++identity) {
         for (uint32_t key = 0; key < 5; ++key) {

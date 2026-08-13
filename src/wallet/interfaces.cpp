@@ -278,6 +278,9 @@ public:
             path = platformkeys::IdentityFundingPath(coin_type, platformkeys::IDENTITY_INVITATION_FUNDING, index);
             break;
         }
+        // A value outside the enum leaves the path empty; deriving would
+        // return the BIP32 master key rather than a Platform key.
+        if (path.empty()) return false;
         return platformkeys::DeriveExtKey(seed, path, out);
     }
     bool getPlatformPubKey(PlatformKeyType type, uint32_t account, uint32_t index, CPubKey& pubkey_out) override
