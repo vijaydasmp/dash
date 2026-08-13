@@ -413,22 +413,29 @@ static std::vector<RPCResult> TransactionDescriptionString()
                "'receive' category of transactions. Negative confirmations indicate the\n"
                "transaction conflicts with the block chain"},
            {RPCResult::Type::BOOL, "instantlock", "Current transaction lock state. Available for 'send' and 'receive' category of transactions"},
-           {RPCResult::Type::BOOL, "instantlock-internal", "Current internal transaction lock state. Available for 'send' and 'receive' category of transactions"},
+           {RPCResult::Type::BOOL, "instantlock_internal", "Current internal transaction lock state. Available for 'send' and 'receive' category of transactions"},
            {RPCResult::Type::BOOL, "chainlock", "The state of the corresponding block ChainLock"},
            {RPCResult::Type::BOOL, "generated", /*optional=*/true, "Only present if the transaction's only input is a coinbase one."},
+           {RPCResult::Type::BOOL, "platform-transfer", /*optional=*/true, "Only present if the transaction is a Platform Transfer."},
            {RPCResult::Type::BOOL, "trusted", /*optional=*/true, "Whether we consider the transaction to be trusted and safe to spend from.\n"
                 "Only present when the transaction has 0 confirmations (or negative confirmations, if conflicted)."},
            {RPCResult::Type::STR_HEX, "blockhash", /*optional=*/true, "The block hash containing the transaction. Available for 'send' and 'receive'\n"
                                                   "category of transactions."},
-           {RPCResult::Type::STR_HEX, "blockheight", /*optional=*/true, "The block height containing the transaction."},
+           {RPCResult::Type::NUM, "blockheight", /*optional=*/true, "The block height containing the transaction."},
            {RPCResult::Type::NUM, "blockindex", /*optional=*/true, "The index of the transaction in the block that includes it. Available for 'send' and 'receive'\n"
                                                "category of transactions."},
            {RPCResult::Type::NUM_TIME, "blocktime", /*optional=*/true, "The block time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::STR_HEX, "txid", "The transaction id. Available for 'send' and 'receive' category of transactions."},
+           {RPCResult::Type::ARR, "walletconflicts", "Conflicting transaction ids.",
+           {
+               {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+           }},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + ". Available \n"
                                               "for 'send' and 'receive' category of transactions."},
-           {RPCResult::Type::STR, "comment", /*optional=*/true, "If a comment is associated with the transaction."}};
+           {RPCResult::Type::STR, "DS", /*optional=*/true, "Set to \"1\" if the transaction is a CoinJoin send."},
+           {RPCResult::Type::STR, "comment", /*optional=*/true, "If a comment is associated with the transaction."},
+           {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."}};
 }
 
 RPCHelpMan listtransactions()
@@ -582,13 +589,12 @@ RPCHelpMan listsinceblock()
                             {
                                 {RPCResult::Type::BOOL, "abandoned", "'true' if the transaction has been abandoned (inputs are respendable)."},
                                 {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any."},
-                                {RPCResult::Type::STR, "to", "If a comment to is associated with the transaction."},
                             })},
                         }},
                         {RPCResult::Type::ARR, "removed", /*optional=*/true, "<structure is the same as \"transactions\" above, only present if include_removed=true>\n"
                             "Note: transactions that were re-added in the active chain will appear as-is in this array, and may thus have a positive confirmation count."
                         , {{RPCResult::Type::ELISION, "", ""},}},
-                        {RPCResult::Type::STR_HEX, "lastblockhash", "The hash of the block (target_confirmations-1) from the best block on the main chain, or the genesis hash if the referenced block does not exist yet. This is typically used to feed back into listsinceblock the next time you call it. So you would generally use a target_confirmations of say 6, so you will be continually re-notified of transactions until they've reached 6 confirmations plus any new ones."}
+                        {RPCResult::Type::STR_HEX, "lastblock", "The hash of the block (target_confirmations-1) from the best block on the main chain, or the genesis hash if the referenced block does not exist yet. This is typically used to feed back into listsinceblock the next time you call it. So you would generally use a target_confirmations of say 6, so you will be continually re-notified of transactions until they've reached 6 confirmations plus any new ones."}
                     }
                 },
                 RPCExamples{
@@ -850,7 +856,9 @@ RPCHelpMan rescanblockchain()
                     RPCResult::Type::OBJ, "", "",
                     {
                         {RPCResult::Type::NUM, "start_height", "The block height where the rescan started (the requested height or 0)"},
-                        {RPCResult::Type::NUM, "stop_height", "The height of the last rescanned block. May be null in rare cases if there was a reorg and the call didn't scan any blocks because they were already scanned in the background."},
+                        // Null, not absent, when nothing was scanned - so neither NUM nor an
+                        // optional NUM describes it.
+                        {RPCResult::Type::ANY, "stop_height", "The height of the last rescanned block. May be null in rare cases if there was a reorg and the call didn't scan any blocks because they were already scanned in the background."},
                     }
                 },
                 RPCExamples{
