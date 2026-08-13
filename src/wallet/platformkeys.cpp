@@ -9,6 +9,7 @@
 #include <secp256k1.h>
 #include <secp256k1_ecdh.h>
 
+#include <algorithm>
 #include <cassert>
 
 namespace wallet::platformkeys {

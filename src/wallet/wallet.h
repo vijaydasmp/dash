@@ -490,7 +490,7 @@ public:
 
     // Generic per-wallet key/value records used by Dash Platform integration
     // (opaque to the wallet; persisted as DBKeys::PLATFORM_DATA).
-    std::map<std::string, std::vector<unsigned char>> m_platform_data;
+    std::map<std::string, std::vector<unsigned char>> m_platform_data GUARDED_BY(cs_wallet);
 
     typedef std::map<unsigned int, CMasterKey> MasterKeyMap;
     MasterKeyMap mapMasterKeys;

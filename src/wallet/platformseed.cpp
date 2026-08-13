@@ -10,6 +10,7 @@
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <array>
 #include <map>
 #include <optional>
