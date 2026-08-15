@@ -195,6 +195,11 @@ class WalletDashRPCsTest(DashTestFramework):
 
         assert_raises_rpc_error(-1, "bad-protx-sig", node.protx, "register_submit", prepared["tx"], "AA==")
         assert collateral_outpoint in node.listlockunspent()
+        node.createwallet("empty_signing_wallet")
+        empty_wallet = node.get_wallet_rpc("empty_signing_wallet")
+        assert_raises_rpc_error(-4, "transaction inputs could not be fully signed", empty_wallet.protx,
+                                "register_submit", prepared["tx"], signature)
+        node.unloadwallet("empty_signing_wallet")
         protx_hash = node.protx("register_submit", prepared["tx"], signature)
         assert collateral_outpoint in node.listlockunspent()
         mn.set_params(proTxHash=protx_hash)

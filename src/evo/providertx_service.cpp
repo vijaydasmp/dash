@@ -347,6 +347,18 @@ ProviderTxResult<ProviderTxSubmission> Finish(node::NodeContext& node, Wallet& w
         return Error(wallet.isLocked() ? ProviderTxErrorCode::WALLET_UNLOCK_NEEDED : ProviderTxErrorCode::WALLET_ERROR,
                      util::ErrorString(signed_result).original);
     }
+    if (!signed_result->complete) {
+        std::string errors;
+        for (const auto& error : signed_result->errors) {
+            if (!errors.empty()) errors += ", ";
+            errors += error.original;
+        }
+        return Error(ProviderTxErrorCode::WALLET_ERROR,
+                     strprintf("transaction inputs could not be fully signed by this wallet; run this command on "
+                               "the wallet that funded the transaction, or finish signing there with "
+                               "signrawtransactionwithwallet (%s)",
+                               errors));
+    }
     if (!submit) return ProviderTxSubmission{signed_result->tx, false};
 
     const CAmount max_fee{node::DEFAULT_MAX_RAW_TX_FEE_RATE.GetFee(GetVirtualTransactionSize(*signed_result->tx))};
