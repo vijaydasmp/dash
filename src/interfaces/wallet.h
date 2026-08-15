@@ -69,6 +69,18 @@ class Loader;
 using WalletOrderForm = std::vector<std::pair<std::string, std::string>>;
 using WalletValueMap = std::map<std::string, std::string>;
 
+struct WalletTxSignResult {
+    CTransactionRef tx;
+    bool complete{false};
+    std::vector<bilingual_str> errors;
+};
+
+enum class CoinLockResult {
+    ACQUIRED,
+    ALREADY_LOCKED,
+    FAILED,
+};
+
 //! Interface for accessing a wallet.
 class Wallet
 {
@@ -164,6 +176,9 @@ public:
     //! Lock coin.
     virtual bool lockCoin(const COutPoint& output, const bool write_to_db) = 0;
 
+    //! Atomically lock a coin only when it is not already locked.
+    virtual CoinLockResult acquireCoinLock(const COutPoint& output, bool write_to_db) = 0;
+
     //! Unlock coin.
     virtual bool unlockCoin(const COutPoint& output) = 0;
 
@@ -194,6 +209,18 @@ public:
         bool sign,
         int& change_pos,
         CAmount& fee) = 0;
+
+    //! Fund a transaction template per the provider-transaction funding policy:
+    //! inputs are selected only from coins received at the single specified
+    //! fee-source destination, change is returned to that same destination, and
+    //! a temporary dummy output is added (and later removed) when the template
+    //! has no outputs. Not a generic funding primitive. The template's version,
+    //! type, payload, and required outputs are preserved.
+    virtual util::Result<CTransactionRef> fundTransaction(const CMutableTransaction& tx_template,
+                                                          const CTxDestination& fund_destination) = 0;
+
+    //! Sign every wallet-owned input of a transaction and report whether signing is complete.
+    virtual util::Result<WalletTxSignResult> signTransaction(const CMutableTransaction& tx) = 0;
 
     //! Commit transaction.
     virtual void commitTransaction(CTransactionRef tx,
