@@ -17,6 +17,7 @@
 #include <util/translation.h>
 
 #include <evo/types.h>
+#include <interfaces/providertx.h>
 
 #include <functional>
 #include <memory>
@@ -129,6 +130,27 @@ class EVO
 public:
     virtual ~EVO() {}
     virtual std::pair<MnListPtr, const CBlockIndex*> getListAtChainTip() = 0;
+    virtual ProviderTxCapabilities getProviderTxCapabilities() = 0;
+    //! Validate provider endpoints against a capability snapshot without changing node or wallet state.
+    //! Transaction creation validates them again against the then-active rules.
+    virtual std::optional<ProviderTxError> validateProviderNetInfo(const ProviderNetInfo& net_info, MnType type,
+                                                                   uint16_t version, bool optional) = 0;
+    //! Successful registration with an existing collateral leaves that coin locked,
+    //! including when the signed transaction is returned without submission.
+    virtual ProviderTxResult<ProviderTxSubmission> registerMasternode(Wallet& wallet,
+                                                                      const ProviderRegistrationRequest& request) = 0;
+    //! Successful preparation leaves existing collateral locked. The result identifies
+    //! whether this call acquired the lock so a discarded flow cannot unlock an older lock.
+    virtual ProviderTxResult<PreparedProviderRegistration> prepareMasternodeRegistration(
+        Wallet& wallet, const ProviderRegistrationRequest& request) = 0;
+    virtual ProviderTxResult<ProviderTxSubmission> submitMasternodeRegistration(
+        Wallet& wallet, const CTransactionRef& tx, const std::vector<unsigned char>& collateral_signature) = 0;
+    virtual ProviderTxResult<ProviderTxSubmission> updateMasternodeService(Wallet& wallet,
+                                                                           const ProviderUpdateServiceRequest& request) = 0;
+    virtual ProviderTxResult<ProviderTxSubmission> updateMasternodeRegistrar(
+        Wallet& wallet, const ProviderUpdateRegistrarRequest& request) = 0;
+    virtual ProviderTxResult<ProviderTxSubmission> revokeMasternode(Wallet& wallet,
+                                                                    const ProviderRevokeRequest& request) = 0;
     virtual void setContext(node::NodeContext* context) {}
 };
 

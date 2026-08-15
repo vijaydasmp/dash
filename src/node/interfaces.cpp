@@ -15,6 +15,7 @@
 #include <evo/chainhelper.h>
 #include <evo/creditpool.h>
 #include <evo/deterministicmns.h>
+#include <evo/providertx_service.h>
 #include <evo/specialtxman.h>
 #include <external_signer.h>
 #include <governance/governance.h>
@@ -23,11 +24,12 @@
 #include <governance/vote.h>
 #include <index/blockfilterindex.h>
 #include <init.h>
+#include <instantsend/instantsend.h>
 #include <interfaces/chain.h>
 #include <interfaces/coinjoin.h>
 #include <interfaces/handler.h>
 #include <interfaces/wallet.h>
-#include <instantsend/instantsend.h>
+#include <kernel/chain.h>
 #include <llmq/commitment.h>
 #include <llmq/context.h>
 #include <llmq/options.h>
@@ -40,7 +42,6 @@
 #include <netaddress.h>
 #include <netbase.h>
 #include <node/blockstorage.h>
-#include <kernel/chain.h>
 #include <node/coin.h>
 #include <node/context.h>
 #include <node/interface_ui.h>
@@ -99,6 +100,17 @@ using interfaces::MnEntryCPtr;
 using interfaces::MnList;
 using interfaces::MnListPtr;
 using interfaces::Node;
+using interfaces::PreparedProviderRegistration;
+using interfaces::ProviderNetInfo;
+using interfaces::ProviderRegistrationRequest;
+using interfaces::ProviderRevokeRequest;
+using interfaces::ProviderTxCapabilities;
+using interfaces::ProviderTxError;
+using interfaces::ProviderTxResult;
+using interfaces::ProviderTxSubmission;
+using interfaces::ProviderUpdateRegistrarRequest;
+using interfaces::ProviderUpdateServiceRequest;
+using interfaces::Wallet;
 using interfaces::WalletLoader;
 
 namespace node {
@@ -223,6 +235,40 @@ public:
             }
         }
         return {nullptr, nullptr};
+    }
+    ProviderTxCapabilities getProviderTxCapabilities() override { return evo::provider::GetCapabilities(context()); }
+    std::optional<ProviderTxError> validateProviderNetInfo(const ProviderNetInfo& net_info, MnType type,
+                                                           uint16_t version, bool optional) override
+    {
+        return evo::provider::ValidateNetInfo(net_info, type, version, optional);
+    }
+    ProviderTxResult<ProviderTxSubmission> registerMasternode(Wallet& wallet, const ProviderRegistrationRequest& request) override
+    {
+        return evo::provider::Register(context(), wallet, request);
+    }
+    ProviderTxResult<PreparedProviderRegistration> prepareMasternodeRegistration(
+        Wallet& wallet, const ProviderRegistrationRequest& request) override
+    {
+        return evo::provider::PrepareRegistration(context(), wallet, request);
+    }
+    ProviderTxResult<ProviderTxSubmission> submitMasternodeRegistration(
+        Wallet& wallet, const CTransactionRef& tx, const std::vector<unsigned char>& collateral_signature) override
+    {
+        return evo::provider::SubmitRegistration(context(), wallet, tx, collateral_signature);
+    }
+    ProviderTxResult<ProviderTxSubmission> updateMasternodeService(Wallet& wallet,
+                                                                   const ProviderUpdateServiceRequest& request) override
+    {
+        return evo::provider::UpdateService(context(), wallet, request);
+    }
+    ProviderTxResult<ProviderTxSubmission> updateMasternodeRegistrar(Wallet& wallet,
+                                                                     const ProviderUpdateRegistrarRequest& request) override
+    {
+        return evo::provider::UpdateRegistrar(context(), wallet, request);
+    }
+    ProviderTxResult<ProviderTxSubmission> revokeMasternode(Wallet& wallet, const ProviderRevokeRequest& request) override
+    {
+        return evo::provider::Revoke(context(), wallet, request);
     }
     void setContext(NodeContext* context) override
     {
