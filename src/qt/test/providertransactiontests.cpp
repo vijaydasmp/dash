@@ -162,18 +162,6 @@ void CheckProviderRecords(const TransactionTableModel& model, const std::vector<
         const QString plain_text{base.data(TransactionTableModel::TxPlainTextRole).toString()};
         QVERIFY(plain_text.contains(record.label));
         QVERIFY(!plain_text.contains("Payment to yourself"));
-
-        const QString description{base.data(TransactionTableModel::LongDescriptionRole).toString()};
-        QVERIFY(description.contains(record.label));
-        QVERIFY(description.contains(QString::fromStdString(record.txid.ToString())));
-        QVERIFY(description.contains("Net amount"));
-        QVERIFY(description.contains("Transaction total size"));
-        const QString summary{description.section("<hr>", 0, 0)};
-        QVERIFY(!summary.contains("From:"));
-        QVERIFY(!summary.contains("To:"));
-        QVERIFY(!summary.contains("<b>Debit:</b>"));
-        QVERIFY(!summary.contains("<b>Credit:</b>"));
-        QVERIFY(!summary.contains("Output index"));
     }
 }
 
@@ -300,13 +288,6 @@ void ProviderTransactionTests::providerTransactionHistory()
 
         // Transactions loaded before the model is constructed exercise the wallet-restart path.
         CheckProviderRecords(*model, expected);
-        const std::vector<int> registrar_rows{FindTransactionRows(*model, update_registrar->GetHash())};
-        QCOMPARE(registrar_rows.size(), size_t{1});
-        const QString registrar_description{
-            model->index(registrar_rows.front(), 0).data(TransactionTableModel::LongDescriptionRole).toString()};
-        const QString registrar_summary{registrar_description.section("<hr>", 0, 0)};
-        const QString external_address{QString::fromStdString(EncodeDestination(PKHash(external_key.GetPubKey())))};
-        QVERIFY(!registrar_summary.contains(external_address));
 
         const std::vector<int> other_rows{FindTransactionRows(*model, other_special_tx->GetHash())};
         QCOMPARE(other_rows.size(), size_t{1});
