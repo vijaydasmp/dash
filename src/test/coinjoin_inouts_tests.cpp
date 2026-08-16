@@ -189,13 +189,6 @@ public:
         LOCK(cs_coinjoin);
         vecEntries.push_back(std::move(entry));
     }
-
-    bool ValidateInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
-                        const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout,
-                        int session_denom, PoolMessage& message, bool& consume_collateral)
-    {
-        return IsValidInOuts(active_chainstate, isman, mempool, vin, vout, session_denom, message, &consume_collateral);
-    }
 };
 
 static std::unique_ptr<CNode> MakePeer(NodeId id, uint32_t ipv4)
@@ -295,13 +288,18 @@ BOOST_AUTO_TEST_CASE(server_signfinaltx_participant_oversized_count_is_rejected_
     BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
 }
 
-BOOST_AUTO_TEST_CASE(server_validation_uses_session_denom_snapshot)
+//! Re-export the protected static validation helper so it can be called
+//! directly, without standing up a CCoinJoinServer.
+struct InOutsChecker : CCoinJoinBaseSession
 {
-    CActiveMasternodeManager mn_activeman(*Assert(m_node.connman), *Assert(m_node.dmnman), MakeSecretKey());
-    TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
-                                  *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
-                                  *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
-                                  *Assert(m_node.llmq_ctx->isman));
+    using CCoinJoinBaseSession::IsValidInOuts;
+};
+
+BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
+{
+    Chainstate& chainstate{Assert(m_node.chainman)->ActiveChainstate()};
+    const auto& isman{*Assert(m_node.llmq_ctx->isman)};
+    const auto& mempool{*Assert(m_node.mempool)};
 
     const int session_denom{CoinJoin::AmountToDenomination(CoinJoin::GetSmallestDenomination())};
     const std::vector<CTxIn> vin{CTxIn{COutPoint{uint256::ONE, 0}}};
@@ -309,10 +307,21 @@ BOOST_AUTO_TEST_CASE(server_validation_uses_session_denom_snapshot)
     PoolMessage message{MSG_NOERR};
     bool consume_collateral{false};
 
-    BOOST_CHECK(!server.ValidateInOuts(Assert(m_node.chainman)->ActiveChainstate(), *Assert(m_node.llmq_ctx->isman),
-                                       *Assert(m_node.mempool), vin, vout, session_denom, message, consume_collateral));
+    // Outputs matching the captured denomination pass the denom check and fail
+    // only later on the unknown input.
+    BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, session_denom, message,
+                                              &consume_collateral));
     BOOST_CHECK_EQUAL(message, ERR_MISSING_TX);
     BOOST_CHECK(!consume_collateral);
+
+    // A mismatched captured denomination is rejected up front and flags the
+    // entry's collateral for consumption.
+    const int other_denom{CoinJoin::AmountToDenomination(CoinJoin::GetStandardDenominations().front())};
+    BOOST_REQUIRE(other_denom != session_denom);
+    BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, other_denom, message,
+                                              &consume_collateral));
+    BOOST_CHECK_EQUAL(message, ERR_DENOM);
+    BOOST_CHECK(consume_collateral);
 }
 
 BOOST_AUTO_TEST_CASE(entry_deserializes_vectors_through_wire_cap)
