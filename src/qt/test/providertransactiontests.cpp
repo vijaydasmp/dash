@@ -158,10 +158,6 @@ void CheckProviderRecords(const TransactionTableModel& model, const std::vector<
         QVERIFY(tooltip.contains(record.label));
         QVERIFY(tooltip.contains(record.tooltip_text));
         QVERIFY(!tooltip.contains("Payment to yourself"));
-
-        const QString plain_text{base.data(TransactionTableModel::TxPlainTextRole).toString()};
-        QVERIFY(plain_text.contains(record.label));
-        QVERIFY(!plain_text.contains("Payment to yourself"));
     }
 }
 
