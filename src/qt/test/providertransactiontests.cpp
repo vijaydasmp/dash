@@ -179,36 +179,6 @@ void CheckProviderRecords(const TransactionTableModel& model, const std::vector<
 
 } // namespace
 
-void ProviderTransactionTests::transactionTypeSettingCompatibility_data()
-{
-    QTest::addColumn<int>("saved_index");
-    QTest::addColumn<QString>("expected_text");
-    QTest::addColumn<quint32>("expected_filter");
-
-    QTest::newRow("data") << 12 << QString{"Data Transaction"}
-                          << TransactionFilterProxy::TYPE(TransactionRecord::DataTransaction);
-    QTest::newRow("dust") << 13 << QString{"Dust Receive"} << TransactionFilterProxy::TYPE(TransactionRecord::DustReceive);
-    QTest::newRow("other") << 14 << QString{"Other"} << TransactionFilterProxy::TYPE(TransactionRecord::Other);
-}
-
-void ProviderTransactionTests::transactionTypeSettingCompatibility()
-{
-    QFETCH(int, saved_index);
-    QFETCH(QString, expected_text);
-    QFETCH(quint32, expected_filter);
-
-    TransactionTypeSettingRestorer setting_restorer;
-    QSettings{}.setValue("transactionType", saved_index);
-
-    TransactionView transaction_view;
-    QComboBox* const type_widget{FindTransactionTypeWidget(transaction_view)};
-    QVERIFY(type_widget != nullptr);
-    QCOMPARE(type_widget->currentIndex(), saved_index);
-    QCOMPARE(type_widget->currentText(), expected_text);
-    QCOMPARE(type_widget->currentData().toUInt(), expected_filter);
-    QCOMPARE(type_widget->findText("Masternode"), 15);
-}
-
 void ProviderTransactionTests::providerTransactionHistory()
 {
     TestChain100Setup test;

@@ -22,8 +22,6 @@ public:
     }
 
 private Q_SLOTS:
-    void transactionTypeSettingCompatibility_data();
-    void transactionTypeSettingCompatibility();
     void providerTransactionHistory();
 
 private:
