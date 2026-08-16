@@ -22,6 +22,8 @@ public:
     }
 
 private Q_SLOTS:
+    void transactionTypeSettingPersistence_data();
+    void transactionTypeSettingPersistence();
     void providerTransactionHistory();
 
 private:

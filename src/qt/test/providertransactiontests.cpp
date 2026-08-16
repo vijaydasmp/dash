@@ -118,16 +118,16 @@ class TransactionTypeSettingRestorer
 {
 public:
     TransactionTypeSettingRestorer() :
-        m_had_value(m_settings.contains("transactionType")),
-        m_value(m_settings.value("transactionType"))
+        m_had_value(m_settings.contains("transactionTypeFilter")),
+        m_value(m_settings.value("transactionTypeFilter"))
     {
     }
     ~TransactionTypeSettingRestorer()
     {
         if (m_had_value) {
-            m_settings.setValue("transactionType", m_value);
+            m_settings.setValue("transactionTypeFilter", m_value);
         } else {
-            m_settings.remove("transactionType");
+            m_settings.remove("transactionTypeFilter");
         }
     }
 
@@ -178,6 +178,35 @@ void CheckProviderRecords(const TransactionTableModel& model, const std::vector<
 }
 
 } // namespace
+
+void ProviderTransactionTests::transactionTypeSettingPersistence_data()
+{
+    QTest::addColumn<quint32>("saved_filter");
+    QTest::addColumn<QString>("expected_text");
+
+    QTest::newRow("masternode") << (TransactionFilterProxy::TYPE(TransactionRecord::MasternodeRegistration) |
+                                    TransactionFilterProxy::TYPE(TransactionRecord::MasternodeUpdate))
+                                << QString{"Masternode"};
+    QTest::newRow("data") << TransactionFilterProxy::TYPE(TransactionRecord::DataTransaction)
+                          << QString{"Data Transaction"};
+    // An unknown stored filter selects nothing instead of an arbitrary entry.
+    QTest::newRow("unknown") << quint32{0} << QString{};
+}
+
+void ProviderTransactionTests::transactionTypeSettingPersistence()
+{
+    QFETCH(quint32, saved_filter);
+    QFETCH(QString, expected_text);
+
+    TransactionTypeSettingRestorer setting_restorer;
+    QSettings{}.setValue("transactionTypeFilter", saved_filter);
+
+    TransactionView transaction_view;
+    QComboBox* const type_widget{FindTransactionTypeWidget(transaction_view)};
+    QVERIFY(type_widget != nullptr);
+    QCOMPARE(type_widget->currentText(), expected_text);
+    QCOMPARE(type_widget->currentData().toUInt(), saved_filter);
+}
 
 void ProviderTransactionTests::providerTransactionHistory()
 {
@@ -339,6 +368,7 @@ void ProviderTransactionTests::providerTransactionHistory()
 
             type_widget->setCurrentIndex(masternode_row);
             transaction_view.chooseType(masternode_row);
+            QCOMPARE(QSettings{}.value("transactionTypeFilter").toUInt(), masternode_filter);
             QTableView* const table{transaction_view.findChild<QTableView*>("transactionView")};
             QVERIFY(table != nullptr);
             QCOMPARE(table->model()->rowCount(), static_cast<int>(expected.size()));
