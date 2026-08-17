@@ -18,14 +18,6 @@
 
 class CSimplifiedMNListEntry;
 
-/** Process setting (legacy) Core network information field based on ProTx version */
-template <typename ProTx>
-void ProcessNetInfoCore(ProTx& ptx, const UniValue& input, const bool optional);
-
-/** Process setting (legacy) Platform network information fields based on ProTx version */
-template <typename ProTx>
-void ProcessNetInfoPlatform(ProTx& ptx, const UniValue& input_p2p, const UniValue& input_http, const bool optional);
-
 /** Reads network info reporting and appends data from legacy fields if applicable */
 template <typename Obj>
 UniValue GetNetInfoWithLegacyFields(const Obj& obj, const MnType& type)

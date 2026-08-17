@@ -58,6 +58,12 @@ template<class T>
 [[nodiscard]] std::string PayoutListToString(const MasternodePayoutShares& payouts);
 [[nodiscard]] UniValue PayoutListToJson(const MasternodePayoutShares& payouts);
 
+/** Validate all provider network fields using the same rules as special transaction validation.
+ *  Pass nullptr for platform_node_id when validating endpoint input separately from the rest of a payload. */
+[[nodiscard]] bool CheckProviderNetworkFields(const std::shared_ptr<NetInfoInterface>& net_info, MnType type,
+                                              uint16_t version, const uint160* platform_node_id, uint16_t platform_p2p_port,
+                                              uint16_t platform_http_port, bool allow_empty, TxValidationState& state);
+
 class CProRegTx
 {
 public:

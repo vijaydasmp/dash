@@ -232,6 +232,7 @@ BITCOIN_CORE_H = \
   evo/mnhftx.h \
   evo/netinfo.h \
   evo/providertx.h \
+  evo/providertx_service.h \
   evo/simplifiedmns.h \
   evo/smldiff.h \
   evo/specialtx.h \
@@ -281,6 +282,7 @@ BITCOIN_CORE_H = \
   interfaces/init.h \
   interfaces/ipc.h \
   interfaces/node.h \
+  interfaces/providertx.h \
   interfaces/wallet.h \
   kernel/blockmanager_opts.h \
   kernel/chain.h \
@@ -539,6 +541,7 @@ libbitcoin_node_a_SOURCES = \
   evo/mnauth.cpp \
   evo/mnhftx.cpp \
   evo/providertx.cpp \
+  evo/providertx_service.cpp \
   evo/simplifiedmns.cpp \
   evo/smldiff.cpp \
   evo/specialtx.cpp \
