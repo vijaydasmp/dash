@@ -447,6 +447,53 @@ BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_seed, FriendshipWalletS
     BOOST_CHECK(!iface->getPlatformSeedId());
 }
 
+//! A stored mnemonic that is nonempty but fails BIP39 validation — what a
+//! corrupted wallet record deserializes to — must not become a platform seed
+//! candidate: ToSeed() hashes any string, so accepting it would silently
+//! derive an unrelated Platform key universe.
+BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_seed, FriendshipWalletSetup)
+{
+    const SecureString bad_mnemonic{
+        "birth kingdom trash renew flavor utility donkey gasp regular alert pave kingdom"};
+    BOOST_REQUIRE(!CMnemonic::Check(bad_mnemonic));
+
+    auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
+                                            CreateMockWalletDatabase());
+    wallet->LoadWallet();
+
+    // The master key a corrupt record would pair with: derived from the very
+    // string that fails validation (AddKey() asserts the pairing).
+    SecureVector seed;
+    CMnemonic::ToSeed(bad_mnemonic, "", seed);
+    CExtKey master;
+    master.SetSeed(MakeByteSpan(seed));
+
+    FlatSigningProvider provider;
+    std::string error;
+    auto parsed = Parse("pkh(" + EncodeExtKey(master) + "/*)", provider, error, /*require_checksum=*/false);
+    BOOST_REQUIRE_MESSAGE(parsed, error);
+    WalletDescriptor descriptor(std::move(parsed), /*creation_time=*/0, /*range_start=*/0,
+                                /*range_end=*/10, /*next_index=*/0);
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+        auto* spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(
+            wallet->AddWalletDescriptor(descriptor, provider, "", /*internal=*/false));
+        BOOST_REQUIRE(spk_man);
+        BOOST_REQUIRE(spk_man->AddKey(master.key.GetPubKey().GetID(), master.key, bad_mnemonic, ""));
+        wallet->AddActiveScriptPubKeyMan(spk_man->GetID(), /*internal=*/false);
+    }
+
+    auto iface = interfaces::MakeWallet(m_context, wallet);
+    BOOST_CHECK(!iface->getPlatformSeedId());
+
+    // The same path with a valid mnemonic still serves the expected seed.
+    const auto valid{MakeSeededWallet(SecureString{DIP14_MNEMONIC})};
+    const auto seed_id{valid.second->getPlatformSeedId()};
+    BOOST_REQUIRE(seed_id);
+    BOOST_CHECK(*seed_id == SeedFingerprint(Dip14Seed()));
+}
+
 //! Two independent wallet instances restored from the same recovery phrase:
 //! the second is what a seed-only restore produces (fresh wallet database, no
 //! platform records). Everything DashPay derives from the seed must come out

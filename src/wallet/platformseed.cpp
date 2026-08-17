@@ -49,6 +49,10 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
             // ToSeed("") would yield the publicly reproducible empty-mnemonic
             // seed rather than a wallet secret.
             if (mnemonic.empty()) continue;
+            // ToSeed() hashes any string, so a corrupt stored mnemonic would
+            // silently derive an unrelated Platform key universe; only a
+            // phrase that passes BIP39 validation may become a candidate.
+            if (!CMnemonic::Check(mnemonic)) continue;
             SecureVector seed;
             CMnemonic::ToSeed(mnemonic, mnemonic_passphrase, seed);
             if (seed.empty()) continue;
