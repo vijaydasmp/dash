@@ -6490,15 +6490,21 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
 
                     int nInvType = MSG_TX;
+                    // A DSTX this peer can't accept is withheld, but its islock inv is still
+                    // relayed below - on develop that islock inv was always delivered here, so
+                    // gating the DSTX must not also suppress it.
+                    bool fWithholdTx{false};
                     if (const auto dstx = m_dstxman.GetDSTX(hash); dstx) {
                         if (!CanAnnounceDstxTo(dstx, pto->GetCommonVersion())) {
-                            tx_relay->m_tx_inventory_known_filter.insert(hash);
-                            continue;
+                            fWithholdTx = true;
+                        } else {
+                            nInvType = MSG_DSTX;
                         }
-                        nInvType = MSG_DSTX;
                     }
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
-                    queueAndMaybePushInv(CInv(nInvType, hash));
+                    if (!fWithholdTx) {
+                        queueAndMaybePushInv(CInv(nInvType, hash));
+                    }
 
                     const auto islock = m_llmq_ctx->isman->GetInstantSendLockByTxid(hash);
                     if (islock == nullptr) continue;
