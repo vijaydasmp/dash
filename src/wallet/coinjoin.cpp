@@ -343,7 +343,7 @@ int CWallet::GetRealOutpointCoinJoinRounds(const COutPoint& outpoint, int nRound
             // (concurrent sessions never share a masternode), so all of its inputs in one
             // tx share a single denomination.
             const CWalletTx* wtxPrev{GetWalletTx(txinNext.prevout.hash)};
-            if (wtxPrev != nullptr && txinNext.prevout.n < wtxPrev->tx->vout.size() &&
+            if (wtxPrev != nullptr && wtxPrev->tx != nullptr && txinNext.prevout.n < wtxPrev->tx->vout.size() &&
                 CoinJoin::AmountToDenomination(wtxPrev->tx->vout[txinNext.prevout.n].nValue) != nOutputDenom) {
                 *nRoundsRef = 0;
                 WalletCJLogPrint(this, "%s UPDATED   %-70s %3d (rebalance output)\n", __func__, outpoint.ToStringShort(), *nRoundsRef);
