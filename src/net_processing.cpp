@@ -3521,10 +3521,14 @@ enum class DSTXValidationScore : int {
 //! Whether a DSTX may be announced to a peer at the given negotiated protocol version.
 //! Post-V24 promotion/demotion DSTXes are unbalanced and thus structurally invalid to peers
 //! below COINJOIN_REBALANCE_VERSION - they would drop the transaction and penalize us for
-//! relaying it. Such peers see the transaction on block inclusion instead.
+//! relaying it. Pre-COINJOIN_REBALANCE_VERSION peers also enforce a smaller structural size
+//! cap (GetMaxPoolInputOutputCount), so a balanced-but-oversized final transaction is likewise
+//! invalid to them. Such peers see the transaction on block inclusion instead.
 static bool CanAnnounceDstxTo(const CCoinJoinBroadcastTx& dstx, int peer_version)
 {
-    return dstx.tx->vin.size() == dstx.tx->vout.size() || peer_version >= COINJOIN_REBALANCE_VERSION;
+    return (dstx.tx->vin.size() == dstx.tx->vout.size() &&
+            dstx.tx->vin.size() <= CoinJoin::GetMaxPoolInputOutputCount()) ||
+           peer_version >= COINJOIN_REBALANCE_VERSION;
 }
 
 // do_return signals the caller to stop further processing of the DSTX.
