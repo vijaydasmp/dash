@@ -20,6 +20,7 @@
 #include <uint256.h>
 #include <util/check.h>
 #include <util/time.h>
+#include <validation.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -285,6 +286,42 @@ BOOST_AUTO_TEST_CASE(server_signfinaltx_participant_oversized_count_is_rejected_
                       std::ios_base::failure);
     BOOST_CHECK_EQUAL(server.GetState(), int{POOL_STATE_SIGNING});
     BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
+}
+
+//! Re-export the protected static validation helper so it can be called
+//! directly, without standing up a CCoinJoinServer.
+struct InOutsChecker : CCoinJoinBaseSession
+{
+    using CCoinJoinBaseSession::IsValidInOuts;
+};
+
+BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
+{
+    Chainstate& chainstate{Assert(m_node.chainman)->ActiveChainstate()};
+    const auto& isman{*Assert(m_node.llmq_ctx->isman)};
+    const auto& mempool{*Assert(m_node.mempool)};
+
+    const int session_denom{CoinJoin::AmountToDenomination(CoinJoin::GetSmallestDenomination())};
+    const std::vector<CTxIn> vin{CTxIn{COutPoint{uint256::ONE, 0}}};
+    const std::vector<CTxOut> vout{CTxOut{CoinJoin::GetSmallestDenomination(), P2PKHScript()}};
+    PoolMessage message{MSG_NOERR};
+    bool consume_collateral{false};
+
+    // Outputs matching the captured denomination pass the denom check and fail
+    // only later on the unknown input.
+    BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, session_denom, message,
+                                              &consume_collateral));
+    BOOST_CHECK_EQUAL(message, ERR_MISSING_TX);
+    BOOST_CHECK(!consume_collateral);
+
+    // A mismatched captured denomination is rejected up front and flags the
+    // entry's collateral for consumption.
+    const int other_denom{CoinJoin::AmountToDenomination(CoinJoin::GetStandardDenominations().front())};
+    BOOST_REQUIRE(other_denom != session_denom);
+    BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, other_denom, message,
+                                              &consume_collateral));
+    BOOST_CHECK_EQUAL(message, ERR_DENOM);
+    BOOST_CHECK(consume_collateral);
 }
 
 BOOST_AUTO_TEST_CASE(entry_deserializes_vectors_through_wire_cap)
