@@ -59,7 +59,7 @@ protected:
     // session creation from the creator's protocol version; only peers at or above
     // COINJOIN_REBALANCE_VERSION are allowed into such a session, so clients that cannot
     // validate an unbalanced final transaction never end up having to refuse to sign one.
-    bool m_fRebalanceSession{false};
+    bool m_fRebalanceSession GUARDED_BY(cs_coinjoin){false};
     // The mixing direction each accepted participant declared in its dsa, keyed by collateral
     // hash. Tells us which side of the session denomination a participant will occupy before
     // its entry arrives, and entitles it (and only it) to submit an entry of that shape.
