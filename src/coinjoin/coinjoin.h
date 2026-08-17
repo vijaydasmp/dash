@@ -60,7 +60,7 @@ int GetMinPoolParticipants();
 int GetMaxPoolParticipants();
 
 /// Maximum number of inputs or outputs across a full pool
-inline size_t GetMaxPoolInputOutputCount() { return size_t(GetMaxPoolParticipants()) * COINJOIN_ENTRY_MAX_SIZE; }
+inline size_t GetMaxPoolInputOutputCount() { return static_cast<size_t>(GetMaxPoolParticipants()) * COINJOIN_ENTRY_MAX_SIZE; }
 } // namespace CoinJoin
 
 // pool responses

@@ -469,7 +469,7 @@ float CWallet::GetAverageAnonymizedRounds() const
 
     if (nCount == 0) return 0;
 
-    return (float)nTotal / nCount;
+    return static_cast<float>(nTotal) / nCount;
 }
 
 // Note: calculated including unconfirmed,

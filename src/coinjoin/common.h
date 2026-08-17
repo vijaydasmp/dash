@@ -121,7 +121,7 @@ constexpr int CalculateAmountPriority(CAmount nInputAmount)
     if (nInputAmount < 0 || nInputAmount > MAX_MONEY) return 0;
     if (auto optDenom = util::find_if_opt(GetStandardDenominations(),
                                           [&nInputAmount](const auto& denom) { return nInputAmount == denom; })) {
-        return (float)COIN / *optDenom * 10000;
+        return static_cast<float>(COIN) / *optDenom * 10000;
     }
     if (nInputAmount < COIN) {
         return 20000;

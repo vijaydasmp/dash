@@ -1106,11 +1106,11 @@ bool CCoinJoinClientManager::DoAutomaticDenominating(ChainstateManager& chainman
     int nThreshold_low = nThreshold_high * 0.7;
     size_t used_count{m_mn_metaman.GetUsedMasternodesCount()};
 
-    WalletCJLogPrint(m_wallet, "Checking threshold - used: %d, threshold: %d\n", (int)used_count, nThreshold_high);
+    WalletCJLogPrint(m_wallet, "Checking threshold - used: %d, threshold: %d\n", static_cast<int>(used_count), nThreshold_high);
 
-    if ((int)used_count > nThreshold_high) {
+    if (static_cast<int>(used_count) > nThreshold_high) {
         m_mn_metaman.RemoveUsedMasternodes(used_count - nThreshold_low);
-        WalletCJLogPrint(m_wallet, "  new used: %d, threshold: %d\n", (int)m_mn_metaman.GetUsedMasternodesCount(),
+        WalletCJLogPrint(m_wallet, "  new used: %d, threshold: %d\n", static_cast<int>(m_mn_metaman.GetUsedMasternodesCount()),
                          nThreshold_high);
     }
 
@@ -1792,7 +1792,7 @@ bool CCoinJoinClientSession::CreateDenominated(CAmount nBalanceToDenominate, con
                     if (fAddFinal && nBalanceToDenominate > 0 && nBalanceToDenominate < nDenomValue) {
                         fAddFinal = false; // add final denom only once, only the smalest possible one
                         WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 1 - FINAL - nDenomValue: %f, nBalanceToDenominate: %f, nOutputs: %d, %s\n",
-                                                     strFunc, (float) nDenomValue / COIN, (float) nBalanceToDenominate / COIN, nOutputs, txBuilder.ToString());
+                                                     strFunc, static_cast<float>(nDenomValue) / COIN, static_cast<float>(nBalanceToDenominate) / COIN, nOutputs, txBuilder.ToString());
                         return true;
                     } else if (nBalanceToDenominate >= nDenomValue) {
                         return true;
@@ -1809,10 +1809,10 @@ bool CCoinJoinClientSession::CreateDenominated(CAmount nBalanceToDenominate, con
                     ++currentDenomIt->second;
                     nBalanceToDenominate -= nDenomValue;
                     WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 1 - nDenomValue: %f, nBalanceToDenominate: %f, nOutputs: %d, %s\n",
-                                                 __func__, (float) nDenomValue / COIN, (float) nBalanceToDenominate / COIN, nOutputs, txBuilder.ToString());
+                                                 __func__, static_cast<float>(nDenomValue) / COIN, static_cast<float>(nBalanceToDenominate) / COIN, nOutputs, txBuilder.ToString());
                 } else {
                     WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 1 - Error: AddOutput failed for nDenomValue: %f, nBalanceToDenominate: %f, nOutputs: %d, %s\n",
-                                                 __func__, (float) nDenomValue / COIN, (float) nBalanceToDenominate / COIN, nOutputs, txBuilder.ToString());
+                                                 __func__, static_cast<float>(nDenomValue) / COIN, static_cast<float>(nBalanceToDenominate) / COIN, nOutputs, txBuilder.ToString());
                     return false;
                 }
 
@@ -1828,11 +1828,11 @@ bool CCoinJoinClientSession::CreateDenominated(CAmount nBalanceToDenominate, con
             if (count < CCoinJoinClientOptions::GetDenomsGoal() && txBuilder.CouldAddOutput(denom) && nBalanceToDenominate > 0) {
                 finished = false;
                 WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 1 - NOT finished - nDenomValue: %f, count: %d, nBalanceToDenominate: %f, %s\n",
-                                             __func__, (float) denom / COIN, count, (float) nBalanceToDenominate / COIN, txBuilder.ToString());
+                                             __func__, static_cast<float>(denom) / COIN, count, static_cast<float>(nBalanceToDenominate) / COIN, txBuilder.ToString());
                 break;
             }
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 1 - FINISHED - nDenomValue: %f, count: %d, nBalanceToDenominate: %f, %s\n",
-                                         __func__, (float) denom / COIN, count, (float) nBalanceToDenominate / COIN, txBuilder.ToString());
+                                         __func__, static_cast<float>(denom) / COIN, count, static_cast<float>(nBalanceToDenominate) / COIN, txBuilder.ToString());
         }
 
         if (finished) break;
@@ -1877,7 +1877,7 @@ bool CCoinJoinClientSession::CreateDenominated(CAmount nBalanceToDenominate, con
             // Use the smaller value
             int denomsToCreate = denomsToCreateValue > denomsToCreateBal ? denomsToCreateBal : denomsToCreateValue;
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 2 - nBalanceToDenominate: %f, nDenomValue: %f, denomsToCreateValue: %d, denomsToCreateBal: %d\n",
-                                         __func__, (float) nBalanceToDenominate / COIN, (float) nDenomValue / COIN, denomsToCreateValue, denomsToCreateBal);
+                                         __func__, static_cast<float>(nBalanceToDenominate) / COIN, static_cast<float>(nDenomValue) / COIN, denomsToCreateValue, denomsToCreateBal);
             auto it = mapDenomCount.find(nDenomValue);
             for (const auto i : util::irange(denomsToCreate)) {
                 // Never go above the cap unless it's the largest denom
@@ -1893,17 +1893,17 @@ bool CCoinJoinClientSession::CreateDenominated(CAmount nBalanceToDenominate, con
                     break;
                 }
                 WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 2 - nDenomValue: %f, nBalanceToDenominate: %f, nOutputs: %d, %s\n",
-                                             __func__, (float) nDenomValue / COIN, (float) nBalanceToDenominate / COIN, nOutputs, txBuilder.ToString());
+                                             __func__, static_cast<float>(nDenomValue) / COIN, static_cast<float>(nBalanceToDenominate) / COIN, nOutputs, txBuilder.ToString());
                 if (txBuilder.CountOutputs() >= COINJOIN_DENOM_OUTPUTS_THRESHOLD) break;
             }
             if (txBuilder.CountOutputs() >= COINJOIN_DENOM_OUTPUTS_THRESHOLD) break;
         }
     }
 
-    WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 3 - nBalanceToDenominate: %f, %s\n", __func__, (float) nBalanceToDenominate / COIN, txBuilder.ToString());
+    WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 3 - nBalanceToDenominate: %f, %s\n", __func__, static_cast<float>(nBalanceToDenominate) / COIN, txBuilder.ToString());
 
     for (const auto& [denom, count] : mapDenomCount) {
-        WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 3 - DONE - nDenomValue: %f, count: %d\n", __func__, (float) denom / COIN, count);
+        WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- 3 - DONE - nDenomValue: %f, count: %d\n", __func__, static_cast<float>(denom) / COIN, count);
     }
 
     // No reasons to create mixing collaterals if we can't create denoms to mix

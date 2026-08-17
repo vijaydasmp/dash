@@ -329,7 +329,7 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
     const bool is_v24_deployed{DeploymentActiveAfter(pindexPrev, m_chainman, Consensus::DEPLOYMENT_V24)};
 
     // we skip the coinbase
-    for (int i = 1; i < (int)block.vtx.size(); i++) {
+    for (int i = 1; i < static_cast<int>(block.vtx.size()); i++) {
         const CTransaction& tx = *block.vtx[i];
 
         if (!tx.IsSpecialTxVersion()) {
@@ -634,7 +634,7 @@ bool CSpecialTxProcessor::RebuildListFromBlock(const CBlock& block, gsl::not_nul
     }
 
     // we skip the coinbase
-    for (int i = 1; i < (int)block.vtx.size(); i++) {
+    for (int i = 1; i < static_cast<int>(block.vtx.size()); i++) {
         const CTransaction& tx = *block.vtx[i];
 
         // check if any existing MN collateral is spent by this transaction

@@ -250,7 +250,7 @@ std::string CProRegTx::ToString() const
     return strprintf("CProRegTx(nVersion=%d, nType=%d, collateralOutpoint=%s, netInfo=%s, nOperatorReward=%f, "
                      "ownerAddress=%s, pubKeyOperator=%s, votingAddress=%s, scriptPayout=%s, platformNodeID=%s%s)\n",
                      nVersion, std23::to_underlying(nType), collateralOutpoint.ToStringShort(), netInfo->ToString(),
-                     (double)nOperatorReward / 100, EncodeDestination(PKHash(keyIDOwner)), pubKeyOperator.ToString(),
+                     static_cast<double>(nOperatorReward) / 100, EncodeDestination(PKHash(keyIDOwner)), pubKeyOperator.ToString(),
                      EncodeDestination(PKHash(keyIDVoting)), payee, platformNodeID.ToString(),
                      (nVersion >= ProTxVersion::ExtAddr
                           ? ""

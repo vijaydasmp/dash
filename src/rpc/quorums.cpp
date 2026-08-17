@@ -487,7 +487,7 @@ static RPCHelpMan quorum_memberof()
         CHECK_NONFATAL(llmq_params_opt.has_value());
         size_t count = llmq_params_opt->signingActiveQuorumCount;
         if (scanQuorumsCount != -1) {
-            count = (size_t)scanQuorumsCount;
+            count = static_cast<size_t>(scanQuorumsCount);
         }
         auto quorums = llmq_ctx.qman->ScanQuorums(llmq_params_opt->type, count);
         for (auto& quorum : quorums) {
