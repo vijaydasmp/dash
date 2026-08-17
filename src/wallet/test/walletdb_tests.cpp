@@ -96,9 +96,9 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
     BOOST_CHECK(m_wallet.GetPlatformData("platform/loaded").at("platform/loaded") == value_a);
 
     // A truncated value must fail the read and identify PLATFORM_DATA as the
-    // failing type: LoadWallet() treats that as corruption instead of loading
-    // the wallet without the record, which could silently unpin the platform
-    // seed in a multi-seed wallet.
+    // failing type so LoadWallet() can classify the damage (fatal for the
+    // reserved seed pin, noncritical for other Platform records; see
+    // walletdb_platform_data_corruption_policy below).
     CDataStream ssGood(SER_DISK, CLIENT_VERSION);
     ssGood << value_a;
     CDataStream ssBadKey(SER_DISK, CLIENT_VERSION);
@@ -110,6 +110,45 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
     BOOST_CHECK(!ReadKeyValue(&m_wallet, ssBadKey, ssBadValue, strType, strErr));
     BOOST_CHECK_EQUAL(strType, DBKeys::PLATFORM_DATA);
     BOOST_CHECK(m_wallet.GetPlatformData("platform/corrupt").empty());
+}
+
+//! Load a wallet whose database holds a PLATFORM_DATA record under
+//! `record_key` with a truncated value (claims five bytes, carries none),
+//! next to an intact record, and report the load result and the Platform
+//! data that made it into the wallet.
+static DBErrors LoadWithCorruptPlatformRecord(const node::NodeContext& node, const ArgsManager& args,
+                                              const std::string& record_key,
+                                              std::map<std::string, std::vector<unsigned char>>& platform_data_out)
+{
+    CWallet wallet(node.chain.get(), node.coinjoin_loader.get(), "", args, CreateMockWalletDatabase());
+    const std::vector<unsigned char> truncated{0x05};
+    const std::vector<unsigned char> intact_value{0x01, 0x02};
+    {
+        const std::unique_ptr<DatabaseBatch> batch{wallet.GetDatabase().MakeBatch()};
+        BOOST_REQUIRE(batch->Write(std::make_pair(DBKeys::PLATFORM_DATA, record_key), Span{truncated}));
+        BOOST_REQUIRE(batch->Write(std::make_pair(DBKeys::PLATFORM_DATA, std::string{"platform/intact"}), intact_value));
+    }
+    const DBErrors result{WalletBatch(wallet.GetDatabase()).LoadWallet(&wallet)};
+    platform_data_out = WITH_LOCK(wallet.cs_wallet, return wallet.GetPlatformData(""));
+    return result;
+}
+
+BOOST_AUTO_TEST_CASE(walletdb_platform_data_corruption_policy)
+{
+    // A damaged reserved seed-pin record must fail the load: silently
+    // dropping it could unpin the Platform seed and let a multi-seed wallet
+    // sign under another identity.
+    std::map<std::string, std::vector<unsigned char>> platform_data;
+    BOOST_CHECK(LoadWithCorruptPlatformRecord(m_node, m_args, "platform/seed-id", platform_data) ==
+                DBErrors::CORRUPT);
+
+    // Any other Platform record is opaque cache/metadata: damage there is
+    // noncritical, the wallet still loads, and intact records survive.
+    platform_data.clear();
+    BOOST_CHECK(LoadWithCorruptPlatformRecord(m_node, m_args, "platform/identity/0", platform_data) ==
+                DBErrors::NONCRITICAL_ERROR);
+    BOOST_CHECK_EQUAL(platform_data.count("platform/identity/0"), 0U);
+    BOOST_CHECK(platform_data.at("platform/intact") == std::vector<unsigned char>({0x01, 0x02}));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

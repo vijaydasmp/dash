@@ -9,6 +9,7 @@
 #include <wallet/platformkeys.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
+#include <wallet/walletdb.h>
 
 #include <algorithm>
 #include <array>
@@ -26,8 +27,8 @@ bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out)
     if (wallet.IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
         std::optional<std::array<uint8_t, 8>> preferred_id;
         {
-            const auto records{wallet.GetPlatformData("platform/seed-id")};
-            const auto it{records.find("platform/seed-id")};
+            const auto records{wallet.GetPlatformData(PLATFORM_SEED_ID_RECORD)};
+            const auto it{records.find(PLATFORM_SEED_ID_RECORD)};
             if (it != records.end()) {
                 // A malformed pin fails closed like an unmatched one:
                 // treating it as "no pin" could resume signing, ECDH and

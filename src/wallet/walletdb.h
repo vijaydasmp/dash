@@ -104,6 +104,13 @@ extern const std::string WATCHS;
 extern const std::unordered_set<std::string> LEGACY_TYPES;
 } // namespace DBKeys
 
+//! Reserved key of the PLATFORM_DATA record pinning the SeedFingerprint of the
+//! seed the wallet's platform data was created from. Losing or damaging this
+//! record must be treated as wallet corruption: silently dropping it could
+//! unpin the Platform seed and let a multi-seed wallet sign under another
+//! identity.
+inline constexpr char PLATFORM_SEED_ID_RECORD[]{"platform/seed-id"};
+
 class CKeyMetadata
 {
 public:
