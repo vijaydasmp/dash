@@ -6,14 +6,12 @@
 #include <chainparams.h>
 #include <consensus/validation.h>
 #include <core_io.h>
-#include <deploymentstatus.h>
 #include <evo/chainhelper.h>
 #include <evo/deterministicmns.h>
 #include <evo/dmn_types.h>
 #include <evo/providertx.h>
 #include <evo/providertx_service.h>
 #include <evo/smldiff.h>
-#include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 #include <index/txindex.h>
 #include <interfaces/wallet.h>

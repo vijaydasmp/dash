@@ -16,20 +16,20 @@
 #include <key_io.h>
 #include <node/blockstorage.h>
 #include <policy/policy.h>
+#include <policy/settings.h>
 #include <rpc/rawtransaction_util.h>
 #include <rpc/server.h>
 #include <test/util/logging.h>
 #include <test/util/setup_common.h>
 #include <util/translation.h>
-#include <policy/settings.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/context.h>
 #include <wallet/receive.h>
 #include <wallet/spend.h>
 #include <wallet/test/util.h>
-#include <wallet/walletdb.h>
 #include <wallet/test/wallet_test_fixture.h>
+#include <wallet/walletdb.h>
 
 #include <boost/test/unit_test.hpp>
 #include <univalue.h>
@@ -51,52 +51,53 @@ extern RPCHelpMan addmultisigaddress();
 static_assert(DEFAULT_TRANSACTION_MINFEE >= DEFAULT_MIN_RELAY_TX_FEE, "wallet minimum fee is smaller than default relay fee");
 
 namespace {
-//! Database whose writes can be toggled to fail, to prove that a failed
-//! persistent coin-lock acquisition leaves the caller owning no lock.
-class ToggleFailBatch final : public DatabaseBatch
+/** RAII class that provides access to a FailDatabase. Which fails if needed. */
+class FailBatch : public DatabaseBatch
 {
 private:
-    bool& m_write_success;
-    bool ReadKey(CDataStream&&, CDataStream&) override { return false; }
-    bool WriteKey(CDataStream&&, CDataStream&&, bool) override { return m_write_success; }
-    bool EraseKey(CDataStream&&) override { return m_write_success; }
-    bool HasKey(CDataStream&&) override { return false; }
-    bool ErasePrefix(Span<const std::byte>) override { return m_write_success; }
+    bool m_pass{true};
+    bool ReadKey(CDataStream&&, CDataStream&) override { return m_pass; }
+    bool WriteKey(CDataStream&&, CDataStream&&, bool) override { return m_pass; }
+    bool EraseKey(CDataStream&&) override { return m_pass; }
+    bool HasKey(CDataStream&&) override { return m_pass; }
+    bool ErasePrefix(Span<const std::byte>) override { return m_pass; }
 
 public:
-    explicit ToggleFailBatch(bool& write_success) : m_write_success(write_success) {}
+    explicit FailBatch(bool pass) : m_pass(pass) {}
     void Flush() override {}
     void Close() override {}
+
     bool StartCursor() override { return true; }
     bool ReadAtCursor(CDataStream&, CDataStream&, bool& complete) override
     {
         complete = true;
-        return true;
+        return m_pass;
     }
     void CloseCursor() override {}
-    bool TxnBegin() override { return true; }
-    bool TxnCommit() override { return true; }
-    bool TxnAbort() override { return true; }
+    bool TxnBegin() override { return m_pass; }
+    bool TxnCommit() override { return m_pass; }
+    bool TxnAbort() override { return m_pass; }
 };
 
-class ToggleFailDatabase final : public WalletDatabase
+/** A dummy WalletDatabase that does nothing, only fails if needed.**/
+class FailDatabase : public WalletDatabase
 {
 public:
-    bool write_success{true};
+    bool m_pass{true}; // false when this db should fail
 
     void Open() override {}
     void AddRef() override {}
     void RemoveRef() override {}
-    bool Rewrite(const char*) override { return true; }
+    bool Rewrite(const char* = nullptr) override { return true; }
     bool Backup(const std::string&) const override { return true; }
-    void Flush() override {}
     void Close() override {}
+    void Flush() override {}
     bool PeriodicFlush() override { return true; }
     void IncrementUpdateCounter() override { ++nUpdateCounter; }
     void ReloadDbEnv() override {}
-    std::string Filename() override { return "toggle-fail"; }
-    std::string Format() override { return "toggle-fail"; }
-    std::unique_ptr<DatabaseBatch> MakeBatch(bool) override { return std::make_unique<ToggleFailBatch>(write_success); }
+    std::string Filename() override { return "faildb"; }
+    std::string Format() override { return "faildb"; }
+    std::unique_ptr<DatabaseBatch> MakeBatch(bool = true) override { return std::make_unique<FailBatch>(m_pass); }
 };
 } // namespace
 
@@ -118,7 +119,7 @@ BOOST_AUTO_TEST_CASE(interface_coin_lock_ownership)
 
 BOOST_AUTO_TEST_CASE(interface_coin_lock_failed_persist)
 {
-    auto database{std::make_unique<ToggleFailDatabase>()};
+    auto database{std::make_unique<FailDatabase>()};
     auto* database_ptr{database.get()};
     auto wallet{std::make_shared<CWallet>(m_node.chain.get(), m_coinjoin_loader.get(), "", m_args,
                                           std::move(database))};
@@ -128,12 +129,12 @@ BOOST_AUTO_TEST_CASE(interface_coin_lock_failed_persist)
 
     // FAILED must mean no lock was acquired: the in-memory insertion is rolled
     // back when the persistent write fails.
-    database_ptr->write_success = false;
+    database_ptr->m_pass = false;
     BOOST_CHECK(wallet_interface->acquireCoinLock(outpoint, /*write_to_db=*/true) ==
                 interfaces::CoinLockResult::FAILED);
     BOOST_CHECK(!wallet_interface->isLockedCoin(outpoint));
 
-    database_ptr->write_success = true;
+    database_ptr->m_pass = true;
     BOOST_CHECK(wallet_interface->acquireCoinLock(outpoint, /*write_to_db=*/true) ==
                 interfaces::CoinLockResult::ACQUIRED);
     BOOST_CHECK(wallet_interface->isLockedCoin(outpoint));
@@ -1619,50 +1620,7 @@ BOOST_FIXTURE_TEST_CASE(select_coins_grouped_by_addresses, ListCoinsTestingSetup
     BOOST_CHECK_EQUAL(GetAvailableBalance(*wallet), (500 + 499) * COIN);
 }
 
-/** RAII class that provides access to a FailDatabase. Which fails if needed. */
-class FailBatch : public DatabaseBatch
-{
-private:
-    bool m_pass{true};
-    bool ReadKey(CDataStream&& key, CDataStream& value) override { return m_pass; }
-    bool WriteKey(CDataStream&& key, CDataStream&& value, bool overwrite=true) override { return m_pass; }
-    bool EraseKey(CDataStream&& key) override { return m_pass; }
-    bool HasKey(CDataStream&& key) override { return m_pass; }
-    bool ErasePrefix(Span<const std::byte> prefix) override { return m_pass; }
 
-public:
-    explicit FailBatch(bool pass) : m_pass(pass) {}
-    void Flush() override {}
-    void Close() override {}
-
-    bool StartCursor() override { return true; }
-    bool ReadAtCursor(CDataStream& ssKey, CDataStream& ssValue, bool& complete) override { return false; }
-    void CloseCursor() override {}
-    bool TxnBegin() override { return false; }
-    bool TxnCommit() override { return false; }
-    bool TxnAbort() override { return false; }
-};
-
-/** A dummy WalletDatabase that does nothing, only fails if needed.**/
-class FailDatabase : public WalletDatabase
-{
-public:
-    bool m_pass{true}; // false when this db should fail
-
-    void Open() override {};
-    void AddRef() override {}
-    void RemoveRef() override {}
-    bool Rewrite(const char* pszSkip=nullptr) override { return true; }
-    bool Backup(const std::string& strDest) const override { return true; }
-    void Close() override {}
-    void Flush() override {}
-    bool PeriodicFlush() override { return true; }
-    void IncrementUpdateCounter() override { ++nUpdateCounter; }
-    void ReloadDbEnv() override {}
-    std::string Filename() override { return "faildb"; }
-    std::string Format() override { return "faildb"; }
-    std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) override { return std::make_unique<FailBatch>(m_pass); }
-};
 
 /**
  * Checks a wallet invalid state where the inputs (prev-txs) of a new arriving transaction are not marked dirty,
