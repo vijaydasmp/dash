@@ -1403,7 +1403,7 @@ bool CCoinJoinClientSession::JoinExistingQueue(CAmount nBalanceNeedsAnonymized, 
 
     // Look through the queues and see if anything matches
     CCoinJoinQueue dsq;
-    while (m_clientman.GetQueueItemAndTry(dsq)) {
+    while (m_clientman.GetQueueItemAndTry(dsq, fRebalance ? nTargetDenom : 0)) {
         auto dmn = mnList.GetValidMNByCollateral(dsq.masternodeOutpoint);
 
         if (!dmn) {
@@ -1422,11 +1422,6 @@ bool CCoinJoinClientSession::JoinExistingQueue(CAmount nBalanceNeedsAnonymized, 
         // no need for additional verification here
 
         WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::JoinExistingQueue -- trying queue: %s\n", dsq.ToString());
-
-        // For promotion/demotion, we need a queue with the target denomination
-        if ((fPromotion || fDemotion) && nTargetDenom != 0 && dsq.nDenom != nTargetDenom) {
-            continue; // Skip queues with wrong denomination
-        }
 
         std::vector<CTxDSIn> vecTxDSInTmp;
 
@@ -1737,9 +1732,9 @@ bool CCoinJoinClientManager::MarkAlreadyJoinedQueueAsTried(CCoinJoinQueue& dsq) 
     return false;
 }
 
-bool CCoinJoinClientManager::GetQueueItemAndTry(CCoinJoinQueue& dsq) const
+bool CCoinJoinClientManager::GetQueueItemAndTry(CCoinJoinQueue& dsq, int nDenomFilter) const
 {
-    return m_queueman && m_queueman->GetQueueItemAndTry(dsq);
+    return m_queueman && m_queueman->GetQueueItemAndTry(dsq, nDenomFilter);
 }
 
 bool CCoinJoinClientSession::SubmitDenominate(CConnman& connman)

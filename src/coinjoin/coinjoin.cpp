@@ -206,7 +206,7 @@ bool CoinJoinQueueManager::TryAddQueue(CCoinJoinQueue dsq)
     return true;
 }
 
-bool CoinJoinQueueManager::GetQueueItemAndTry(CCoinJoinQueue& dsqRet)
+bool CoinJoinQueueManager::GetQueueItemAndTry(CCoinJoinQueue& dsqRet, int nDenomFilter)
 {
     TRY_LOCK(cs_vecqueue, lockDS);
     if (!lockDS) return false; // it's ok to fail here, we run this quite frequently
@@ -214,6 +214,8 @@ bool CoinJoinQueueManager::GetQueueItemAndTry(CCoinJoinQueue& dsqRet)
     for (auto& dsq : vecCoinJoinQueue) {
         // only try each queue once
         if (dsq.fTried || dsq.IsTimeOutOfBounds()) continue;
+        // skip before marking as tried: a queue we never looked at must stay available
+        if (nDenomFilter != 0 && dsq.nDenom != nDenomFilter) continue;
         dsq.fTried = true;
         dsqRet = dsq;
         return true;

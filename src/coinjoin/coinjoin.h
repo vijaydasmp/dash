@@ -440,7 +440,9 @@ public:
     void CheckQueue() EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
 
     int GetQueueSize() const EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue) { LOCK(cs_vecqueue); return vecCoinJoinQueue.size(); }
-    bool GetQueueItemAndTry(CCoinJoinQueue& dsqRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
+    //! nDenomFilter != 0 restricts the search to that denomination. Queues it skips are left
+    //! untried, so a rebalance attempt doesn't consume the announcements standard mixing needs.
+    bool GetQueueItemAndTry(CCoinJoinQueue& dsqRet, int nDenomFilter = 0) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
 
     bool HasQueue(const uint256& queueHash) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue)
     {

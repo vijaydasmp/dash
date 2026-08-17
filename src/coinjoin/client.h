@@ -250,7 +250,7 @@ public:
 
     bool TrySubmitDenominate(const uint256& proTxHash, CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
     bool MarkAlreadyJoinedQueueAsTried(CCoinJoinQueue& dsq) const EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
-    bool GetQueueItemAndTry(CCoinJoinQueue& dsq) const;
+    bool GetQueueItemAndTry(CCoinJoinQueue& dsq, int nDenomFilter = 0) const;
 
     void CheckTimeout() EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
