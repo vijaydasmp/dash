@@ -331,16 +331,17 @@ void ProviderTransactionTests::providerTransactionHistory()
 
             QListView* const type_list{qobject_cast<QListView*>(type_widget->view())};
             QVERIFY(type_list != nullptr);
-            for (const quint32 coinjoin_filter :
-                 {TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinSend),
-                  TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinMakeCollaterals),
-                  TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinCreateDenominations),
-                  TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinMixing),
-                  TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinCollateralPayment)}) {
-                const int row{type_widget->findData(coinjoin_filter)};
-                QVERIFY(row >= 0);
-                QVERIFY(type_list->isRowHidden(row));
+            // Match CoinJoin entries by title so filters added later are covered without
+            // duplicating the implementation's filter list.
+            int hidden_coinjoin_rows{0};
+            for (int row{0}; row < type_widget->count(); ++row) {
+                const QString title{type_widget->itemText(row)};
+                if (title.contains("coinjoin", Qt::CaseInsensitive) || title.contains("coin join", Qt::CaseInsensitive)) {
+                    QVERIFY(type_list->isRowHidden(row));
+                    ++hidden_coinjoin_rows;
+                }
             }
+            QVERIFY(hidden_coinjoin_rows > 0);
             QVERIFY(!type_list->isRowHidden(masternode_row));
 
             type_widget->setCurrentIndex(masternode_row);
