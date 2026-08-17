@@ -321,6 +321,10 @@ void CCoinJoinServer::CheckPool()
         // timeout. Shouldn't happen: admission checks the declared shapes up front.
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- all entries received but a session denom side is uncovered (%d in, %d out), resetting session\n",
                  sides.inputs, sides.outputs);
+        // Tell the participants before dropping them, so they release their inputs and collateral
+        // right away instead of waiting out their own timeout. Must precede SetNull(), which
+        // clears the entries this iterates.
+        RelayCompletedTransaction(ERR_SESSION);
         WITH_LOCK(cs_coinjoin, SetNull());
         return;
     }
