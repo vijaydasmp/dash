@@ -298,7 +298,7 @@ void CCoinJoinServer::CheckPool()
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- entries count %lu\n", entries);
 
     // If we have an entry for each collateral, then create final tx
-    if (nState == POOL_STATE_ACCEPTING_ENTRIES && size_t(GetEntriesCount()) == vecSessionCollaterals.size()) {
+    if (nState == POOL_STATE_ACCEPTING_ENTRIES && static_cast<size_t>(GetEntriesCount()) == vecSessionCollaterals.size()) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- FINALIZE TRANSACTIONS\n");
         CreateFinalTransaction();
         return;
@@ -628,7 +628,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
             nMessageIDRet = ERR_SESSION;
             return false;
         }
-        if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
+        if (static_cast<size_t>(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entries is full!\n", __func__);
             nMessageIDRet = ERR_ENTRIES_FULL;
             return false;
@@ -704,7 +704,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
             nMessageIDRet = ERR_SESSION;
             return false;
         }
-        if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
+        if (static_cast<size_t>(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
             nMessageIDRet = ERR_ENTRIES_FULL;
             return false;
         }
