@@ -11,6 +11,9 @@ from typing import Dict, List, Set
 MAPPING = {
     'core_read.cpp': 'core_io.cpp',
     'core_write.cpp': 'core_io.cpp',
+    'evo/core_write.cpp': 'core_io.cpp',
+    'governance/core_write.cpp': 'core_io.cpp',
+    'llmq/core_write.cpp': 'core_io.cpp',
 }
 
 # Directories with header-based modules, where the assumption that .cpp files

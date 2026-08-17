@@ -29,11 +29,16 @@ EXPECTED_BITCOIN_CIRCULAR_DEPENDENCIES = (
 )
 
 EXPECTED_DASH_CIRCULAR_DEPENDENCIES = (
+    "core_io -> evo/smldiff -> core_io",
+    "core_io -> governance/governance -> governance/superblock -> core_io",
+    "coinjoin/coinjoin -> core_io -> rpc/util -> node/transaction -> net_processing -> coinjoin/coinjoin",
+    "coinjoin/coinjoin -> core_io -> rpc/util -> node/transaction -> node/context -> coinjoin/coinjoin",
+    "coinjoin/client -> core_io -> rpc/util -> node/transaction -> net_processing -> coinjoin/walletman -> coinjoin/client",
+    "coinjoin/coinjoin -> core_io -> rpc/util -> node/transaction -> node/context -> dsnotificationinterface -> coinjoin/coinjoin",
     "index/addressindex -> index/base -> node/context -> index/addressindex",
     "index/base -> node/context -> index/spentindex -> index/base",
     "index/base -> node/context -> index/timestampindex -> index/base",
     "banman -> common/bloom -> evo/assetlocktx -> llmq/quorumsman -> llmq/blockprocessor -> net -> banman",
-    "coinjoin/client -> coinjoin/util -> wallet/wallet -> psbt -> node/transaction -> net_processing -> coinjoin/walletman -> coinjoin/client",
     "common/bloom -> evo/assetlocktx -> llmq/commitment -> evo/deterministicmns -> evo/simplifiedmns -> merkleblock -> common/bloom",
     "common/bloom -> evo/assetlocktx -> llmq/quorumsman -> llmq/blockprocessor -> net -> common/bloom",
     "consensus/tx_verify -> evo/assetlocktx -> llmq/commitment -> validation -> consensus/tx_verify",
