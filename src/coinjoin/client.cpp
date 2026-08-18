@@ -467,11 +467,12 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
 
     if (!mixingMasternode) return false;
 
-    // Evaluated before taking cs_wallet (IsPromotionDemotionImminent locks cs_main).
+    // Evaluated before taking cs_wallet (IsPromotionDemotionActive locks cs_main).
     // A session we joined for 1:1 mixing can still admit a rebalance participant, so the final
-    // tx may legitimately be unbalanced while our own tip is short of V24 - and refusing to
-    // sign risks our collateral. Tolerate the whole window a masternode can be ahead of us.
-    const bool fRebalanceShapesPossible = CoinJoin::IsPromotionDemotionImminent(active_chainstate.m_chainman);
+    // tx may legitimately be unbalanced while our own tip is one block short of V24 - refusing
+    // to sign it would cost us our collateral. Further behind than that is our own problem.
+    const bool fRebalanceShapesPossible =
+        CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman, /*fNextBlock=*/true);
 
     LOCK(m_wallet->cs_wallet);
     LOCK(cs_coinjoin);

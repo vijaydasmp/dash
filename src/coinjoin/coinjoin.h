@@ -487,12 +487,11 @@ namespace CoinJoin
     constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
 
     /// Whether denomination promotion/demotion (post-V24) is active at the current chain tip.
-    bool IsPromotionDemotionActive(const ChainstateManager& chainman);
-
-    /// Whether the V24 deployment has locked in or activated as of our tip, i.e. peers whose
-    /// tips are ahead of ours may already be applying post-V24 rules. Used to soften relay
-    /// penalties around the activation boundary, where our own tip may lag by several blocks.
-    bool IsPromotionDemotionImminent(const ChainstateManager& chainman);
+    /// With fNextBlock, also counts a deployment that activates in the block following the tip:
+    /// the peer that sent us a rebalance-shaped transaction may be one block ahead of us at the
+    /// activation boundary, and treating its transaction as malformed would cost us either a
+    /// discouraged peer or, when signing, our collateral.
+    bool IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock = false);
 
     /// If the collateral is valid given by a client
     bool IsCollateralValid(ChainstateManager& chainman, const llmq::CInstantSendManager& isman,

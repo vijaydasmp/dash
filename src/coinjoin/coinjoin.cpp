@@ -240,26 +240,13 @@ std::string CCoinJoinBaseSession::GetStateString() const
     }
 }
 
-bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman)
+bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock)
 {
     LOCK(::cs_main);
     const CBlockIndex* pindex = chainman.ActiveChain().Tip();
     if (pindex == nullptr) return false;
-    return DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
-}
-
-bool CoinJoin::IsPromotionDemotionImminent(const ChainstateManager& chainman)
-{
-    LOCK(::cs_main);
-    const CBlockIndex* pindex = chainman.ActiveChain().Tip();
-    if (pindex == nullptr) return false;
-    // LOCKED_IN means the deployment activates at the end of the current signalling period, so
-    // from here on a peer whose tip is ahead of ours may already be past activation - however
-    // many blocks ahead it happens to be. ACTIVE covers the tip-one-block-behind case. Before
-    // lock-in no honest peer can be applying post-V24 rules.
-    const ThresholdState state =
-        chainman.m_versionbitscache.State(pindex, chainman.GetConsensus(), Consensus::DEPLOYMENT_V24);
-    return state == ThresholdState::LOCKED_IN || state == ThresholdState::ACTIVE;
+    return fNextBlock ? DeploymentActiveAfter(pindex, chainman, Consensus::DEPLOYMENT_V24)
+                      : DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
 }
 
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
