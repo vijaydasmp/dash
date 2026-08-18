@@ -1962,13 +1962,16 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                 return std::make_tuple(node::ChainstateLoadStatus::FAILURE, _("Error opening block database"));
             }
         };
-        node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
-        node.dmnman = std::make_unique<CDeterministicMNManager>(*node.evodb, *node.mn_metaman);
-        node.isman = std::make_unique<llmq::CInstantSendManager>(*node.sporkman, util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
+        auto [status, error] = catch_exceptions([&]() -> node::ChainstateLoadResult {
+            node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
+            node.dmnman = std::make_unique<CDeterministicMNManager>(*node.evodb, *node.mn_metaman);
+            node.isman = std::make_unique<llmq::CInstantSendManager>(*node.sporkman, util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
 
-        mempool_opts.dmnman = node.dmnman.get();
-        mempool_opts.isman = node.isman.get();
-        node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
+            mempool_opts.dmnman = node.dmnman.get();
+            mempool_opts.isman = node.isman.get();
+            node.mempool = std::make_unique<CTxMemPool>(mempool_opts);
+            return {node::ChainstateLoadStatus::SUCCESS, {}};
+        });
 
         const ChainstateManager::Options chainman_opts{
             .chainparams = chainparams,
@@ -1987,8 +1990,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         node.mn_sync = std::make_unique<CMasternodeSync>(std::make_unique<NodeSyncNotifierImpl>(*node.connman, *node.netfulfilledman));
 
         node::ChainstateLoadOptions options;
-        options.mempool = Assert(node.mempool.get());
-        options.isman = Assert(node.isman.get());
         options.chainlocks = Assert(node.chainlocks.get());
         options.mn_sync = Assert(node.mn_sync.get());
         options.data_dir = args.GetDataDirNet();
@@ -2018,7 +2019,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
         uiInterface.InitMessage(_("Loading block index…").translated);
         const auto load_block_index_start_time{SteadyClock::now()};
-        auto [status, error] = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, *node.evodb, *node.dmnman, node.llmq_ctx, node.chain_helper); });
+        if (status == node::ChainstateLoadStatus::SUCCESS) {
+            options.mempool = Assert(node.mempool.get());
+            options.isman = Assert(node.isman.get());
+            std::tie(status, error) = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, *node.evodb, *node.dmnman, node.llmq_ctx, node.chain_helper); });
+        }
         if (status == node::ChainstateLoadStatus::SUCCESS) {
             uiInterface.InitMessage(_("Verifying blocks…").translated);
             if (chainman.m_blockman.m_have_pruned && options.check_blocks > MIN_BLOCKS_TO_KEEP) {
