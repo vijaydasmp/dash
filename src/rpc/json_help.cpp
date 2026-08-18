@@ -143,7 +143,7 @@ RPCResult CCbTx::GetJsonHelp(const std::string& key, bool optional)
     }};
 }
 
-// CDeterministicMN::ToJson() defined in evo/deterministicmns.cpp
+// CDeterministicMN::ToJson() defined in rpc/evo.cpp
 RPCResult CDeterministicMN::GetJsonHelp(const std::string& key, bool optional)
 {
     return {RPCResult::Type::OBJ, key, optional, key.empty() ? "" : "The masternode's details",
