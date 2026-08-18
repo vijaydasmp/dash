@@ -373,6 +373,7 @@ BITCOIN_CORE_H = \
   rpc/blockchain.h \
   rpc/client.h \
   rpc/evo_util.h \
+  rpc/json_help.h \
   rpc/mempool.h \
   rpc/mining.h \
   rpc/protocol.h \
@@ -638,6 +639,7 @@ libbitcoin_node_a_SOURCES = \
   rpc/evo.cpp \
   rpc/fees.cpp \
   rpc/governance.cpp \
+  rpc/json_help.cpp \
   rpc/masternode.cpp \
   rpc/mempool.cpp \
   rpc/mining.cpp \
