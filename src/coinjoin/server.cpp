@@ -537,6 +537,31 @@ void CCoinJoinServer::ConsumeCollateral(const CTransactionRef& txref) const
     }
 }
 
+void CCoinJoinServer::ConsumeCollateralIfCurrentSession(int session_id, const CTransactionRef& txref) const
+{
+    AssertLockNotHeld(cs_coinjoin);
+
+    // cs_coinjoin is released around the collateral and UTXO checks in AddEntry, so by the time
+    // we get here the scheduler thread may have timed the session out and started another one.
+    // Charging then would spend the collateral of a participant that is no longer in any
+    // session - it may even be a replay of an innocent participant's collateral.
+    const bool fStillCurrent = WITH_LOCK(cs_coinjoin, return IsCurrentSession(session_id) &&
+        std::ranges::any_of(vecSessionCollaterals,
+                            [&txref](const CTransactionRef& ref) { return *ref == *txref; }));
+    if (!fStillCurrent) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- session changed, not consuming collateral %s\n", __func__,
+                 txref->GetHash().ToString());
+        return;
+    }
+    ConsumeCollateral(txref);
+}
+
+bool CCoinJoinServer::IsCurrentSession(int session_id) const
+{
+    AssertLockHeld(cs_coinjoin);
+    return nSessionID != 0 && nSessionID == session_id && nState == POOL_STATE_ACCEPTING_ENTRIES;
+}
+
 bool CCoinJoinServer::HasTimedOut() const
 {
     if (nState == POOL_STATE_IDLE) return false;
@@ -649,8 +674,20 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
 
     CoinJoin::MixShape declaredShape{CoinJoin::MixShape::STANDARD};
     int session_denom{0};
+    int session_id{0};
+    bool fRebalanceSession{false};
     {
         LOCK(cs_coinjoin);
+
+        // Entries belong to a session that is actually collecting them. IsSessionReady() was
+        // checked by the caller before the entry was deserialized, so the state may already
+        // have moved on by now.
+        if (nSessionID == 0 || nState != POOL_STATE_ACCEPTING_ENTRIES) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: not accepting entries, nState=%d\n", __func__,
+                     nState.load());
+            nMessageIDRet = ERR_SESSION;
+            return false;
+        }
 
         if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entries is full!\n", __func__);
@@ -658,6 +695,8 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
             return false;
         }
         session_denom = nSessionDenom;
+        session_id = nSessionID;
+        fRebalanceSession = m_fRebalanceSession;
 
         // Entries are keyed one-to-one to the collaterals accepted at dsa time: a collateral
         // that never went through dsa acceptance cannot submit an entry and an accepted
@@ -684,17 +723,20 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         }
     }
 
-    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(m_chainman);
-
+    // Entry shape rules follow the session, not the current tip: m_fRebalanceSession was fixed
+    // when the session was created and the participants were admitted under it. Re-deriving them
+    // from the tip would let a reorg across the V24 boundary retroactively shrink the cap and
+    // charge an admitted participant for an entry that was legal when it was accepted.
+    //
     // Post-V24: promotion entries carry PROMOTION_RATIO (10) inputs and demotion entries
     // PROMOTION_RATIO outputs; pre-V24 entries are capped at COINJOIN_ENTRY_MAX_SIZE (9)
-    const size_t nMaxEntrySize = fV24Active ? size_t(CoinJoin::PROMOTION_RATIO) : COINJOIN_ENTRY_MAX_SIZE;
+    const size_t nMaxEntrySize = fRebalanceSession ? size_t(CoinJoin::PROMOTION_RATIO) : COINJOIN_ENTRY_MAX_SIZE;
     if (entry.vecTxDSIn.size() > nMaxEntrySize || entry.vecTxOut.size() > nMaxEntrySize) {
         LogPrint(BCLog::COINJOIN, /* Continued */
                  "CCoinJoinServer::%s -- ERROR: too many inputs or outputs! inputs=%s/%s, outputs=%s/%s\n", __func__,
                  entry.vecTxDSIn.size(), nMaxEntrySize, entry.vecTxOut.size(), nMaxEntrySize);
         nMessageIDRet = ERR_MAXIMUM;
-        ConsumeCollateral(entry.txCollateral);
+        ConsumeCollateralIfCurrentSession(session_id, entry.txCollateral);
         return false;
     }
 
@@ -712,13 +754,13 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entry occupies no side of the session denom! inputs=%s, outputs=%s\n",
                  __func__, entry.vecTxDSIn.size(), entry.vecTxOut.size());
         nMessageIDRet = ERR_SIZE_MISMATCH;
-        ConsumeCollateral(entry.txCollateral);
+        ConsumeCollateralIfCurrentSession(session_id, entry.txCollateral);
         return false;
     }
 
     // Pre-V24, unbalanced entries deliberately fall through to IsValidInOuts so their
     // collateral is consumed (anti-spam), same as before this feature existed
-    if (fV24Active) {
+    if (fRebalanceSession) {
         // Every entry must match the direction its participant declared in the dsa - standard
         // entries included. Admission counted on the declared shapes to decide the session
         // covers both sides of the session denomination, so a participant deviating (e.g.
@@ -729,7 +771,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entry shape doesn't match the declared direction! inputs=%s, outputs=%s\n",
                      __func__, entry.vecTxDSIn.size(), entry.vecTxOut.size());
             nMessageIDRet = ERR_SIZE_MISMATCH;
-            ConsumeCollateral(entry.txCollateral);
+            ConsumeCollateralIfCurrentSession(session_id, entry.txCollateral);
             return false;
         }
     }
@@ -754,10 +796,10 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
 
     bool fConsumeCollateral{false};
     if (!IsValidInOuts(m_chainman.ActiveChainstate(), m_isman, mempool, vin, entry.vecTxOut, session_denom,
-                       nMessageIDRet, &fConsumeCollateral)) {
+                       fRebalanceSession, nMessageIDRet, &fConsumeCollateral)) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageIDRet).translated);
         if (fConsumeCollateral) {
-            ConsumeCollateral(entry.txCollateral);
+            ConsumeCollateralIfCurrentSession(session_id, entry.txCollateral);
         }
         return false;
     }
@@ -765,9 +807,12 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
     {
         LOCK(cs_coinjoin);
         // cs_coinjoin was released around the UTXO checks above, so the scheduler thread may
-        // have reset the session in between; re-verify so admission stays atomic with the
-        // membership and duplicate-use checks.
-        if (std::ranges::none_of(vecSessionCollaterals, isSessionCollateral) ||
+        // have finalized or reset the session in between; re-verify so admission stays atomic
+        // with the state, membership and duplicate-use checks. Admitting into a session that
+        // already built its final transaction would add an entry no one can sign, stalling it
+        // until the signing timeout charges the honest participants.
+        if (!IsCurrentSession(session_id) ||
+            std::ranges::none_of(vecSessionCollaterals, isSessionCollateral) ||
             std::ranges::any_of(vecEntries, hasEntryForCollateral)) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: session changed while validating the entry!\n", __func__);
             nMessageIDRet = ERR_SESSION;

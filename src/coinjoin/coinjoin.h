@@ -386,11 +386,17 @@ protected:
      * promotion (10:1) and demotion (1:10) entries, so per-entry shape rules don't apply to it;
      * aggregate rules (allowed denominations, value balance, input/output consistency) are
      * checked instead. session_denom is the caller's snapshot of the session denomination.
+     *
+     * fV24Active tells us whether promotion/demotion shapes are permitted here. It is passed in
+     * rather than derived from the tip so that it stays fixed for the lifetime of a session: the
+     * masternode passes the session's own capability and the client the boundary-tolerant tip
+     * check, and neither can be flipped mid-session by a reorg across the V24 boundary.
      */
     static bool IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                               const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout,
-                              int session_denom, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet,
-                              bool fFinalTx = false, CoinJoin::SessionDenomCounts* pDenomCountsRet = nullptr);
+                              int session_denom, bool fV24Active, PoolMessage& nMessageIDRet,
+                              bool* fConsumeCollateralRet, bool fFinalTx = false,
+                              CoinJoin::SessionDenomCounts* pDenomCountsRet = nullptr);
 
 public:
     // Atomic because the message-handling and scheduler threads write it while those threads and

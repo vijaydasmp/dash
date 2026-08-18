@@ -255,19 +255,13 @@ bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman, bool
 
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                                          const CTxMemPool& mempool, const std::vector<CTxIn>& vin,
-                                         const std::vector<CTxOut>& vout, int session_denom, PoolMessage& nMessageIDRet,
-                                         bool* fConsumeCollateralRet, bool fFinalTx,
+                                         const std::vector<CTxOut>& vout, int session_denom, bool fV24Active,
+                                         PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet, bool fFinalTx,
                                          CoinJoin::SessionDenomCounts* pDenomCountsRet)
 {
     std::set<CScript> setScripPubKeys;
     nMessageIDRet = MSG_NOERR;
     if (fConsumeCollateralRet) *fConsumeCollateralRet = false;
-
-    // Check if V24 is active for promotion/demotion support. Per-entry validation (masternode
-    // side) uses the strict tip state; final-tx validation (client side, before signing) also
-    // accepts activation at the next block so a masternode one block ahead at the boundary
-    // can't cost us our collateral.
-    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman, /*fNextBlock=*/fFinalTx);
 
     // Determine entry type based on input/output counts
     // Standard: N inputs, N outputs (same denom)

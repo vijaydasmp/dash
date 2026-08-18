@@ -496,7 +496,7 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
     PoolMessage nMessageID{MSG_NOERR};
     CoinJoin::SessionDenomCounts denomCounts;
     if (!IsValidInOuts(active_chainstate, m_isman, mempool, finalMutableTransaction.vin, finalMutableTransaction.vout,
-                       nSessionDenom, nMessageID, nullptr, /*fFinalTx=*/true, &denomCounts)) {
+                       nSessionDenom, fV24Active, nMessageID, nullptr, /*fFinalTx=*/true, &denomCounts)) {
         WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageID).translated);
         UnlockCoins();
         keyHolderStorage.ReturnAll();
