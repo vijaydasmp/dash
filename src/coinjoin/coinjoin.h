@@ -232,8 +232,8 @@ public:
         using CoinJoin::MixShape;
         if (vecTxDSIn.empty() || vecTxOut.empty()) return MixShape::UNKNOWN;
         if (vecTxDSIn.size() == vecTxOut.size()) return MixShape::STANDARD;
-        if (vecTxDSIn.size() == size_t(CoinJoin::PROMOTION_RATIO) && vecTxOut.size() == 1) return MixShape::PROMOTION;
-        if (vecTxDSIn.size() == 1 && vecTxOut.size() == size_t(CoinJoin::PROMOTION_RATIO)) return MixShape::DEMOTION;
+        if (vecTxDSIn.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO) && vecTxOut.size() == 1) return MixShape::PROMOTION;
+        if (vecTxDSIn.size() == 1 && vecTxOut.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO)) return MixShape::DEMOTION;
         return MixShape::UNKNOWN;
     }
 

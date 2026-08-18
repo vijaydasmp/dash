@@ -310,7 +310,7 @@ void CCoinJoinServer::CheckPool()
     const auto sides = GetMixSideCounts();
 
     // If we have an entry for each collateral, then create final tx
-    if (nState == POOL_STATE_ACCEPTING_ENTRIES && size_t(GetEntriesCount()) == vecSessionCollaterals.size()) {
+    if (nState == POOL_STATE_ACCEPTING_ENTRIES && static_cast<size_t>(GetEntriesCount()) == vecSessionCollaterals.size()) {
         if (sides.IsCovered()) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- FINALIZE TRANSACTIONS\n");
             CreateFinalTransaction();
@@ -690,7 +690,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
             return false;
         }
 
-        if (size_t(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
+        if (static_cast<size_t>(GetEntriesCountLocked()) >= vecSessionCollaterals.size()) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: entries is full!\n", __func__);
             nMessageIDRet = ERR_ENTRIES_FULL;
             return false;
@@ -731,7 +731,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
     //
     // Post-V24: promotion entries carry PROMOTION_RATIO (10) inputs and demotion entries
     // PROMOTION_RATIO outputs; pre-V24 entries are capped at COINJOIN_ENTRY_MAX_SIZE (9)
-    const size_t nMaxEntrySize = fRebalanceSession ? size_t(CoinJoin::PROMOTION_RATIO) : COINJOIN_ENTRY_MAX_SIZE;
+    const size_t nMaxEntrySize = fRebalanceSession ? static_cast<size_t>(CoinJoin::PROMOTION_RATIO) : COINJOIN_ENTRY_MAX_SIZE;
     if (entry.vecTxDSIn.size() > nMaxEntrySize || entry.vecTxOut.size() > nMaxEntrySize) {
         LogPrint(BCLog::COINJOIN, /* Continued */
                  "CCoinJoinServer::%s -- ERROR: too many inputs or outputs! inputs=%s/%s, outputs=%s/%s\n", __func__,
@@ -1077,7 +1077,7 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
 
     // IsSessionReady() can now hold a full session back waiting for a missing counterparty, so
     // the participant limit has to be enforced here rather than implied by session readiness
-    if ((int)vecSessionCollaterals.size() >= CoinJoin::GetMaxPoolParticipants()) {
+    if (static_cast<int>(vecSessionCollaterals.size()) >= CoinJoin::GetMaxPoolParticipants()) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- session is full\n");
         nMessageIDRet = ERR_QUEUE_FULL;
         return false;
