@@ -1,18 +1,21 @@
 P2P and network changes
 -----------------------
 
-- The protocol version was bumped to 70241. Mixing sessions that may
-  contain promotion/demotion entries are only formed by, and only admit,
-  peers at protocol 70241 or newer: the `dsa` message gained a
+- The protocol version was bumped to 70241. The `dsa` message gained a
   version-gated flags field declaring which mixing direction a
-  participant intends, and the session creator's protocol version fixes
-  the session's capability. Older clients are rejected from such sessions
-  at acceptance time (before any collateral is committed) and continue to
-  mix normally in sessions created by older peers, which newer clients
-  still join for standard mixing. Unbalanced (promotion/demotion) DSTXes
-  are likewise only announced to peers at protocol 70241 or newer; older
-  peers would reject them as structurally invalid and penalize the
-  relayer, and instead see the transaction on block inclusion. (#7052)
+  participant intends. A session commits to carrying promotion/demotion
+  entries only once a participant is admitted that actually declared one,
+  and it becomes closed to pre-70241 clients only from that point on;
+  conversely, a session that has already admitted a pre-70241 client
+  refuses later promotion/demotion participants. Either way the refusal
+  happens at acceptance time, before any collateral is committed, so a
+  client doing ordinary 1:1 mixing is never turned away from a session
+  simply because of who opened it. Unbalanced (promotion/demotion) DSTXes
+  are only announced as `dstx` to peers at protocol 70241 or newer, since
+  older peers would reject them as structurally invalid and penalize the
+  relayer; those peers are sent a plain `tx` announcement instead, so
+  they still receive the transaction without the mixing metadata they
+  cannot parse. (#7052)
 
 - A mixing session only completes once each side of its denomination is
   occupied by nobody or by at least two participants, since coins are
