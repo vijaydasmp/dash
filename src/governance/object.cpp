@@ -412,7 +412,7 @@ bool CGovernanceObject::ProcessVote(CMasternodeMetaMan& mn_metaman, bool fRateCh
         exception = CGovernanceException(msg, GOVERNANCE_EXCEPTION_PERMANENT_ERROR, 20);
         return false;
     }
-    auto it2 = voteRecordRef.mapInstances.emplace(vote_instance_m_t::value_type(int(eSignal), vote_instance_t())).first;
+    auto it2 = voteRecordRef.mapInstances.emplace(vote_instance_m_t::value_type(static_cast<int>(eSignal), vote_instance_t())).first;
     vote_instance_t& voteInstanceRef = it2->second;
 
     // Reject obsolete votes
@@ -509,7 +509,7 @@ std::set<uint256> CGovernanceObject::RemoveInvalidVotes(const CDeterministicMNLi
 
     auto nParentHash = GetHash();
     for (auto jt = it->second.mapInstances.begin(); jt != it->second.mapInstances.end(); ) {
-        CGovernanceVote tmpVote(mnOutpoint, nParentHash, (vote_signal_enum_t)jt->first, jt->second.eOutcome);
+        CGovernanceVote tmpVote{mnOutpoint, nParentHash, static_cast<vote_signal_enum_t>(jt->first), jt->second.eOutcome};
         tmpVote.SetTime(jt->second.nCreationTime);
         if (removedVotes.count(tmpVote.GetHash())) {
             jt = it->second.mapInstances.erase(jt);
@@ -947,7 +947,7 @@ void CGovernanceObject::UpdateSentinelVariables(const CDeterministicMNList& tip_
 
     // CALCULATE MINIMUM SUPPORT LEVELS REQUIRED
 
-    int nWeightedMnCount = (int)tip_mn_list.GetCounts().m_valid_weighted;
+    int nWeightedMnCount = static_cast<int>(tip_mn_list.GetCounts().m_valid_weighted);
     if (nWeightedMnCount == 0) return;
 
     // CALCULATE THE MINIMUM VOTE COUNT REQUIRED FOR FULL SIGNAL

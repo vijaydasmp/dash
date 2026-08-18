@@ -30,7 +30,7 @@ UniValue CDeterministicMN::ToJson() const
         }
     }
 
-    obj.pushKV("operatorReward", (double)nOperatorReward / 100);
+    obj.pushKV("operatorReward", static_cast<double>(nOperatorReward) / 100);
     obj.pushKV("state", pdmnState->ToJson(nType));
     return obj;
 }

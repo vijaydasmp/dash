@@ -262,7 +262,7 @@ void CCoinJoinServer::ProcessDSSIGNFINALTX(CNode& peer, CDataStream& vRecv)
     LogPrint(BCLog::COINJOIN, "DSSIGNFINALTX -- vecTxIn.size() %s\n", vecTxIn.size());
 
     int nTxInIndex = 0;
-    int nTxInsCount = (int)vecTxIn.size();
+    int nTxInsCount = static_cast<int>(vecTxIn.size());
 
     for (const auto& txin : vecTxIn) {
         nTxInIndex++;
@@ -934,10 +934,10 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolM
 bool CCoinJoinServer::IsSessionReady() const
 {
     if (nState == POOL_STATE_QUEUE) {
-        if ((int)vecSessionCollaterals.size() >= CoinJoin::GetMaxPoolParticipants()) {
+        if (static_cast<int>(vecSessionCollaterals.size()) >= CoinJoin::GetMaxPoolParticipants()) {
             return true;
         }
-        if (CCoinJoinServer::HasTimedOut() && (int)vecSessionCollaterals.size() >= CoinJoin::GetMinPoolParticipants()) {
+        if (CCoinJoinServer::HasTimedOut() && static_cast<int>(vecSessionCollaterals.size()) >= CoinJoin::GetMinPoolParticipants()) {
             return true;
         }
     }

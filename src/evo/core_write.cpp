@@ -352,7 +352,7 @@ UniValue CProRegTx::ToJson() const
         ret.pushKV("payoutAddress", EncodeDestination(dest));
     }
     ret.pushKV("pubKeyOperator", pubKeyOperator.ToString());
-    ret.pushKV("operatorReward", (double)nOperatorReward / 100);
+    ret.pushKV("operatorReward", static_cast<double>(nOperatorReward) / 100);
     if (nType == MnType::Evo) {
         ret.pushKV("platformNodeID", platformNodeID.ToString());
         if (IsServiceDeprecatedRPCEnabled()) {

@@ -72,7 +72,7 @@ public:
     uint16_t nVersion{ProTxVersion::LegacyBLS}; // message version
     MnType nType{MnType::Regular};
     uint16_t nMode{0};                                     // only 0 supported for now
-    COutPoint collateralOutpoint{uint256(), (uint32_t)-1}; // if hash is null, we refer to a ProRegTx output
+    COutPoint collateralOutpoint{uint256(), static_cast<uint32_t>(-1)}; // if hash is null, we refer to a ProRegTx output
     std::shared_ptr<NetInfoInterface> netInfo{nullptr};
     uint160 platformNodeID{};
     uint16_t platformP2PPort{0};
