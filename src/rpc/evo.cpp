@@ -392,6 +392,13 @@ static std::string SubmissionToString(const interfaces::ProviderTxSubmission& su
     return submission.submitted ? submission.tx->GetHash().GetHex() : EncodeHexTx(*submission.tx);
 }
 
+template <typename T>
+static T UnwrapOrThrow(interfaces::ProviderTxResult<T> result)
+{
+    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
+    return std::get<T>(std::move(result));
+}
+
 static std::vector<std::string> ParseCoreNetInfo(const UniValue& input, bool optional)
 {
     if (input.isStr()) {
@@ -838,18 +845,14 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
 
     auto wallet_interface{MakeWalletInterface(node, pwallet)};
     if (action == ProTxRegisterAction::Prepare) {
-        auto result{evo::provider::PrepareRegistration(node, *wallet_interface, typed_request)};
-        if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-        const auto& prepared{std::get<interfaces::PreparedProviderRegistration>(result)};
+        const auto prepared{UnwrapOrThrow(evo::provider::PrepareRegistration(node, *wallet_interface, typed_request))};
         UniValue response{UniValue::VOBJ};
         response.pushKV("tx", EncodeHexTx(*prepared.tx));
         response.pushKV("collateralAddress", EncodeDestination(prepared.collateral_address));
         response.pushKV("signMessage", prepared.sign_message);
         return response;
     }
-    auto result{evo::provider::Register(node, *wallet_interface, typed_request)};
-    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-    return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+    return SubmissionToString(UnwrapOrThrow(evo::provider::Register(node, *wallet_interface, typed_request)));
 }
 
 static RPCHelpMan protx_register_submit()
@@ -883,10 +886,8 @@ static RPCHelpMan protx_register_submit()
             }
 
             auto wallet_interface{MakeWalletInterface(node, wallet)};
-            auto result{evo::provider::SubmitRegistration(node, *wallet_interface, MakeTransactionRef(std::move(tx)),
-                                                          *opt_vchSig)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(UnwrapOrThrow(evo::provider::SubmitRegistration(
+                node, *wallet_interface, MakeTransactionRef(std::move(tx)), *opt_vchSig)));
         },
     };
 }
@@ -1007,9 +1008,7 @@ static UniValue protx_update_service_common_wrapper(const JSONRPCRequest& reques
     }
 
     auto wallet_interface{MakeWalletInterface(node, wallet)};
-    auto result{evo::provider::UpdateService(node, *wallet_interface, typed_request)};
-    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-    return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+    return SubmissionToString(UnwrapOrThrow(evo::provider::UpdateService(node, *wallet_interface, typed_request)));
 }
 
 static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_scheme)
@@ -1083,9 +1082,8 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
             }
 
             auto wallet_interface{MakeWalletInterface(node, wallet)};
-            auto result{evo::provider::UpdateRegistrar(node, *wallet_interface, typed_request)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(
+                UnwrapOrThrow(evo::provider::UpdateRegistrar(node, *wallet_interface, typed_request)));
         },
     };
 }
@@ -1154,9 +1152,7 @@ static RPCHelpMan protx_revoke()
             }
 
             auto wallet_interface{MakeWalletInterface(node, pwallet)};
-            auto result{evo::provider::Revoke(node, *wallet_interface, typed_request)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(UnwrapOrThrow(evo::provider::Revoke(node, *wallet_interface, typed_request)));
         },
     };
 }
