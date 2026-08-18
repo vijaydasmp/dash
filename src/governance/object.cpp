@@ -666,6 +666,21 @@ void CGovernanceObject::GetData(UniValue& objResult) const
     objResult = o;
 }
 
+UniValue CGovernanceObject::GetInnerJson() const
+{
+    return m_obj.ToJson();
+}
+
+UniValue CGovernanceObject::GetVotesJson(const CDeterministicMNList& tip_mn_list, vote_signal_enum_t signal) const
+{
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("AbsoluteYesCount", GetAbsoluteYesCount(tip_mn_list, signal));
+    obj.pushKV("YesCount", GetYesCount(tip_mn_list, signal));
+    obj.pushKV("NoCount", GetNoCount(tip_mn_list, signal));
+    obj.pushKV("AbstainCount", GetAbstainCount(tip_mn_list, signal));
+    return obj;
+}
+
 /**
 *   GetData - As
 *   --------------------------------------------------------

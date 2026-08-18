@@ -29,7 +29,6 @@ EXPECTED_BITCOIN_CIRCULAR_DEPENDENCIES = (
 )
 
 EXPECTED_DASH_CIRCULAR_DEPENDENCIES = (
-    "core_io -> governance/governance -> governance/superblock -> core_io",
     "index/addressindex -> index/base -> node/context -> index/addressindex",
     "index/base -> node/context -> index/spentindex -> index/base",
     "index/base -> node/context -> index/timestampindex -> index/base",

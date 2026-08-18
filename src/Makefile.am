@@ -971,7 +971,6 @@ libbitcoin_common_a_SOURCES = \
   evo/providertx_util.cpp \
   external_signer.cpp \
   governance/common.cpp \
-  governance/core_write.cpp \
   init/common.cpp \
   key.cpp \
   key_io.cpp \
