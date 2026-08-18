@@ -16,7 +16,6 @@
 #include <wallet/coincontrol.h>
 #include <wallet/context.h>
 #include <wallet/platformkeys.h>
-#include <wallet/platformseed.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
@@ -25,7 +24,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
-#include <map>
 #include <optional>
 #include <set>
 #include <vector>
@@ -203,27 +201,12 @@ BOOST_AUTO_TEST_CASE(ecdh_symmetry)
     BOOST_CHECK(s_ab == s_ba);
 }
 
-//! HMAC-SHA256 keyed fingerprints must be stable (the wallet's
-//! "platform/seed-id" record depends on it) and sensitive to the seed.
-BOOST_AUTO_TEST_CASE(seed_fingerprint_vector)
-{
-    const auto fingerprint{SeedFingerprint(Dip14Seed())};
-    BOOST_CHECK_EQUAL(HexStr(fingerprint), "2e42d1b4f12197d1");
-
-    SecureVector tweaked{Dip14Seed()};
-    tweaked[0] ^= 1;
-    BOOST_CHECK(SeedFingerprint(tweaked) != fingerprint);
-}
-
 //! Mnemonic behind Dip14Seed() above.
 static constexpr const char* DIP14_MNEMONIC{
     "birth kingdom trash renew flavor utility donkey gasp regular alert pave layer"};
 
 //! Descriptor wallet with a BIP39 mnemonic, wrapped in the interfaces::Wallet
-//! the platform key provider is served through. getPlatformSeed() only serves
-//! descriptor wallets it can recover a mnemonic from, so
-//! SetupDescriptorScriptPubKeyMans() is a prerequisite for every friendship
-//! keychain call below.
+//! through which the Platform key provider is served.
 struct FriendshipWalletSetup : public TestChain100Setup {
     explicit FriendshipWalletSetup(const SecureString& mnemonic = "")
     {
@@ -263,11 +246,11 @@ struct FriendshipWalletSetup : public TestChain100Setup {
     static CTxDestination PaymentDestinationVia(interfaces::Wallet& iface, const uint256& user_a,
                                                 const uint256& user_b, uint32_t index)
     {
-        CPubKey xpub;
-        uint256 chaincode;
-        BOOST_REQUIRE(iface.getFriendshipXpub(ACCOUNT, user_a, user_b, xpub, chaincode));
+        const auto keychain{iface.ensureFriendshipReceivingKeychain(
+            FriendshipKeychainRequest{ACCOUNT, user_a, user_b, /*birth_time=*/0})};
+        BOOST_REQUIRE(keychain);
         CTxDestination destination;
-        BOOST_REQUIRE(iface.getFriendshipPaymentDestination(xpub, chaincode, index, destination));
+        BOOST_REQUIRE(DeriveFriendshipPaymentDestination(keychain.value, index, destination));
         return destination;
     }
 
@@ -290,15 +273,15 @@ struct FriendshipWalletSetup : public TestChain100Setup {
 //! to them must count towards the spendable balance.
 BOOST_FIXTURE_TEST_CASE(friendship_own_chain_is_spendable, FriendshipWalletSetup)
 {
-    std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, error),
-                          error);
+    const auto keychain{m_iface->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0})};
+    BOOST_REQUIRE(keychain);
 
-    // Reaching the destination through getFriendshipXpub also pins that the
-    // exported xpub the contact pays to derives the very addresses the import
-    // made ours.
+    // The public chain returned after import derives the addresses made ours.
     for (uint32_t index = 0; index < 5; ++index) {
-        BOOST_CHECK_EQUAL(IsMine(PaymentDestination(m_my_id, m_their_id, index)), ISMINE_SPENDABLE);
+        CTxDestination destination;
+        BOOST_REQUIRE(DeriveFriendshipPaymentDestination(keychain.value, index, destination));
+        BOOST_CHECK_EQUAL(IsMine(destination), ISMINE_SPENDABLE);
     }
 
     const CScript script{GetScriptForDestination(PaymentDestination(m_my_id, m_their_id, 0))};
@@ -319,15 +302,9 @@ BOOST_FIXTURE_TEST_CASE(friendship_own_chain_is_spendable, FriendshipWalletSetup
 //! be counted as our own coins.
 BOOST_FIXTURE_TEST_CASE(friendship_contact_chain_is_not_ours, FriendshipWalletSetup)
 {
-    std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id, /*creation_time=*/0, error),
-                          error);
-
-    // The contact's receiving chain for this friendship is the reversed id
-    // pair; importing our own chain must not have pulled it in.
-    for (uint32_t index = 0; index < 5; ++index) {
-        BOOST_CHECK_EQUAL(IsMine(PaymentDestination(m_their_id, m_my_id, index)), ISMINE_NO);
-    }
+    const auto keychain{m_iface->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0})};
+    BOOST_REQUIRE(keychain);
 
     // A real contact derives that chain from their own seed, which our wallet
     // never sees; those destinations must be foreign too.
@@ -335,10 +312,10 @@ BOOST_FIXTURE_TEST_CASE(friendship_contact_chain_is_not_ours, FriendshipWalletSe
     const std::array<std::byte, 32> contact_seed{std::byte{7}};
     contact_key.SetSeed(contact_seed);
     const CExtPubKey contact_xpub{contact_key.Neuter()};
+    const FriendshipXpub friendship_xpub{contact_xpub.pubkey, contact_xpub.chaincode};
     for (uint32_t index = 0; index < 5; ++index) {
         CTxDestination destination;
-        BOOST_REQUIRE(m_iface->getFriendshipPaymentDestination(contact_xpub.pubkey, contact_xpub.chaincode, index,
-                                                               destination));
+        BOOST_REQUIRE(DeriveFriendshipPaymentDestination(friendship_xpub, index, destination));
         BOOST_CHECK_EQUAL(IsMine(destination), ISMINE_NO);
     }
 }
@@ -347,20 +324,31 @@ struct Dip14WalletSetup : public FriendshipWalletSetup {
     Dip14WalletSetup() : FriendshipWalletSetup(SecureString{DIP14_MNEMONIC}) {}
 };
 
-//! With active spk_mans holding different mnemonics the platform seed choice
-//! must be deterministic (lowest spk_man ID) and the wallet's
-//! "platform/seed-id" record must override it, so a restored backup keeps
-//! deriving the platform universe its records were created from.
-BOOST_FIXTURE_TEST_CASE(platform_seed_selection_deterministic, Dip14WalletSetup)
+//! All active descriptor managers may share one mnemonic source, but the
+//! provider must reject a wallet whose active managers disagree on the source.
+BOOST_FIXTURE_TEST_CASE(platform_key_source_must_be_unambiguous, Dip14WalletSetup)
 {
-    const auto dip14_fingerprint{SeedFingerprint(Dip14Seed())};
-    auto seed_id{m_iface->getPlatformSeedId()};
-    BOOST_REQUIRE(seed_id);
-    BOOST_CHECK(*seed_id == dip14_fingerprint);
+    const auto before{m_iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_REQUIRE(before);
 
-    // Make the wallet multi-seed: a second setup replaces the active
-    // spk_mans, then one of the original ones is re-activated, leaving
-    // actives backed by two different mnemonics.
+    // The internal hook must not permit an empty path to expose the BIP32
+    // master key, even though the typed public requests cannot form one.
+    {
+        LOCK(m_wallet->cs_wallet);
+        bool checked{false};
+        for (const auto* spk_man : m_wallet->GetActiveScriptPubKeyMans()) {
+            std::vector<unsigned char> source;
+            if (spk_man->GetPlatformKeySource(source) != PlatformKeyStatus::SUCCESS) continue;
+            ExtKey256 out;
+            BOOST_CHECK(spk_man->DerivePlatformKey({}, out) == PlatformKeyStatus::INVALID_ARGUMENT);
+            checked = true;
+            break;
+        }
+        BOOST_REQUIRE(checked);
+    }
+
+    // A second setup replaces the active managers. Re-activating one original
+    // manager leaves the wallet with active managers from two mnemonic roots.
     std::set<uint256> first_ids;
     {
         LOCK(m_wallet->cs_wallet);
@@ -370,59 +358,14 @@ BOOST_FIXTURE_TEST_CASE(platform_seed_selection_deterministic, Dip14WalletSetup)
         m_wallet->AddActiveScriptPubKeyMan(*first_ids.begin(), /*internal=*/true);
     }
 
-    std::map<uint256, std::array<uint8_t, 8>> candidates;
-    {
-        LOCK(m_wallet->cs_wallet);
-        for (auto* spk_man : m_wallet->GetActiveScriptPubKeyMans()) {
-            auto* desc_spk_man{dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man)};
-            BOOST_REQUIRE(desc_spk_man);
-            SecureString mnemonic, passphrase;
-            BOOST_REQUIRE(desc_spk_man->GetMnemonicString(mnemonic, passphrase));
-            SecureVector seed;
-            CMnemonic::ToSeed(mnemonic, passphrase, seed);
-            candidates.emplace(desc_spk_man->GetID(), SeedFingerprint(seed));
-        }
-    }
-    BOOST_REQUIRE_EQUAL(candidates.size(), 2U);
-    const auto& lowest_id_fingerprint{candidates.begin()->second};
-    const auto& other_fingerprint{std::next(candidates.begin())->second};
-    BOOST_REQUIRE(lowest_id_fingerprint != other_fingerprint);
-
-    // Without a pinned record, the candidate from the lowest spk_man ID wins.
-    seed_id = m_iface->getPlatformSeedId();
-    BOOST_REQUIRE(seed_id);
-    BOOST_CHECK(*seed_id == lowest_id_fingerprint);
-
-    // A pinned record redirects the choice to the seed it fingerprints.
-    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id",
-                                             {other_fingerprint.begin(), other_fingerprint.end()}));
-    seed_id = m_iface->getPlatformSeedId();
-    BOOST_REQUIRE(seed_id);
-    BOOST_CHECK(*seed_id == other_fingerprint);
-
-    // A pin that matches no active seed must fail seed selection entirely
-    // rather than silently fall back to a different seed's platform universe.
-    auto unmatched{other_fingerprint};
-    unmatched[0] ^= 0xff;
-    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {unmatched.begin(), unmatched.end()}));
-    BOOST_CHECK(!m_iface->getPlatformSeedId());
-
-    // A malformed pin (wrong size) must also fail closed rather than being
-    // treated as "no pin".
-    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {0x01, 0x02, 0x03}));
-    BOOST_CHECK(!m_iface->getPlatformSeedId());
-
-    // Erasing the pin restores the deterministic fallback.
-    BOOST_REQUIRE(m_iface->writePlatformData("platform/seed-id", {}));
-    seed_id = m_iface->getPlatformSeedId();
-    BOOST_REQUIRE(seed_id);
-    BOOST_CHECK(*seed_id == lowest_id_fingerprint);
+    const auto ambiguous{m_iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_CHECK(ambiguous.status == PlatformKeyStatus::AMBIGUOUS_SOURCE);
 }
 
 //! An active descriptor imported from a raw xprv stores an empty mnemonic.
-//! Platform seed selection must fail for such a wallet instead of deriving
-//! from the publicly reproducible empty-mnemonic BIP39 seed.
-BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_seed, FriendshipWalletSetup)
+//! Platform key derivation must fail instead of deriving from the publicly
+//! reproducible empty-mnemonic BIP39 seed.
+BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_keys, FriendshipWalletSetup)
 {
     auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
                                             CreateMockWalletDatabase());
@@ -445,14 +388,15 @@ BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_seed, FriendshipWalletS
     }
 
     auto iface = interfaces::MakeWallet(m_context, wallet);
-    BOOST_CHECK(!iface->getPlatformSeedId());
+    const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_CHECK(result.status == PlatformKeyStatus::NOT_SUPPORTED);
 }
 
 //! A stored mnemonic that is nonempty but fails BIP39 validation — what a
-//! corrupted wallet record deserializes to — must not become a platform seed
-//! candidate: ToSeed() hashes any string, so accepting it would silently
-//! derive an unrelated Platform key universe.
-BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_seed, FriendshipWalletSetup)
+//! corrupted wallet record deserializes to — must not become a Platform key
+//! source: ToSeed() hashes any string, so accepting it would silently derive
+//! an unrelated Platform key universe.
+BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_keys, FriendshipWalletSetup)
 {
     const SecureString bad_mnemonic{
         "birth kingdom trash renew flavor utility donkey gasp regular alert pave kingdom"};
@@ -486,19 +430,19 @@ BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_seed, FriendshipWalletS
     }
 
     auto iface = interfaces::MakeWallet(m_context, wallet);
-    BOOST_CHECK(!iface->getPlatformSeedId());
+    const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_CHECK(result.status == PlatformKeyStatus::INVALID_SOURCE);
 
-    // The same path with a valid mnemonic still serves the expected seed.
+    // The same path with a valid mnemonic still derives the expected key.
     const auto valid{MakeSeededWallet(SecureString{DIP14_MNEMONIC})};
-    const auto seed_id{valid.second->getPlatformSeedId()};
-    BOOST_REQUIRE(seed_id);
-    BOOST_CHECK(*seed_id == SeedFingerprint(Dip14Seed()));
+    const auto valid_result{valid.second->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_REQUIRE(valid_result);
 }
 
 //! DashPay is descriptor-wallet-only: a legacy wallet must be refused even
-//! with a perfectly recoverable HD chain seed, so no Platform key universe
-//! can ever be created that a later wallet migration would orphan.
-BOOST_FIXTURE_TEST_CASE(legacy_wallet_has_no_platform_seed, FriendshipWalletSetup)
+//! with a perfectly recoverable HD chain seed, so no Platform keys can be
+//! created that a later wallet migration would orphan.
+BOOST_FIXTURE_TEST_CASE(legacy_wallet_has_no_platform_keys, FriendshipWalletSetup)
 {
     auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
                                             CreateMockWalletDatabase());
@@ -515,12 +459,9 @@ BOOST_FIXTURE_TEST_CASE(legacy_wallet_has_no_platform_seed, FriendshipWalletSetu
         BOOST_CHECK(hd_chain.GetSeed() == Dip14Seed());
     }
 
-    SecureVector seed;
-    BOOST_CHECK(!GetPlatformSeed(*wallet, seed));
-    BOOST_CHECK(seed.empty());
-
     auto iface = interfaces::MakeWallet(m_context, wallet);
-    BOOST_CHECK(!iface->getPlatformSeedId());
+    const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_CHECK(result.status == PlatformKeyStatus::NOT_SUPPORTED);
 }
 
 //! Two independent wallet instances restored from the same recovery phrase:
@@ -539,74 +480,97 @@ struct SeededWalletPair : public Dip14WalletSetup {
 //! the known seed (pinning the interface to the vector-backed path math).
 BOOST_FIXTURE_TEST_CASE(recovery_auth_key_rederivation, SeededWalletPair)
 {
-    using KeyType = interfaces::Wallet::PlatformKeyType;
-
-    // A key-type value outside the enum must fail instead of deriving with an
-    // empty path, which would expose the BIP32 master key.
-    CPubKey bogus;
-    BOOST_CHECK(!m_iface->getPlatformPubKey(static_cast<KeyType>(0xff), 0, 0, bogus));
-
     const auto coin_type{static_cast<uint32_t>(Params().ExtCoinType())};
     for (uint32_t identity = 0; identity < 2; ++identity) {
         for (uint32_t key = 0; key < 5; ++key) {
-            CPubKey original, restored;
-            BOOST_REQUIRE(m_iface->getPlatformPubKey(KeyType::IdentityAuth, identity, key, original));
-            BOOST_REQUIRE(m_iface_b->getPlatformPubKey(KeyType::IdentityAuth, identity, key, restored));
-            BOOST_CHECK(original == restored);
+            const auto original{m_iface->getPlatformPubKey(IdentityAuthKey{identity, key})};
+            const auto restored{m_iface_b->getPlatformPubKey(IdentityAuthKey{identity, key})};
+            BOOST_REQUIRE(original);
+            BOOST_REQUIRE(restored);
+            BOOST_CHECK(original.value == restored.value);
 
             ExtKey256 expected;
             BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), IdentityAuthKeyPath(coin_type, identity, key), expected));
-            BOOST_CHECK(original == expected.key.GetPubKey());
+            BOOST_CHECK(original.value == expected.key.GetPubKey());
         }
     }
 
-    CPubKey funding_original, funding_restored;
-    BOOST_REQUIRE(m_iface->getPlatformPubKey(KeyType::RegistrationFunding, 0, 0, funding_original));
-    BOOST_REQUIRE(m_iface_b->getPlatformPubKey(KeyType::RegistrationFunding, 0, 0, funding_restored));
-    BOOST_CHECK(funding_original == funding_restored);
+    const auto funding_original{m_iface->getPlatformPubKey(RegistrationFundingKey{0})};
+    const auto funding_restored{m_iface_b->getPlatformPubKey(RegistrationFundingKey{0})};
+    BOOST_REQUIRE(funding_original);
+    BOOST_REQUIRE(funding_restored);
+    BOOST_CHECK(funding_original.value == funding_restored.value);
+}
+
+//! Independent BIP32 vectors generated from Dip14Seed() with Python's stdlib
+//! HMAC-SHA512 and cryptography's secp256k1 implementation. These pin DIP-13's
+//! distinct final-index rules: registration and unbound top-up are normal,
+//! while invitations are hardened.
+BOOST_AUTO_TEST_CASE(dip13_funding_vectors)
+{
+    const struct {
+        PlatformKeyRequest request;
+        const char* expected_key;
+        const char* expected_chaincode;
+    } vectors[]{
+        {RegistrationFundingKey{7}, "804cc77cec9ce9ccf576a9b5978f5da67a86b9307f2686a26fa4cf873bc5645c",
+         "5958f765e78779437d7a4b168297202d5153fd0add543097ad929c4bb412f061"},
+        {TopupFundingKey{11}, "cd6adc39e772ed2b2186ecc42cbdb5b881fe755db086a9c8a94343815af8784a",
+         "43503e58c2e61675d56adaf831b11735acfc5570918d46dad1385c292a8aadc5"},
+        {InvitationFundingKey{13}, "4d731224222afd2b28539a8588fbb7579e85b5d6cec9e328a1c5a78f522581a8",
+         "b2d0561c5974f9969b39a0d62c041277fbfeaa5e9efd88cf31072a2779d9f254"},
+    };
+    for (const auto& vector : vectors) {
+        ExtKey256 key;
+        BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), PlatformKeyPath(/*coin_type=*/1, vector.request), key));
+        BOOST_CHECK_EQUAL(HexStr(Span{key.key.begin(), key.key.size()}), vector.expected_key);
+        BOOST_CHECK_EQUAL(HexStr(key.chaincode), vector.expected_chaincode);
+    }
 }
 
 //! Compact signatures from signPlatformDigest must recover to the pubkey
 //! getPlatformPubKey reports for the same key, on both wallet instances.
 BOOST_FIXTURE_TEST_CASE(sign_platform_digest_recovers_to_pubkey, SeededWalletPair)
 {
-    using KeyType = interfaces::Wallet::PlatformKeyType;
     const uint256 digest{g_insecure_rand_ctx.rand256()};
+    const PlatformKeyRequest request{IdentityAuthKey{0, 0}};
 
-    std::vector<unsigned char> sig_original, sig_restored;
-    BOOST_REQUIRE(m_iface->signPlatformDigest(KeyType::IdentityAuth, 0, 0, digest, sig_original));
-    BOOST_REQUIRE(m_iface_b->signPlatformDigest(KeyType::IdentityAuth, 0, 0, digest, sig_restored));
+    const auto sig_original{m_iface->signPlatformDigest(request, digest)};
+    const auto sig_restored{m_iface_b->signPlatformDigest(request, digest)};
+    BOOST_REQUIRE(sig_original);
+    BOOST_REQUIRE(sig_restored);
 
-    CPubKey auth_key;
-    BOOST_REQUIRE(m_iface->getPlatformPubKey(KeyType::IdentityAuth, 0, 0, auth_key));
+    const auto auth_key{m_iface->getPlatformPubKey(request)};
+    BOOST_REQUIRE(auth_key);
 
     CPubKey recovered;
-    BOOST_REQUIRE(recovered.RecoverCompact(digest, sig_original));
-    BOOST_CHECK(recovered == auth_key);
-    BOOST_REQUIRE(recovered.RecoverCompact(digest, sig_restored));
-    BOOST_CHECK(recovered == auth_key);
+    BOOST_REQUIRE(recovered.RecoverCompact(digest, sig_original.value));
+    BOOST_CHECK(recovered == auth_key.value);
+    BOOST_REQUIRE(recovered.RecoverCompact(digest, sig_restored.value));
+    BOOST_CHECK(recovered == auth_key.value);
 }
 
 //! Friendship xpubs and the payment destinations derived from them must
 //! rederive identically after restore, and stay direction-sensitive.
 BOOST_FIXTURE_TEST_CASE(recovery_friendship_xpub_rederivation, SeededWalletPair)
 {
-    CPubKey xpub_a, xpub_b;
-    uint256 chaincode_a, chaincode_b;
-    BOOST_REQUIRE(m_iface->getFriendshipXpub(ACCOUNT, m_my_id, m_their_id, xpub_a, chaincode_a));
-    BOOST_REQUIRE(m_iface_b->getFriendshipXpub(ACCOUNT, m_my_id, m_their_id, xpub_b, chaincode_b));
-    BOOST_CHECK(xpub_a == xpub_b);
-    BOOST_CHECK(chaincode_a == chaincode_b);
+    const FriendshipKeychainRequest request{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0};
+    const auto keychain_a{m_iface->ensureFriendshipReceivingKeychain(request)};
+    const auto keychain_b{m_iface_b->ensureFriendshipReceivingKeychain(request)};
+    BOOST_REQUIRE(keychain_a);
+    BOOST_REQUIRE(keychain_b);
+    BOOST_CHECK(keychain_a.value.pubkey == keychain_b.value.pubkey);
+    BOOST_CHECK(keychain_a.value.chaincode == keychain_b.value.chaincode);
 
     for (uint32_t index = 0; index < 10; ++index) {
         BOOST_CHECK(PaymentDestinationVia(*m_iface, m_my_id, m_their_id, index) ==
                     PaymentDestinationVia(*m_iface_b, m_my_id, m_their_id, index));
     }
 
-    CPubKey xpub_reversed;
-    uint256 chaincode_reversed;
-    BOOST_REQUIRE(m_iface_b->getFriendshipXpub(ACCOUNT, m_their_id, m_my_id, xpub_reversed, chaincode_reversed));
-    BOOST_CHECK(!(xpub_reversed == xpub_a));
+    const auto reversed{m_iface_b->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_their_id, m_my_id, /*birth_time=*/0})};
+    BOOST_REQUIRE(reversed);
+    BOOST_CHECK(reversed.value.pubkey != keychain_a.value.pubkey);
 }
 
 //! The ECDH secret used to decrypt incoming contact-request xpubs must
@@ -617,16 +581,20 @@ BOOST_FIXTURE_TEST_CASE(recovery_ecdh_symmetry_across_restore, SeededWalletPair)
     CKey contact_key;
     contact_key.MakeNewKey(/*fCompressed=*/true);
 
-    SecureVector secret_original, secret_restored;
-    BOOST_REQUIRE(m_iface->platformECDHSecret(0, 0, contact_key.GetPubKey(), secret_original));
-    BOOST_REQUIRE(m_iface_b->platformECDHSecret(0, 0, contact_key.GetPubKey(), secret_restored));
-    BOOST_CHECK(secret_original == secret_restored);
+    const auto invalid{m_iface->platformECDHSecret(IdentityAuthKey{0, 0}, CPubKey{})};
+    BOOST_CHECK(invalid.status == PlatformKeyStatus::INVALID_ARGUMENT);
 
-    CPubKey our_auth_key;
-    BOOST_REQUIRE(m_iface->getPlatformPubKey(interfaces::Wallet::PlatformKeyType::IdentityAuth, 0, 0, our_auth_key));
+    const auto secret_original{m_iface->platformECDHSecret(IdentityAuthKey{0, 0}, contact_key.GetPubKey())};
+    const auto secret_restored{m_iface_b->platformECDHSecret(IdentityAuthKey{0, 0}, contact_key.GetPubKey())};
+    BOOST_REQUIRE(secret_original);
+    BOOST_REQUIRE(secret_restored);
+    BOOST_CHECK(secret_original.value == secret_restored.value);
+
+    const auto our_auth_key{m_iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_REQUIRE(our_auth_key);
     SecureVector secret_contact_side;
-    BOOST_REQUIRE(ComputeECDHSecret(contact_key, our_auth_key, secret_contact_side));
-    BOOST_CHECK(secret_contact_side == secret_original);
+    BOOST_REQUIRE(ComputeECDHSecret(contact_key, our_auth_key.value, secret_contact_side));
+    BOOST_CHECK(secret_contact_side == secret_original.value);
 }
 
 //! A payment received before the loss must become spendable again once the
@@ -636,18 +604,22 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_after_restore_is_spendable, SeededWallet
 {
     // The payment targets the xpub the contact holds — exported by wallet A
     // before the loss.
-    const CScript script{GetScriptForDestination(PaymentDestinationVia(*m_iface, m_my_id, m_their_id, 0))};
+    const auto original_keychain{m_iface->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0})};
+    BOOST_REQUIRE(original_keychain);
+    CTxDestination destination;
+    BOOST_REQUIRE(DeriveFriendshipPaymentDestination(original_keychain.value, /*index=*/0, destination));
+    const CScript script{GetScriptForDestination(destination)};
     CMutableTransaction payment;
     payment.vin.emplace_back(g_insecure_rand_ctx.rand256(), 0);
     payment.vout.emplace_back(COIN, script);
 
     // Restored wallet B: not ours until the friendship keychain is back.
-    BOOST_CHECK_EQUAL(IsMineIn(*m_wallet_b, PaymentDestinationVia(*m_iface_b, m_my_id, m_their_id, 0)), ISMINE_NO);
+    BOOST_CHECK_EQUAL(IsMineIn(*m_wallet_b, destination), ISMINE_NO);
 
-    std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface_b->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                               /*creation_time=*/0, error),
-                          error);
+    const auto imported{m_iface_b->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0})};
+    BOOST_REQUIRE(imported);
 
     LOCK(m_wallet_b->cs_wallet);
     m_wallet_b->AddToWallet(MakeTransactionRef(payment), TxStateInMempool{});
@@ -661,20 +633,16 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_after_restore_is_spendable, SeededWallet
 //! update in place rather than duplicate spk_mans or change ownership.
 BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
 {
-    std::string error;
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/0, error),
-                          error);
+    const FriendshipKeychainRequest request{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/0};
+    BOOST_REQUIRE(m_iface->ensureFriendshipReceivingKeychain(request));
     size_t spk_mans_after_first;
     {
         LOCK(m_wallet->cs_wallet);
         spk_mans_after_first = m_wallet->GetAllScriptPubKeyMans().size();
     }
 
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/1'600'000'000,
-                                                             error),
-                          error);
+    BOOST_REQUIRE(m_iface->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/1'600'000'000}));
     {
         LOCK(m_wallet->cs_wallet);
         BOOST_CHECK_EQUAL(m_wallet->GetAllScriptPubKeyMans().size(), spk_mans_after_first);
@@ -713,9 +681,8 @@ BOOST_FIXTURE_TEST_CASE(recovery_import_idempotent, SeededWalletPair)
 
     // Re-import after use must still succeed and keep the grown range,
     // derivation progress, and the earliest creation time.
-    BOOST_REQUIRE_MESSAGE(m_iface->importFriendshipKeychains(ACCOUNT, m_my_id, m_their_id,
-                                                             /*creation_time=*/1'700'000'000, error),
-                          error);
+    BOOST_REQUIRE(m_iface->ensureFriendshipReceivingKeychain(
+        FriendshipKeychainRequest{ACCOUNT, m_my_id, m_their_id, /*birth_time=*/1'700'000'000}));
     {
         LOCK(friendship_spk_man->cs_desc_man);
         const auto reimported{friendship_spk_man->GetWalletDescriptor()};

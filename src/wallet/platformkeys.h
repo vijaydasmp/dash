@@ -9,6 +9,7 @@
 #include <pubkey.h>
 #include <span.h>
 #include <support/allocators/secure.h>
+#include <wallet/platformtypes.h>
 
 #include <array>
 #include <cstdint>
@@ -77,11 +78,10 @@ struct ExtPubKey256 {
 //! (all components hardened; key 0 = MASTER, key 1 = HIGH security level).
 Path IdentityAuthKeyPath(uint32_t coin_type, uint32_t identity_index, uint32_t key_index);
 
-//! m/9'/coin'/5'/<subfeature>'/<index>' — L1 funding keys for identity
-//! registration (1'), top-ups (2') and invitations (3').
-Path IdentityFundingPath(uint32_t coin_type, uint32_t subfeature, uint32_t index);
+//! Convert a typed Platform key request to its DIP-13 derivation path.
+Path PlatformKeyPath(uint32_t coin_type, const PlatformKeyRequest& request);
 
-//! m/9'/coin'/15'/<account>'/<userA>/<userB> — DIP-15 friendship keychain
+//! m/9'/coin'/15'/<account>'/<identity_a>/<identity_b> — DIP-15 friendship keychain
 //! root. The two 256-bit identity ids are NOT hardened (this is what allows
 //! watch-only derivation from an exported xpub); the receiving chain is
 //! (userA = my id, userB = their id), the sending chain is the reverse.
@@ -99,14 +99,6 @@ Path FriendshipPath(uint32_t coin_type, uint32_t account, Span<const uint8_t> us
 //! KeyCrypterECDH / Secp256k1ECDHAgreement, used for DashPay contact request
 //! encryption. Returns a 32-byte secret.
 [[nodiscard]] bool ComputeECDHSecret(const CKey& key, const CPubKey& counterparty, SecureVector& secret_out);
-
-//! Public 8-byte identifier of a platform seed: the first 8 bytes of
-//! HMAC-SHA256(key="DashPlatform/seed-id/v1", msg=seed). Persisted in the
-//! wallet (record "platform/seed-id") so platform data created from one seed
-//! is never silently signed over with another in multi-seed wallets. Keyed
-//! rather than a bare hash so the stored value is useless as a brute-force
-//! oracle against weak seeds.
-std::array<uint8_t, 8> SeedFingerprint(Span<const uint8_t> seed);
 
 } // namespace wallet::platformkeys
 

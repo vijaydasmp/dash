@@ -4,13 +4,12 @@
 
 #include <wallet/platformkeys.h>
 
-#include <crypto/hmac_sha256.h>
-
 #include <secp256k1.h>
 #include <secp256k1_ecdh.h>
 
 #include <algorithm>
 #include <cassert>
+#include <type_traits>
 
 namespace wallet::platformkeys {
 
@@ -29,27 +28,43 @@ Path IdentityAuthKeyPath(uint32_t coin_type, uint32_t identity_index, uint32_t k
     };
 }
 
-Path IdentityFundingPath(uint32_t coin_type, uint32_t subfeature, uint32_t index)
+Path PlatformKeyPath(uint32_t coin_type, const PlatformKeyRequest& request)
 {
-    // dashj DerivationPathFactory.blockchainIdentity{Registration,Topup}Funding-
-    // DerivationPath() / identityInvitationFundingDerivationPath(), plus the
-    // hardened address index appended by AuthenticationKeyChain:
-    // m/9'/coin'/5'/{1,2,3}'/index'
-    assert(subfeature == IDENTITY_REGISTRATION_FUNDING || subfeature == IDENTITY_TOPUP_FUNDING ||
-           subfeature == IDENTITY_INVITATION_FUNDING);
-    return {
-        PathElement::Hardened(FEATURE_PURPOSE),
-        PathElement::Hardened(coin_type),
-        PathElement::Hardened(FEATURE_IDENTITIES),
-        PathElement::Hardened(subfeature),
-        PathElement::Hardened(index),
-    };
+    return std::visit(
+        [coin_type](const auto& key) -> Path {
+            using Key = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<Key, IdentityAuthKey>) {
+                return IdentityAuthKeyPath(coin_type, key.identity_index, key.key_index);
+            } else {
+                uint32_t subfeature;
+                PathElement index;
+                if constexpr (std::is_same_v<Key, RegistrationFundingKey>) {
+                    subfeature = IDENTITY_REGISTRATION_FUNDING;
+                    index = PathElement::Normal(key.identity_index);
+                } else if constexpr (std::is_same_v<Key, TopupFundingKey>) {
+                    subfeature = IDENTITY_TOPUP_FUNDING;
+                    index = PathElement::Normal(key.funding_index);
+                } else {
+                    static_assert(std::is_same_v<Key, InvitationFundingKey>);
+                    subfeature = IDENTITY_INVITATION_FUNDING;
+                    index = PathElement::Hardened(key.invitation_index);
+                }
+                return {
+                    PathElement::Hardened(FEATURE_PURPOSE),
+                    PathElement::Hardened(coin_type),
+                    PathElement::Hardened(FEATURE_IDENTITIES),
+                    PathElement::Hardened(subfeature),
+                    index,
+                };
+            }
+        },
+        request);
 }
 
 Path FriendshipPath(uint32_t coin_type, uint32_t account, Span<const uint8_t> user_a_id, Span<const uint8_t> user_b_id)
 {
     // dashj FriendKeyChain.getContactPath():
-    // m/9'/coin'/15'/account'/userA/userB with the two 256-bit identity ids
+    // m/9'/coin'/15'/account'/identity_a/identity_b with two 256-bit ids
     // NOT hardened (DIP-14/DIP-15), enabling watch-only xpub derivation.
     assert(user_a_id.size() == 32);
     assert(user_b_id.size() == 32);
@@ -130,16 +145,18 @@ bool ComputeECDHSecret(const CKey& key, const CPubKey& counterparty, SecureVecto
     return true;
 }
 
-std::array<uint8_t, 8> SeedFingerprint(Span<const uint8_t> seed)
+} // namespace wallet::platformkeys
+
+namespace wallet {
+
+bool DeriveFriendshipPaymentDestination(const FriendshipXpub& xpub, uint32_t index, CTxDestination& destination_out)
 {
-    static constexpr char DOMAIN_KEY[]{"DashPlatform/seed-id/v1"};
-    unsigned char mac[CHMAC_SHA256::OUTPUT_SIZE];
-    CHMAC_SHA256{reinterpret_cast<const unsigned char*>(DOMAIN_KEY), sizeof(DOMAIN_KEY) - 1}
-        .Write(seed.data(), seed.size())
-        .Finalize(mac);
-    std::array<uint8_t, 8> out;
-    std::copy(mac, mac + out.size(), out.begin());
-    return out;
+    platformkeys::ExtPubKey256 child;
+    if (!platformkeys::DerivePubKey({xpub.pubkey, xpub.chaincode}, platformkeys::PathElement::Normal(index), child)) {
+        return false;
+    }
+    destination_out = PKHash{child.pubkey};
+    return true;
 }
 
-} // namespace wallet::platformkeys
+} // namespace wallet

@@ -2,13 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <key_io.h>
 #include <chainparams.h>
+#include <key_io.h>
 #include <logging.h>
 #include <messagesigner.h>
 #include <script/descriptor.h>
 #include <script/sign.h>
 #include <shutdown.h>
+#include <support/cleanse.h>
 #include <util/bip32.h>
 #include <util/strencodings.h>
 #include <util/system.h>
@@ -2714,6 +2715,71 @@ bool DescriptorScriptPubKeyMan::SignSpecialTxPayload(const uint256& hash, const 
     }
 
     return CHashSigner::SignHash(hash, key, vchSig);
+}
+
+PlatformKeyStatus DescriptorScriptPubKeyMan::GetPlatformKeySource(std::vector<unsigned char>& identifier) const
+{
+    LOCK(cs_desc_man);
+
+    std::vector<CKeyID> source_ids;
+    for (const auto& [id, mnemonic] : m_mnemonics) {
+        if (!mnemonic.first.empty()) source_ids.push_back(id);
+    }
+    for (const auto& [id, mnemonic] : m_crypted_mnemonics) {
+        if (!mnemonic.first.empty()) source_ids.push_back(id);
+    }
+    if (source_ids.empty()) return PlatformKeyStatus::NOT_SUPPORTED;
+    if (source_ids.size() != 1) return PlatformKeyStatus::AMBIGUOUS_SOURCE;
+
+    const CKeyID source_id{source_ids.front()};
+    CPubKey source_pubkey;
+    if (const auto key_it{m_map_keys.find(source_id)}; key_it != m_map_keys.end()) {
+        source_pubkey = key_it->second.GetPubKey();
+    } else if (const auto key_it{m_map_crypted_keys.find(source_id)}; key_it != m_map_crypted_keys.end()) {
+        source_pubkey = key_it->second.first;
+    } else {
+        return PlatformKeyStatus::INVALID_SOURCE;
+    }
+    if (!source_pubkey.IsFullyValid()) return PlatformKeyStatus::INVALID_SOURCE;
+
+    // Prefix descriptor sources so identifiers from future key-manager
+    // implementations cannot accidentally compare equal.
+    identifier.assign(1, 1);
+    identifier.insert(identifier.end(), source_pubkey.begin(), source_pubkey.end());
+    return PlatformKeyStatus::SUCCESS;
+}
+
+PlatformKeyStatus DescriptorScriptPubKeyMan::DerivePlatformKey(const platformkeys::Path& path,
+                                                               platformkeys::ExtKey256& out) const
+{
+    out = {};
+    if (path.empty()) return PlatformKeyStatus::INVALID_ARGUMENT;
+
+    std::vector<unsigned char> identifier;
+    const auto source_status{GetPlatformKeySource(identifier)};
+    if (source_status != PlatformKeyStatus::SUCCESS) return source_status;
+
+    SecureString mnemonic;
+    SecureString passphrase;
+    if (!GetMnemonicString(mnemonic, passphrase)) {
+        return m_storage.IsLocked(false) ? PlatformKeyStatus::WALLET_LOCKED : PlatformKeyStatus::INVALID_SOURCE;
+    }
+    if (mnemonic.empty() || !CMnemonic::Check(mnemonic)) return PlatformKeyStatus::INVALID_SOURCE;
+
+    SecureVector seed;
+    CMnemonic::ToSeed(mnemonic, passphrase, seed);
+    CExtKey master;
+    master.SetSeed(MakeByteSpan(seed));
+    const bool master_valid{master.key.IsValid()};
+    const CPubKey master_pubkey{master_valid ? master.key.GetPubKey() : CPubKey{}};
+    memory_cleanse(master.chaincode.data(), master.chaincode.size());
+
+    if (!master_valid || identifier.size() != 1 + master_pubkey.size() ||
+        !std::equal(identifier.begin() + 1, identifier.end(), master_pubkey.begin())) {
+        return PlatformKeyStatus::INVALID_SOURCE;
+    }
+
+    return platformkeys::DeriveExtKey(seed, path, out) ? PlatformKeyStatus::SUCCESS : PlatformKeyStatus::DERIVATION_ERROR;
 }
 
 TransactionError DescriptorScriptPubKeyMan::FillPSBT(PartiallySignedTransaction& psbtx, const PrecomputedTransactionData& txdata, int sighash_type, bool sign, bool bip32derivs, int* n_signed, bool finalize) const

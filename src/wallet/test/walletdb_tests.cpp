@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
     const std::vector<unsigned char> value_b{0x03};
     BOOST_CHECK(m_wallet.WritePlatformData("platform/identity/0", value_a));
     BOOST_CHECK(m_wallet.WritePlatformData("platform/identity/1", value_b));
-    BOOST_CHECK(m_wallet.WritePlatformData("platform/seed-id", value_b));
+    BOOST_CHECK(m_wallet.WritePlatformData("platform/metadata", value_b));
 
     auto records{m_wallet.GetPlatformData("platform/identity/")};
     BOOST_CHECK_EQUAL(records.size(), 2U);
@@ -96,9 +96,7 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_records)
     BOOST_CHECK(m_wallet.GetPlatformData("platform/loaded").at("platform/loaded") == value_a);
 
     // A truncated value must fail the read and identify PLATFORM_DATA as the
-    // failing type so LoadWallet() can classify the damage (fatal for the
-    // reserved seed pin, noncritical for other Platform records; see
-    // walletdb_platform_data_corruption_policy below).
+    // failing type so LoadWallet() can classify the damage as noncritical.
     CDataStream ssGood(SER_DISK, CLIENT_VERSION);
     ssGood << value_a;
     CDataStream ssBadKey(SER_DISK, CLIENT_VERSION);
@@ -135,15 +133,15 @@ static DBErrors LoadWithCorruptPlatformRecord(const node::NodeContext& node, con
 
 BOOST_AUTO_TEST_CASE(walletdb_platform_data_corruption_policy)
 {
-    // A damaged reserved seed-pin record must fail the load: silently
-    // dropping it could unpin the Platform seed and let a multi-seed wallet
-    // sign under another identity.
+    // Platform records are opaque cache/metadata. Damage is noncritical, the
+    // wallet still loads, and intact records survive. There is no reserved
+    // Platform seed-selection record.
     std::map<std::string, std::vector<unsigned char>> platform_data;
-    BOOST_CHECK(LoadWithCorruptPlatformRecord(m_node, m_args, "platform/seed-id", platform_data) ==
-                DBErrors::CORRUPT);
+    BOOST_CHECK(LoadWithCorruptPlatformRecord(m_node, m_args, "platform/metadata", platform_data) ==
+                DBErrors::NONCRITICAL_ERROR);
+    BOOST_CHECK_EQUAL(platform_data.count("platform/metadata"), 0U);
+    BOOST_CHECK(platform_data.at("platform/intact") == std::vector<unsigned char>({0x01, 0x02}));
 
-    // Any other Platform record is opaque cache/metadata: damage there is
-    // noncritical, the wallet still loads, and intact records survive.
     platform_data.clear();
     BOOST_CHECK(LoadWithCorruptPlatformRecord(m_node, m_args, "platform/identity/0", platform_data) ==
                 DBErrors::NONCRITICAL_ERROR);

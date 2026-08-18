@@ -449,6 +449,12 @@ private:
 
     static int64_t GetDefaultNextResend();
 
+    PlatformKeyStatus GetPlatformKeySource(const ScriptPubKeyMan*& source) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    PlatformKeyStatus DerivePlatformKey(const PlatformKeyRequest& request, platformkeys::ExtKey256& out) const
+        EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    PlatformKeyStatus DerivePlatformKey(const platformkeys::Path& path, platformkeys::ExtKey256& out) const
+        EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
 public:
     /**
      * Main wallet lock.
@@ -1013,6 +1019,12 @@ public:
     bool WritePlatformData(const std::string& key, const std::vector<unsigned char>& value) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** All Platform data records whose key starts with prefix. */
     std::map<std::string, std::vector<unsigned char>> GetPlatformData(const std::string& prefix) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    PlatformKeyResult<CPubKey> GetPlatformPubKey(const PlatformKeyRequest& request) const;
+    PlatformKeyResult<std::vector<unsigned char>> SignPlatformDigest(const PlatformKeyRequest& request,
+                                                                     const uint256& digest) const;
+    PlatformKeyResult<SecureVector> PlatformECDHSecret(const IdentityAuthKey& key, const CPubKey& counterparty) const;
+    PlatformKeyResult<FriendshipXpub> EnsureFriendshipReceivingKeychain(const FriendshipKeychainRequest& request);
 
     /**
      * Blocks until the wallet state is up-to-date to /at least/ the current

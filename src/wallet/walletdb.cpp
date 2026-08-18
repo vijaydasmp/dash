@@ -368,11 +368,6 @@ public:
     std::map<std::pair<uint256, CKeyID>, std::pair<std::vector<unsigned char>, std::vector<unsigned char>>> crypted_mnemonics;
     bool tx_corrupt{false};
     bool descriptor_unknown{false};
-    //! True while a PLATFORM_DATA record that is (or could be) the reserved
-    //! platform/seed-id pin is being deserialized, so a failure there can be
-    //! told apart from damage to an opaque Platform cache record.
-    bool platform_seed_pin_corrupt{false};
-
     CWalletScanState() = default;
 };
 
@@ -663,13 +658,8 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         } else if (strType == DBKeys::PLATFORM_DATA) {
             std::string strKey;
             std::vector<unsigned char> vchValue;
-            // Until the record key proves otherwise, assume a failure hits the
-            // seed pin: an unreadable key could belong to the pin record itself.
-            wss.platform_seed_pin_corrupt = true;
             ssKey >> strKey;
-            wss.platform_seed_pin_corrupt = (strKey == PLATFORM_SEED_ID_RECORD);
             ssValue >> vchValue;
-            wss.platform_seed_pin_corrupt = false;
             pwallet->LoadPlatformData(strKey, vchValue);
         } else if (strType == DBKeys::OLD_KEY) {
             strErr = "Found unsupported 'wkey' record, try loading with version 0.17";
@@ -935,15 +925,6 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
                 } else if (strType == DBKeys::FLAGS) {
                     // reading the wallet flags can only fail if unknown flags are present
                     result = DBErrors::TOO_NEW;
-                } else if (strType == DBKeys::PLATFORM_DATA && wss.platform_seed_pin_corrupt) {
-                    // A silently dropped pin record could unpin the Platform
-                    // seed and let a multi-seed wallet sign under another
-                    // identity. Other Platform records are opaque cache and
-                    // metadata; losing one falls through to the noncritical
-                    // path below so a damaged cache cannot prevent opening
-                    // the wallet.
-                    wss.platform_seed_pin_corrupt = false;
-                    result = DBErrors::CORRUPT;
                 } else if (wss.tx_corrupt) {
                     pwallet->WalletLogPrintf("Error: Corrupt transaction found. This can be fixed by removing transactions from wallet and rescanning.\n");
                     // Set tx_corrupt back to false so that the error is only printed once (per corrupt tx)
