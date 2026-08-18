@@ -1954,6 +1954,14 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         node.isman.reset();
         node.dmnman.reset();
         node.evodb.reset();
+        auto catch_exceptions = [](auto&& f) {
+            try {
+                return f();
+            } catch (const std::exception& e) {
+                LogPrintf("%s\n", e.what());
+                return std::make_tuple(node::ChainstateLoadStatus::FAILURE, _("Error opening block database"));
+            }
+        };
         node.evodb = std::make_unique<CEvoDB>(util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
         node.dmnman = std::make_unique<CDeterministicMNManager>(*node.evodb, *node.mn_metaman);
         node.isman = std::make_unique<llmq::CInstantSendManager>(*node.sporkman, util::DbWrapperParams{.path = args.GetDataDirNet(), .memory = false, .wipe = node::fReindex || fReindexChainState});
@@ -2010,14 +2018,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
         uiInterface.InitMessage(_("Loading block index…").translated);
         const auto load_block_index_start_time{SteadyClock::now()};
-        auto catch_exceptions = [](auto&& f) {
-            try {
-                return f();
-            } catch (const std::exception& e) {
-                LogPrintf("%s\n", e.what());
-                return std::make_tuple(node::ChainstateLoadStatus::FAILURE, _("Error opening block database"));
-            }
-        };
         auto [status, error] = catch_exceptions([&]{ return LoadChainstate(chainman, cache_sizes, options, *node.evodb, *node.dmnman, node.llmq_ctx, node.chain_helper); });
         if (status == node::ChainstateLoadStatus::SUCCESS) {
             uiInterface.InitMessage(_("Verifying blocks…").translated);
