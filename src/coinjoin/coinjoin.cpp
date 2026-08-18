@@ -240,17 +240,12 @@ std::string CCoinJoinBaseSession::GetStateString() const
     }
 }
 
-bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock)
+bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman)
 {
     LOCK(::cs_main);
     const CBlockIndex* pindex = chainman.ActiveChain().Tip();
     if (pindex == nullptr) return false;
-    // With fNextBlock the deployment counts as active if it will be active in the block
-    // following our tip. Clients use this when validating a final transaction so that a
-    // masternode whose tip is one block ahead at the V24 boundary doesn't get its valid
-    // unbalanced final tx refused - refusing to sign would cost the client its collateral.
-    return fNextBlock ? DeploymentActiveAfter(pindex, chainman, Consensus::DEPLOYMENT_V24)
-                      : DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
+    return DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
 }
 
 bool CoinJoin::IsPromotionDemotionImminent(const ChainstateManager& chainman)

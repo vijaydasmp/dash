@@ -467,10 +467,11 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
 
     if (!mixingMasternode) return false;
 
-    // Evaluated before taking cs_wallet (IsPromotionDemotionActive locks cs_main).
-    // fNextBlock keeps this consistent with the final-tx leniency in IsValidInOuts: a
-    // masternode one block ahead at the V24 boundary must not get its final tx refused.
-    const bool fV24Active = CoinJoin::IsPromotionDemotionActive(active_chainstate.m_chainman, /*fNextBlock=*/true);
+    // Evaluated before taking cs_wallet (IsPromotionDemotionImminent locks cs_main).
+    // A session we joined for 1:1 mixing can still admit a rebalance participant, so the final
+    // tx may legitimately be unbalanced while our own tip is short of V24 - and refusing to
+    // sign risks our collateral. Tolerate the whole window a masternode can be ahead of us.
+    const bool fRebalanceShapesPossible = CoinJoin::IsPromotionDemotionImminent(active_chainstate.m_chainman);
 
     LOCK(m_wallet->cs_wallet);
     LOCK(cs_coinjoin);
@@ -496,7 +497,7 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
     PoolMessage nMessageID{MSG_NOERR};
     CoinJoin::SessionDenomCounts denomCounts;
     if (!IsValidInOuts(active_chainstate, m_isman, mempool, finalMutableTransaction.vin, finalMutableTransaction.vout,
-                       nSessionDenom, /*fAllowRebalanceShapes=*/fV24Active, nMessageID, nullptr, /*fFinalTx=*/true, &denomCounts)) {
+                       nSessionDenom, /*fAllowRebalanceShapes=*/fRebalanceShapesPossible, nMessageID, nullptr, /*fFinalTx=*/true, &denomCounts)) {
         WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageID).translated);
         UnlockCoins();
         keyHolderStorage.ReturnAll();
@@ -561,7 +562,7 @@ bool CCoinJoinClientSession::SignFinalTransaction(CNode& peer, Chainstate& activ
     // promotion inputs, or our ten demotion outputs, to each other in plain sight. The server
     // never finalizes a session where a side has a lone occupant, so this never rejects an
     // honest final transaction.
-    if (fV24Active) {
+    if (fRebalanceShapesPossible) {
         const CAmount nSessionAmount = CoinJoin::DenominationToAmount(nSessionDenom);
         size_t nOwnSessionInputs{0};
         size_t nOwnSessionOutputs{0};
