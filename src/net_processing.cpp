@@ -573,7 +573,7 @@ public:
                     CDeterministicMNManager& dmnman,
                     const std::unique_ptr<CJWalletManager>& cj_walletman,
                     llmq::CInstantSendManager& isman,
-                    const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
+                    LLMQContext& llmq_ctx, bool ignore_incoming_txs);
 
     ~PeerManagerImpl()
     {
@@ -811,7 +811,7 @@ private:
     CDeterministicMNManager& m_dmnman;
     const std::unique_ptr<CJWalletManager>& m_cj_walletman;
     llmq::CInstantSendManager& m_isman;
-    const std::unique_ptr<LLMQContext>& m_llmq_ctx;
+    LLMQContext& m_llmq_ctx;
     CMasternodeMetaMan& m_mn_metaman;
     CMasternodeSync& m_mn_sync;
     CSporkManager& m_sporkman;
@@ -2044,7 +2044,7 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                CDeterministicMNManager& dmnman,
                                                const std::unique_ptr<CJWalletManager>& cj_walletman,
                                                llmq::CInstantSendManager& isman,
-                                               const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
+                                               LLMQContext& llmq_ctx, bool ignore_incoming_txs)
 {
     return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, isman, llmq_ctx, ignore_incoming_txs);
 }
@@ -2059,7 +2059,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
                                  CDeterministicMNManager& dmnman,
                                  const std::unique_ptr<CJWalletManager>& cj_walletman,
                                  llmq::CInstantSendManager& isman,
-                                 const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
+                                 LLMQContext& llmq_ctx, bool ignore_incoming_txs)
     : m_chainparams(chainman.GetParams()),
       m_connman(connman),
       m_addrman(addrman),
@@ -2356,10 +2356,10 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
         return false;
 
     case MSG_QUORUM_FINAL_COMMITMENT:
-        return m_llmq_ctx->quorum_block_processor->HasMineableCommitment(inv.hash);
+        return m_llmq_ctx.quorum_block_processor->HasMineableCommitment(inv.hash);
     case MSG_QUORUM_RECOVERED_SIG:
     // TODO: move it to NetSigning
-        return m_llmq_ctx->sigman->AlreadyHave(inv);
+        return m_llmq_ctx.sigman->AlreadyHave(inv);
     case MSG_CLSIG:
         return m_clhandler.AlreadyHave(inv);
     // TODO: move it to NetInstantSend
@@ -2941,7 +2941,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && (inv.type == MSG_QUORUM_FINAL_COMMITMENT)) {
             llmq::CFinalCommitment o;
-            if (m_llmq_ctx->quorum_block_processor->GetMineableCommitmentByHash(
+            if (m_llmq_ctx.quorum_block_processor->GetMineableCommitmentByHash(
                     inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QFCOMMITMENT, o));
                 push = true;
@@ -2950,7 +2950,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && (inv.type == MSG_QUORUM_RECOVERED_SIG)) {
             llmq::CRecoveredSig o;
-            if (m_llmq_ctx->sigman->GetRecoveredSigForGetData(inv.hash, o)) {
+            if (m_llmq_ctx.sigman->GetRecoveredSigForGetData(inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QSIGREC, o));
                 push = true;
             }
@@ -3770,7 +3770,7 @@ MessageProcessingResult PeerManagerImpl::ProcessPlatformBanMessage(NodeId node, 
     }
 
     Consensus::LLMQType llmq_type = m_chainparams.GetConsensus().llmqTypePlatform;
-    auto quorum = m_llmq_ctx->qman->GetQuorum(llmq_type, ban_msg.m_quorum_hash);
+    auto quorum = m_llmq_ctx.qman->GetQuorum(llmq_type, ban_msg.m_quorum_hash);
     if (!quorum) {
         LogPrintf("PLATFORMBAN -- hash: %s protx_hash: %s missing quorum_hash: %s llmq_type: %d\n", hash.ToString(), ban_msg.m_protx_hash.ToString(), ban_msg.m_quorum_hash.ToString(), std23::to_underlying(llmq_type));
         ret.m_error = MisbehavingError{100};
@@ -4107,7 +4107,7 @@ void PeerManagerImpl::ProcessMessage(
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDDSQUEUE, true));
             // Tell our peer that he should send us intra-quorum messages
             const auto tip_mn_list = m_dmnman.GetListAtChainTip();
-            if (m_llmq_ctx->qman->IsWatching() && m_connman.IsMasternodeQuorumNode(&pfrom, tip_mn_list)) {
+            if (m_llmq_ctx.qman->IsWatching() && m_connman.IsMasternodeQuorumNode(&pfrom, tip_mn_list)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QWATCH));
             }
         }
@@ -5468,7 +5468,7 @@ void PeerManagerImpl::ProcessMessage(
 
         CSimplifiedMNListDiff mnListDiff;
         std::string strError;
-        if (BuildSimplifiedMNListDiff(m_dmnman, m_chainman, *m_llmq_ctx->quorum_block_processor, *m_llmq_ctx->qman,
+        if (BuildSimplifiedMNListDiff(m_dmnman, m_chainman, *m_llmq_ctx.quorum_block_processor, *m_llmq_ctx.qman,
                                       cmd.baseBlockHash, cmd.blockHash, mnListDiff, strError))
         {
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::MNLISTDIFF, mnListDiff));
@@ -5518,7 +5518,7 @@ void PeerManagerImpl::ProcessMessage(
         llmq::CQuorumRotationInfo quorumRotationInfoRet;
         std::string strError;
         bool use_legacy_construction = pfrom.GetCommonVersion() < EFFICIENT_QRINFO_VERSION;;
-        if (BuildQuorumRotationInfo(m_dmnman, *m_llmq_ctx->qsnapman, m_chainman, *m_llmq_ctx->qman, *m_llmq_ctx->quorum_block_processor, cmd, use_legacy_construction, quorumRotationInfoRet, strError)) {
+        if (BuildQuorumRotationInfo(m_dmnman, *m_llmq_ctx.qsnapman, m_chainman, *m_llmq_ctx.qman, *m_llmq_ctx.quorum_block_processor, cmd, use_legacy_construction, quorumRotationInfoRet, strError)) {
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QUORUMROTATIONINFO, quorumRotationInfoRet));
         } else {
             strError = strprintf("getquorumrotationinfo failed for size(baseBlockHashes)=%d, blockRequestHash=%s. error=%s", cmd.baseBlockHashes.size(), cmd.blockRequestHash.ToString(), strError);
@@ -5624,7 +5624,7 @@ void PeerManagerImpl::ProcessMessage(
             PostProcessMessage(m_cj_walletman->processMessage(pfrom, m_chainman.ActiveChainstate(), m_connman, m_mempool, msg_type, vRecv), pfrom.GetId());
         }
         PostProcessMessage(CMNAuth::ProcessMessage(pfrom, peer->m_their_services, m_connman, m_mn_metaman, m_nodeman, m_mn_sync, m_dmnman.GetListAtChainTip(), msg_type, vRecv), pfrom.GetId());
-        PostProcessMessage(m_llmq_ctx->quorum_block_processor->ProcessMessage(
+        PostProcessMessage(m_llmq_ctx.quorum_block_processor->ProcessMessage(
                                pfrom, msg_type, vRecv,
                                [this, &pfrom](const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!::cs_main) {
                                    return WITH_LOCK(::cs_main,
@@ -5654,7 +5654,7 @@ void PeerManagerImpl::ProcessMessage(
                     Misbehaving(*peer, UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE, "unrequested clsig");
                     return;
                 }
-                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx->qman,
+                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx.qman,
                                                                    clsig_inv.hash),
                                    pfrom.GetId());
             }
@@ -6141,8 +6141,6 @@ bool PeerManagerImpl::SetupAddressRelay(const CNode& node, Peer& peer)
 bool PeerManagerImpl::SendMessages(CNode* pto)
 {
     AssertLockHeld(g_msgproc_mutex);
-
-    assert(m_llmq_ctx);
 
     const bool is_masternode = m_nodeman != nullptr;
 
