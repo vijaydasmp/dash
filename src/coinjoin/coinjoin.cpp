@@ -127,9 +127,19 @@ bool CCoinJoinBroadcastTx::IsValidStructure(const CBlockIndex* pindex, const Cha
     const size_t nMaxInputsPreV24 = CoinJoin::GetMaxPoolParticipants() * COINJOIN_ENTRY_MAX_SIZE;
     const size_t nMaxInOutsPostV24 = CoinJoin::GetMaxPoolParticipants() * CoinJoin::PROMOTION_RATIO;
     const bool fValidPreV24 = tx->vin.size() == tx->vout.size() && tx->vin.size() <= nMaxInputsPreV24;
-    // Post-V24 the input/output counts no longer bound each other, so cap them independently;
-    // demotion entries produce up to PROMOTION_RATIO outputs each, mirroring promotion inputs
-    const bool fValidPostV24 = tx->vin.size() <= nMaxInOutsPostV24 && tx->vout.size() <= nMaxInOutsPostV24;
+    // Post-V24 the input/output counts no longer bound each other one-to-one, but they still
+    // bound each other: an all-promotion transaction carries at most PROMOTION_RATIO inputs per
+    // output and an all-demotion one the mirror image, so neither side may exceed PROMOTION_RATIO
+    // times the other. Beyond that, each promotion contributes PROMOTION_RATIO - 1 more inputs
+    // than outputs and each demotion the mirror, while standard entries contribute equally to
+    // both sides, so the difference between the sides of a transaction composable from valid
+    // entries is always a multiple of that step.
+    const size_t nSideDiff = tx->vin.size() > tx->vout.size() ? tx->vin.size() - tx->vout.size()
+                                                             : tx->vout.size() - tx->vin.size();
+    const bool fValidPostV24 = tx->vin.size() <= nMaxInOutsPostV24 && tx->vout.size() <= nMaxInOutsPostV24 &&
+                               tx->vin.size() <= tx->vout.size() * static_cast<size_t>(CoinJoin::PROMOTION_RATIO) &&
+                               tx->vout.size() <= tx->vin.size() * static_cast<size_t>(CoinJoin::PROMOTION_RATIO) &&
+                               nSideDiff % static_cast<size_t>(CoinJoin::PROMOTION_RATIO - 1) == 0;
 
     const bool fV24Active = pindex && DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
     if (fV24Active) {

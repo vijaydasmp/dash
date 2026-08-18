@@ -903,15 +903,17 @@ BOOST_AUTO_TEST_CASE(output_limit_postfork)
         return dstx;
     };
 
-    // Unbalanced but within both caps: rejected pre-V24, possibly valid post-V24
+    // Outputs at the cap, inputs the matching count for an all-demotion session: rejected
+    // pre-V24, possibly valid post-V24
     bool fPossiblyValidPostV24{false};
-    const auto withinCaps = MakeUnbalancedTx(30, nMaxPostFork);
+    const auto withinCaps = MakeUnbalancedTx(nMaxPostFork / CoinJoin::PROMOTION_RATIO, nMaxPostFork);
     BOOST_CHECK(!withinCaps.IsValidStructure(nullptr, *Assert(m_node.chainman), &fPossiblyValidPostV24));
     BOOST_CHECK(fPossiblyValidPostV24);
 
-    // One output over the cap: rejected under either ruleset
+    // The same shape scaled past the cap: rejected under either ruleset, and by the cap alone -
+    // it satisfies the input/output count relation (see isvalidstructure_postv24_count_relations)
     fPossiblyValidPostV24 = true;
-    const auto tooManyOutputs = MakeUnbalancedTx(30, nMaxPostFork + 1);
+    const auto tooManyOutputs = MakeUnbalancedTx(nMaxPostFork / CoinJoin::PROMOTION_RATIO + 1, nMaxPostFork + 10);
     BOOST_CHECK(!tooManyOutputs.IsValidStructure(nullptr, *Assert(m_node.chainman), &fPossiblyValidPostV24));
     BOOST_CHECK(!fPossiblyValidPostV24);
 }
@@ -1157,6 +1159,69 @@ BOOST_AUTO_TEST_CASE(isvalidstructure_boundary_input_counts)
     BOOST_CHECK(!tx200.IsValidStructure(nullptr, *Assert(m_node.chainman)));
 
     // Note: Testing post-fork behavior requires a CBlockIndex with V24 active via EHF
+}
+
+BOOST_AUTO_TEST_CASE(isvalidstructure_postv24_count_relations)
+{
+    // The post-V24 branch needs a V24-active CBlockIndex, which this fixture has no chain for.
+    // Its verdict is observable all the same: on a pre-V24 tip IsValidStructure reports
+    // fPossiblyValidPostV24 exactly when a transaction fails the pre-V24 rules but passes the
+    // post-V24 ones, so for any shape that is invalid pre-V24 the flag *is* the post-V24 verdict.
+    // Every shape below is invalid pre-V24 - unbalanced, or balanced above the pre-V24 cap.
+    const size_t nMaxInOuts = static_cast<size_t>(CoinJoin::GetMaxPoolParticipants()) * CoinJoin::PROMOTION_RATIO;
+    const size_t nPreV24Cap = static_cast<size_t>(CoinJoin::GetMaxPoolParticipants()) * COINJOIN_ENTRY_MAX_SIZE;
+
+    auto valid_post_v24 = [this](size_t nIn, size_t nOut) {
+        CMutableTransaction mtx;
+        for (size_t i = 0; i < nIn; ++i) {
+            mtx.vin.emplace_back(COutPoint(uint256::ONE, static_cast<uint32_t>(i)));
+        }
+        for (size_t i = 0; i < nOut; ++i) {
+            mtx.vout.emplace_back(CoinJoin::GetSmallestDenomination(), P2PKHScript(static_cast<uint8_t>(i % 256)));
+        }
+        CCoinJoinBroadcastTx dstx;
+        dstx.tx = MakeTransactionRef(mtx);
+        dstx.m_protxHash = uint256::ONE;
+
+        bool fPossiblyValidPostV24{false};
+        BOOST_REQUIRE(!dstx.IsValidStructure(nullptr, *Assert(m_node.chainman), &fPossiblyValidPostV24));
+        return fPossiblyValidPostV24;
+    };
+
+    // Shapes a session can actually produce: p promotions and d demotions over standard entries
+    BOOST_CHECK(valid_post_v24(100, 10));                        // 10 promotions
+    BOOST_CHECK(valid_post_v24(10, 100));                        // 10 demotions
+    BOOST_CHECK(valid_post_v24(19, 10));                         // 1 promotion + 9 standard 1:1
+    BOOST_CHECK(valid_post_v24(nMaxInOuts, nMaxInOuts / 10));    // promotions at the cap
+    BOOST_CHECK(valid_post_v24(nMaxInOuts / 10, nMaxInOuts));    // demotions at the cap
+
+    // Neither side may exceed PROMOTION_RATIO times the other, even when the difference between
+    // them is a legal multiple of PROMOTION_RATIO - 1 (36 and 36 here)
+    BOOST_CHECK(!valid_post_v24(39, 3));
+    BOOST_CHECK(!valid_post_v24(3, 39));
+
+    // Every promotion adds PROMOTION_RATIO - 1 more inputs than outputs and every demotion the
+    // mirror, so a difference that is not a multiple of that step is not composable from entries
+    BOOST_CHECK(!valid_post_v24(4, 3));
+    BOOST_CHECK(!valid_post_v24(199, 20));
+
+    // Either side over its own cap, with ratio and step both satisfied
+    BOOST_CHECK(!valid_post_v24(nMaxInOuts + 10, nMaxInOuts / 10 + 1));
+    BOOST_CHECK(!valid_post_v24(nMaxInOuts / 10 + 1, nMaxInOuts + 10));
+
+    // No outputs at all: the denominated-output check above passes vacuously, so the count
+    // relation is what has to reject it
+    BOOST_CHECK(!valid_post_v24(3, 0));
+
+    // A balanced transaction above the pre-V24 cap is composable post-V24 and must stay valid:
+    // every entry of a rebalance session may carry PROMOTION_RATIO coins, so one promotion, one
+    // demotion and GetMaxPoolParticipants() - 2 standard entries at that size come to
+    // nMaxInOuts - (PROMOTION_RATIO - 1) on both sides. It exceeds the count peers below
+    // COINJOIN_REBALANCE_VERSION accept, which is why CanAnnounceDstxTo withholds it from them
+    // rather than IsValidStructure rejecting it.
+    const size_t nMaxBalanced = nMaxInOuts - (CoinJoin::PROMOTION_RATIO - 1);
+    BOOST_REQUIRE(nMaxBalanced > nPreV24Cap);
+    BOOST_CHECK(valid_post_v24(nMaxBalanced, nMaxBalanced));
 }
 
 // ============================================================================
