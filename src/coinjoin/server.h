@@ -87,14 +87,17 @@ private:
     void ChargeFees() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     /// Rarely charge fees to pay miners
     void ChargeRandomFees() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
-    /// Consume collateral in cases when peer misbehaved
-    void ConsumeCollateral(const CTransactionRef& txref) const;
+    /// Consume collateral in cases when peer misbehaved. Takes cs_main, which this class never
+    /// takes under cs_coinjoin.
+    void ConsumeCollateral(const CTransactionRef& txref) const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     /// Consume collateral, but only while session_id is still the live session holding it
     void ConsumeCollateralIfCurrentSession(int session_id, const CTransactionRef& txref) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
 
     /// Is session_id still the session we are accepting entries for?
     bool IsCurrentSession(int session_id) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+    /// Is txref one of the collaterals accepted into the current session?
+    bool HasSessionCollateral(const CTransactionRef& txref) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
 
     /// Check for process
     void CheckPool();

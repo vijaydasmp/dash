@@ -387,14 +387,15 @@ protected:
      * aggregate rules (allowed denominations, value balance, input/output consistency) are
      * checked instead. session_denom is the caller's snapshot of the session denomination.
      *
-     * fV24Active tells us whether promotion/demotion shapes are permitted here. It is passed in
-     * rather than derived from the tip so that it stays fixed for the lifetime of a session: the
-     * masternode passes the session's own capability and the client the boundary-tolerant tip
-     * check, and neither can be flipped mid-session by a reorg across the V24 boundary.
+     * fAllowRebalanceShapes tells us whether promotion/demotion shapes are permitted here. It is
+     * passed in rather than derived from the tip so that it stays fixed for the lifetime of a
+     * session: the masternode passes the session's own capability and the client the
+     * boundary-tolerant tip check, and neither can be flipped mid-session by a reorg across the
+     * V24 boundary.
      */
     static bool IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                               const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout,
-                              int session_denom, bool fV24Active, PoolMessage& nMessageIDRet,
+                              int session_denom, bool fAllowRebalanceShapes, PoolMessage& nMessageIDRet,
                               bool* fConsumeCollateralRet, bool fFinalTx = false,
                               CoinJoin::SessionDenomCounts* pDenomCountsRet = nullptr);
 
@@ -490,6 +491,11 @@ namespace CoinJoin
     /// the tip - clients validating a final transaction use this to tolerate a masternode
     /// whose tip is one block ahead around the activation boundary.
     bool IsPromotionDemotionActive(const ChainstateManager& chainman, bool fNextBlock = false);
+
+    /// Whether the V24 deployment has locked in or activated as of our tip, i.e. peers whose
+    /// tips are ahead of ours may already be applying post-V24 rules. Used to soften relay
+    /// penalties around the activation boundary, where our own tip may lag by several blocks.
+    bool IsPromotionDemotionImminent(const ChainstateManager& chainman);
 
     /// If the collateral is valid given by a client
     bool IsCollateralValid(ChainstateManager& chainman, const llmq::CInstantSendManager& isman,

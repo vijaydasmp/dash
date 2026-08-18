@@ -253,9 +253,23 @@ bool CoinJoin::IsPromotionDemotionActive(const ChainstateManager& chainman, bool
                       : DeploymentActiveAt(*pindex, chainman, Consensus::DEPLOYMENT_V24);
 }
 
+bool CoinJoin::IsPromotionDemotionImminent(const ChainstateManager& chainman)
+{
+    LOCK(::cs_main);
+    const CBlockIndex* pindex = chainman.ActiveChain().Tip();
+    if (pindex == nullptr) return false;
+    // LOCKED_IN means the deployment activates at the end of the current signalling period, so
+    // from here on a peer whose tip is ahead of ours may already be past activation - however
+    // many blocks ahead it happens to be. ACTIVE covers the tip-one-block-behind case. Before
+    // lock-in no honest peer can be applying post-V24 rules.
+    const ThresholdState state =
+        chainman.m_versionbitscache.State(pindex, chainman.GetConsensus(), Consensus::DEPLOYMENT_V24);
+    return state == ThresholdState::LOCKED_IN || state == ThresholdState::ACTIVE;
+}
+
 bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const llmq::CInstantSendManager& isman,
                                          const CTxMemPool& mempool, const std::vector<CTxIn>& vin,
-                                         const std::vector<CTxOut>& vout, int session_denom, bool fV24Active,
+                                         const std::vector<CTxOut>& vout, int session_denom, bool fAllowRebalanceShapes,
                                          PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet, bool fFinalTx,
                                          CoinJoin::SessionDenomCounts* pDenomCountsRet)
 {
@@ -271,11 +285,11 @@ bool CCoinJoinBaseSession::IsValidInOuts(Chainstate& active_chainstate, const ll
     enum class EntryType { STANDARD, PROMOTION, DEMOTION, FINAL_TX, INVALID };
     EntryType entryType = EntryType::STANDARD;
 
-    if (fFinalTx && fV24Active) {
+    if (fFinalTx && fAllowRebalanceShapes) {
         entryType = EntryType::FINAL_TX;
     } else if (vin.size() == vout.size()) {
         entryType = EntryType::STANDARD;
-    } else if (fV24Active) {
+    } else if (fAllowRebalanceShapes) {
         if (vin.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO) && vout.size() == 1) {
             entryType = EntryType::PROMOTION;
         } else if (vin.size() == 1 && vout.size() == static_cast<size_t>(CoinJoin::PROMOTION_RATIO)) {

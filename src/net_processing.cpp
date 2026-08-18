@@ -3557,15 +3557,17 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
     bool fPossiblyValidPostV24{false};
     if (!dstx.IsValidStructure(pindex, chainman, &fPossiblyValidPostV24)) {
         LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
-        // fPossiblyValidPostV24 means the tx is well-formed under post-V24 rules and we are
+        // fPossiblyValidPostV24 means the tx is well-formed under post-V24 rules while we are
         // still pre-V24, i.e. it most likely comes from a peer whose tip has already crossed
-        // the activation boundary while ours has not. We cannot tell how far ahead that peer
-        // is, so don't tie the tolerance to a one-block lookahead: a node even a couple of
-        // blocks behind at activation would otherwise hand out the full penalty to every
-        // honest relayer and discourage its peers just as it is trying to catch up. Like the
-        // 24-block-deep masternode scan below this is a tip-skew tolerance, and PREMATURE
-        // still accumulates, so a peer genuinely flooding us is discouraged regardless.
-        if (fPossiblyValidPostV24) {
+        // the activation boundary while ours has not. Tolerating only a one-block lookahead
+        // would leave a node a couple of blocks behind at activation handing the full penalty
+        // to every honest relayer, discouraging its peers just as it is trying to catch up.
+        // Tolerate from lock-in onwards instead, which is the whole window in which a peer can
+        // legitimately be ahead of us; before that no honest peer applies post-V24 rules, so
+        // such a tx keeps the full penalty like anything else malformed. Like the 24-block-deep
+        // masternode scan below this is a tip-skew tolerance, and PREMATURE still accumulates,
+        // so a peer genuinely flooding us is discouraged regardless.
+        if (fPossiblyValidPostV24 && CoinJoin::IsPromotionDemotionImminent(chainman)) {
             return {DSTXValidationScore::PREMATURE, true};
         }
         return {DSTXValidationScore::INVALID, true};

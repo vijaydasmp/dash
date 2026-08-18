@@ -546,9 +546,8 @@ void CCoinJoinServer::ConsumeCollateralIfCurrentSession(int session_id, const CT
     // we get here the scheduler thread may have timed the session out and started another one.
     // Charging then would spend the collateral of a participant that is no longer in any
     // session - it may even be a replay of an innocent participant's collateral.
-    const bool fStillCurrent = WITH_LOCK(cs_coinjoin, return IsCurrentSession(session_id) &&
-        std::ranges::any_of(vecSessionCollaterals,
-                            [&txref](const CTransactionRef& ref) { return *ref == *txref; }));
+    const bool fStillCurrent =
+        WITH_LOCK(cs_coinjoin, return IsCurrentSession(session_id) && HasSessionCollateral(txref));
     if (!fStillCurrent) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- session changed, not consuming collateral %s\n", __func__,
                  txref->GetHash().ToString());
@@ -561,6 +560,13 @@ bool CCoinJoinServer::IsCurrentSession(int session_id) const
 {
     AssertLockHeld(cs_coinjoin);
     return nSessionID != 0 && nSessionID == session_id && nState == POOL_STATE_ACCEPTING_ENTRIES;
+}
+
+bool CCoinJoinServer::HasSessionCollateral(const CTransactionRef& txref) const
+{
+    AssertLockHeld(cs_coinjoin);
+    return std::ranges::any_of(vecSessionCollaterals,
+                               [&txref](const CTransactionRef& ref) { return *ref == *txref; });
 }
 
 bool CCoinJoinServer::HasTimedOut() const
@@ -666,9 +672,6 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
 {
     AssertLockNotHeld(cs_coinjoin);
 
-    const auto isSessionCollateral = [&entry](const CTransactionRef& txCollateral) {
-        return *entry.txCollateral == *txCollateral;
-    };
     const auto hasEntryForCollateral = [&entry](const CCoinJoinEntry& other) {
         return *other.txCollateral == *entry.txCollateral;
     };
@@ -706,7 +709,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         // declared-shape cover) belonging to the admitted participants. Don't consume the
         // collateral in either case - it may be a replay of an innocent participant's
         // collateral rather than misbehavior by its owner.
-        if (std::ranges::none_of(vecSessionCollaterals, isSessionCollateral)) {
+        if (!HasSessionCollateral(entry.txCollateral)) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: collateral %s was not accepted into this session!\n",
                      __func__, entry.txCollateral->GetHash().ToString());
             nMessageIDRet = ERR_SESSION;
@@ -797,7 +800,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
 
     bool fConsumeCollateral{false};
     if (!IsValidInOuts(m_chainman.ActiveChainstate(), m_isman, mempool, vin, entry.vecTxOut, session_denom,
-                       fRebalanceSession, nMessageIDRet, &fConsumeCollateral)) {
+                       /*fAllowRebalanceShapes=*/fRebalanceSession, nMessageIDRet, &fConsumeCollateral)) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR! IsValidInOuts() failed: %s\n", __func__, CoinJoin::GetMessageByID(nMessageIDRet).translated);
         if (fConsumeCollateral) {
             ConsumeCollateralIfCurrentSession(session_id, entry.txCollateral);
@@ -812,8 +815,7 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         // with the state, membership and duplicate-use checks. Admitting into a session that
         // already built its final transaction would add an entry no one can sign, stalling it
         // until the signing timeout charges the honest participants.
-        if (!IsCurrentSession(session_id) ||
-            std::ranges::none_of(vecSessionCollaterals, isSessionCollateral) ||
+        if (!IsCurrentSession(session_id) || !HasSessionCollateral(entry.txCollateral) ||
             std::ranges::any_of(vecEntries, hasEntryForCollateral)) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: session changed while validating the entry!\n", __func__);
             nMessageIDRet = ERR_SESSION;
@@ -1027,7 +1029,8 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
     }
 
     // Evaluated before taking cs_coinjoin: IsPromotionDemotionActive locks cs_main, and cs_main
-    // is never taken under cs_coinjoin elsewhere in this class.
+    // is never taken under cs_coinjoin elsewhere in this class. dsa.IsRebalance() leads so that
+    // cs_main is only taken for rebalance dsas.
     const bool fRebalanceAcceptable = dsa.IsRebalance() && nPeerVersion >= COINJOIN_REBALANCE_VERSION &&
                                       CoinJoin::IsPromotionDemotionActive(m_chainman);
 

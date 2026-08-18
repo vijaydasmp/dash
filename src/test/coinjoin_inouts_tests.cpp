@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
     // Outputs matching the captured denomination pass the denom check and fail
     // only later on the unknown input.
     BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, session_denom,
-                                              /*fV24Active=*/false, message, &consume_collateral));
+                                              /*fAllowRebalanceShapes=*/false, message, &consume_collateral));
     BOOST_CHECK_EQUAL(message, ERR_MISSING_TX);
     BOOST_CHECK(!consume_collateral);
 
@@ -340,7 +340,7 @@ BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
     const int other_denom{CoinJoin::AmountToDenomination(CoinJoin::GetStandardDenominations().front())};
     BOOST_REQUIRE(other_denom != session_denom);
     BOOST_CHECK(!InOutsChecker::IsValidInOuts(chainstate, isman, mempool, vin, vout, other_denom,
-                                              /*fV24Active=*/false, message, &consume_collateral));
+                                              /*fAllowRebalanceShapes=*/false, message, &consume_collateral));
     BOOST_CHECK_EQUAL(message, ERR_DENOM);
     BOOST_CHECK(consume_collateral);
 }

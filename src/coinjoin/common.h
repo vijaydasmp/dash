@@ -10,6 +10,7 @@
 #include <consensus/amount.h>
 #include <primitives/transaction.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -127,7 +128,7 @@ constexpr int GAP_DIVISOR = 5;        // Deficit gap required to trigger promoti
  * a constant of 10 was unsatisfiable at MIN_COINJOIN_DENOMS_GOAL (also 10) and silently
  * disabled the feature there. At the default goal of 50 this still yields 10.
  */
-constexpr int GetGapThreshold(int nGoal) { return nGoal / GAP_DIVISOR > 1 ? nGoal / GAP_DIVISOR : 1; }
+constexpr int GetGapThreshold(int nGoal) { return std::max(nGoal / GAP_DIVISOR, 1); }
 
 /**
  * Which side(s) of the session denomination a participant occupies. A standard entry mixes at

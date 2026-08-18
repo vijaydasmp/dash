@@ -39,7 +39,6 @@
 #include <node/context.h>
 
 #include <algorithm>
-#include <ranges>
 #include <memory>
 #include <string>
 #include <utility>
