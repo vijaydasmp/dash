@@ -8,6 +8,7 @@
 #include <chainlock/chainlock.h>
 #include <coinjoin/coinjoin.h>
 #include <coinjoin/common.h>
+#include <coinjoin/options.h>
 #include <coinjoin/server.h>
 #include <evo/chainhelper.h>
 #include <llmq/context.h>
@@ -183,8 +184,10 @@ public:
     using CCoinJoinServer::CCoinJoinServer;
     using CCoinJoinServer::AddEntry;
 
-    void EnterSigningState() { nState = POOL_STATE_SIGNING; }
-    void EnterAcceptingEntriesState() { nState = POOL_STATE_ACCEPTING_ENTRIES; }
+    // A live session always carries a non-zero id, and AddEntry rejects entries that don't
+    // belong to one, so seed an id along with the state.
+    void EnterSigningState() { nSessionID = 1; nState = POOL_STATE_SIGNING; }
+    void EnterAcceptingEntriesState() { nSessionID = 1; nState = POOL_STATE_ACCEPTING_ENTRIES; }
 
     void SeedParticipant(const CService& addr) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
     {
@@ -392,6 +395,36 @@ BOOST_AUTO_TEST_CASE(server_addentry_binds_entries_to_accepted_collaterals)
     BOOST_CHECK(!server.AddEntry(make_entry(collateral_b, 0x13), msg));
     BOOST_CHECK_EQUAL(msg, ERR_INVALID_COLLATERAL);
     BOOST_CHECK_EQUAL(server.GetEntriesCount(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(server_addentry_rejects_entries_once_the_session_finalized)
+{
+    CActiveMasternodeManager mn_activeman(*Assert(m_node.connman), *Assert(m_node.dmnman), MakeSecretKey());
+    TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
+                                  *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
+                                  *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
+                                  *Assert(m_node.llmq_ctx->isman));
+
+    CMutableTransaction txCollateral;
+    txCollateral.vin.emplace_back(COutPoint(uint256::ONE, 1));
+    txCollateral.vout.emplace_back(COIN / 10, P2PKHScript(1));
+
+    std::vector<CTxDSIn> dsins{CTxDSIn(CTxIn(COutPoint(uint256S("aa"), 1)), P2PKHScript(1), /*nRounds=*/0)};
+    std::vector<CTxOut> outs{CTxOut(COIN / 1000 + 1, P2PKHScript(1))};
+    const CCoinJoinEntry entry(dsins, outs, CTransaction(txCollateral));
+
+    server.SeedSessionCollateral(txCollateral, CoinJoin::MixShape::STANDARD);
+
+    // The scheduler thread can finalize a timed-out session while a straggler's entry is still
+    // being validated. Its collateral is still committed and it still has no entry, so the
+    // membership and duplicate checks alone would let it in - after the final transaction was
+    // already built without it, leaving inputs nobody can sign.
+    server.EnterSigningState();
+
+    PoolMessage msg{MSG_NOERR};
+    BOOST_CHECK(!server.AddEntry(entry, msg));
+    BOOST_CHECK_EQUAL(msg, ERR_SESSION);
+    BOOST_CHECK_EQUAL(server.GetEntriesCount(), 0);
 }
 
 BOOST_AUTO_TEST_CASE(entry_deserializes_vectors_through_wire_cap)
@@ -1170,11 +1203,11 @@ BOOST_AUTO_TEST_CASE(should_promote_larger_deficit_greater)
     const int goal = 100;
 
     // 60 of smaller, 0 of larger -> should promote (0.1 has surplus, 1.0 needs help)
-    // smallerDeficit = 40, largerDeficit = 100, gap = 60 > GAP_THRESHOLD
+    // smallerDeficit = 40, largerDeficit = 100, gap = 60 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldPromote(60, 0, goal));
 
     // 100 of smaller, 0 of larger -> should promote (0.1 full, 1.0 empty)
-    // smallerDeficit = 0, largerDeficit = 100, gap = 100 > GAP_THRESHOLD
+    // smallerDeficit = 0, largerDeficit = 100, gap = 100 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldPromote(100, 0, goal));
 }
 
@@ -1189,8 +1222,25 @@ BOOST_AUTO_TEST_CASE(should_promote_below_half_goal_false)
     BOOST_CHECK(!TestShouldPromote(49, 0, goal));
 
     // 50 of smaller, 0 of larger -> CAN promote (50 >= 50 = halfGoal)
-    // smallerDeficit = 50, largerDeficit = 100, gap = 50 > GAP_THRESHOLD
+    // smallerDeficit = 50, largerDeficit = 100, gap = 50 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldPromote(50, 0, goal));
+}
+
+BOOST_AUTO_TEST_CASE(gap_threshold_reachable_at_every_goal)
+{
+    // The gap between two denominations can never exceed the goal, so a threshold that equals
+    // the goal makes promotion/demotion unsatisfiable. Check the extreme imbalance converts at
+    // the smallest configurable goal, which a constant threshold of 10 silently disabled.
+    const int min_goal = MIN_COINJOIN_DENOMS_GOAL;
+    BOOST_CHECK(TestShouldPromote(min_goal, 0, min_goal));
+    BOOST_CHECK(TestShouldDemote(min_goal, 0, min_goal));
+
+    // The gap still has to be cleared: at the minimum goal a one-coin difference is not enough
+    BOOST_CHECK(!TestShouldPromote(min_goal, min_goal - 1, min_goal));
+    BOOST_CHECK(!TestShouldDemote(min_goal, min_goal - 1, min_goal));
+
+    // The default goal keeps the threshold it was tuned with
+    BOOST_CHECK_EQUAL(CoinJoin::GetGapThreshold(DEFAULT_COINJOIN_DENOMS_GOAL), 10);
 }
 
 BOOST_AUTO_TEST_CASE(should_promote_small_gap_false)
@@ -1198,11 +1248,11 @@ BOOST_AUTO_TEST_CASE(should_promote_small_gap_false)
     const int goal = 100;
 
     // 90 smaller, 80 larger -> deficits are 10 and 20, gap = 10
-    // 20 > 10 + 10 is false, so no promotion
+    // 20 > 10 + 20 is false, so no promotion
     BOOST_CHECK(!TestShouldPromote(90, 80, goal));
 
     // 85 smaller, 80 larger -> deficits are 15 and 20, gap = 5
-    // 20 > 15 + 10 is false, so no promotion
+    // 20 > 15 + 20 is false, so no promotion
     BOOST_CHECK(!TestShouldPromote(85, 80, goal));
 }
 
@@ -1211,11 +1261,11 @@ BOOST_AUTO_TEST_CASE(should_demote_smaller_deficit_greater)
     const int goal = 100;
 
     // 60 of larger, 0 of smaller -> should demote (1.0 has surplus, 0.1 needs help)
-    // largerDeficit = 40, smallerDeficit = 100, gap = 60 > GAP_THRESHOLD
+    // largerDeficit = 40, smallerDeficit = 100, gap = 60 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldDemote(60, 0, goal));
 
     // 99 of larger, 0 of smaller -> should demote
-    // largerDeficit = 1, smallerDeficit = 100, gap = 99 > GAP_THRESHOLD
+    // largerDeficit = 1, smallerDeficit = 100, gap = 99 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldDemote(99, 0, goal));
 }
 
@@ -1230,7 +1280,7 @@ BOOST_AUTO_TEST_CASE(should_demote_below_half_goal_false)
     BOOST_CHECK(!TestShouldDemote(49, 0, goal));
 
     // 50 of larger, 0 of smaller -> CAN demote (50 >= 50 = halfGoal)
-    // largerDeficit = 50, smallerDeficit = 100, gap = 50 > GAP_THRESHOLD
+    // largerDeficit = 50, smallerDeficit = 100, gap = 50 > gap threshold (20 at this goal)
     BOOST_CHECK(TestShouldDemote(50, 0, goal));
 }
 
