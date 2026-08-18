@@ -571,7 +571,7 @@ public:
                     chainlock::ChainlockHandler& clhandler,
                     CActiveMasternodeManager* nodeman,
                     CDeterministicMNManager& dmnman,
-                    const std::unique_ptr<CJWalletManager>& cj_walletman,
+                    CJWalletManager* cj_walletman,
                     llmq::CInstantSendManager& isman,
                     LLMQContext& llmq_ctx, bool ignore_incoming_txs);
 
@@ -809,7 +809,7 @@ private:
     std::unique_ptr<TxReconciliationTracker> m_txreconciliation;
     CActiveMasternodeManager* const m_nodeman; //!< null if non-masternode mode; non-null implies masternode mode
     CDeterministicMNManager& m_dmnman;
-    const std::unique_ptr<CJWalletManager>& m_cj_walletman;
+    CJWalletManager* const m_cj_walletman; //!< null in masternode mode and in wallet-disabled builds
     llmq::CInstantSendManager& m_isman;
     LLMQContext& m_llmq_ctx;
     CMasternodeMetaMan& m_mn_metaman;
@@ -2042,7 +2042,7 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                chainlock::ChainlockHandler& clhandler,
                                                CActiveMasternodeManager* nodeman,
                                                CDeterministicMNManager& dmnman,
-                                               const std::unique_ptr<CJWalletManager>& cj_walletman,
+                                               CJWalletManager* cj_walletman,
                                                llmq::CInstantSendManager& isman,
                                                LLMQContext& llmq_ctx, bool ignore_incoming_txs)
 {
@@ -2057,7 +2057,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
                                  chainlock::ChainlockHandler& clhandler,
                                  CActiveMasternodeManager* nodeman,
                                  CDeterministicMNManager& dmnman,
-                                 const std::unique_ptr<CJWalletManager>& cj_walletman,
+                                 CJWalletManager* cj_walletman,
                                  llmq::CInstantSendManager& isman,
                                  LLMQContext& llmq_ctx, bool ignore_incoming_txs)
     : m_chainparams(chainman.GetParams()),

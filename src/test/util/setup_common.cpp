@@ -132,7 +132,7 @@ std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              bool ignore_incoming_txs)
 {
     return PeerManager::make(connman, *node.addrman, banman, *node.dstxman, *node.chainman, *node.mempool, *node.mn_metaman,
-                             *node.mn_sync, *node.sporkman, *node.chainlocks, *node.clhandler, /*nodeman=*/nullptr, *node.dmnman, node.cj_walletman,
+                             *node.mn_sync, *node.sporkman, *node.chainlocks, *node.clhandler, /*nodeman=*/nullptr, *node.dmnman, node.cj_walletman.get(),
                              *node.isman, *node.llmq_ctx, ignore_incoming_txs);
 }
 

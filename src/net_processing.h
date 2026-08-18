@@ -160,7 +160,7 @@ public:
                                              chainlock::ChainlockHandler& clhandler,
                                              CActiveMasternodeManager* nodeman,
                                              CDeterministicMNManager& dmnman,
-                                             const std::unique_ptr<CJWalletManager>& cj_walletman,
+                                             CJWalletManager* cj_walletman,
                                              llmq::CInstantSendManager& isman,
                                              LLMQContext& llmq_ctx, bool ignore_incoming_txs);
     virtual ~PeerManager() { }

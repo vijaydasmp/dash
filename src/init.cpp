@@ -2108,12 +2108,21 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         RegisterValidationInterface(node.observer_ctx.get());
     }
 
+    assert(!node.cj_walletman);
+#ifdef ENABLE_WALLET
+    if (!node.active_ctx) {
+        // Only constructed in wallet-enabled builds; stays null otherwise, must check before use
+        node.cj_walletman = CJWalletManager::make(chainman, *node.dmnman, *node.mn_metaman, *node.mempool, *node.mn_sync,
+                                                  *node.isman, !ignores_incoming_txs);
+    }
+#endif
+
     assert(!node.peerman);
     node.peerman = PeerManager::make(*node.connman, *node.addrman, node.banman.get(), *node.dstxman,
                                      chainman, *node.mempool, *node.mn_metaman, *node.mn_sync,
                                      *node.sporkman, *node.chainlocks, *node.clhandler,
                                      node.active_ctx ? node.active_ctx->nodeman.get() : nullptr,
-                                     *node.dmnman, node.cj_walletman, *node.isman, *node.llmq_ctx, ignores_incoming_txs);
+                                     *node.dmnman, node.cj_walletman.get(), *node.isman, *node.llmq_ctx, ignores_incoming_txs);
     RegisterValidationInterface(node.peerman.get());
 
     node.ds_notification_interface = std::make_unique<CDSNotificationInterface>(
@@ -2158,13 +2167,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                                                            *node.mempool, *node.active_ctx->nodeman, *node.mn_sync, *node.isman);
         node.active_ctx->SetCJServer(cj_server.get());
         node.peerman->AddExtraHandler(std::move(cj_server));
-    } else {
-        assert(!node.cj_walletman);
-        // Only constructed in wallet-enabled builds; stays null otherwise, must check before use
-#ifdef ENABLE_WALLET
-        node.cj_walletman = CJWalletManager::make(chainman, *node.dmnman, *node.mn_metaman, *node.mempool, *node.mn_sync,
-                                                  *node.isman, !ignores_incoming_txs);
-#endif
     }
 
     if (node.cj_walletman) {
