@@ -118,7 +118,16 @@ constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
 
 // Promotion/demotion constants (post-V24 feature)
 constexpr int PROMOTION_RATIO = 10;   // 10 smaller denomination coins = 1 larger denomination coin
-constexpr int GAP_THRESHOLD = 10;     // Deficit gap required to trigger promotion/demotion
+constexpr int GAP_DIVISOR = 5;        // Deficit gap required to trigger promotion/demotion, as 1/N of the goal
+
+/**
+ * How far behind the other denomination a denomination has to be before converting is worth it;
+ * the gap is what keeps promotion and demotion from oscillating. It is a fraction of the goal
+ * rather than a constant because the largest gap two denominations can show is the goal itself:
+ * a constant of 10 was unsatisfiable at MIN_COINJOIN_DENOMS_GOAL (also 10) and silently
+ * disabled the feature there. At the default goal of 50 this still yields 10.
+ */
+constexpr int GetGapThreshold(int nGoal) { return nGoal / GAP_DIVISOR > 1 ? nGoal / GAP_DIVISOR : 1; }
 
 /**
  * Which side(s) of the session denomination a participant occupies. A standard entry mixes at
@@ -207,7 +216,7 @@ constexpr int GetSmallerAdjacentDenom(int nDenom)
 /**
  * Core promotion decision (post-V24): combine PROMOTION_RATIO fully-mixed coins of the
  * smaller denomination into one coin of the larger adjacent denomination when the larger
- * denomination is further from the per-denom goal by more than GAP_THRESHOLD (the gap
+ * denomination is further from the per-denom goal by more than the gap threshold (which
  * prevents promote/demote oscillation). Callers resolve wallet counts and validate that
  * the denominations are adjacent.
  */
@@ -219,13 +228,13 @@ constexpr bool ShouldPromoteDenoms(int nSmallerCount, int nLargerCount, int nSma
     if (nSmallerFullyMixedCount < PROMOTION_RATIO) return false;
     const int nSmallerDeficit = nSmallerCount < nGoal ? nGoal - nSmallerCount : 0;
     const int nLargerDeficit = nLargerCount < nGoal ? nGoal - nLargerCount : 0;
-    return nLargerDeficit > nSmallerDeficit + GAP_THRESHOLD;
+    return nLargerDeficit > nSmallerDeficit + GetGapThreshold(nGoal);
 }
 
 /**
  * Core demotion decision (post-V24): split one coin of the larger denomination into
  * PROMOTION_RATIO coins of the smaller adjacent denomination when the smaller denomination
- * is further from the per-denom goal by more than GAP_THRESHOLD. Like promotion, demotion
+ * is further from the per-denom goal by more than the gap threshold. Like promotion, demotion
  * only spends a fully-mixed coin: the conversion's public 1:10 shape clusters its outputs,
  * which start mixing over, so only an input with a protected history is worth converting.
  */
@@ -237,7 +246,7 @@ constexpr bool ShouldDemoteDenoms(int nLargerCount, int nSmallerCount, int nLarg
     if (nLargerFullyMixedCount < 1) return false;
     const int nSmallerDeficit = nSmallerCount < nGoal ? nGoal - nSmallerCount : 0;
     const int nLargerDeficit = nLargerCount < nGoal ? nGoal - nLargerCount : 0;
-    return nSmallerDeficit > nLargerDeficit + GAP_THRESHOLD;
+    return nSmallerDeficit > nLargerDeficit + GetGapThreshold(nGoal);
 }
 
 constexpr bool IsCollateralAmount(CAmount nInputAmount)
