@@ -469,7 +469,7 @@ enum class ProTxRegisterAction
     Fund,
     Prepare,
 };
-} // anonumous namespace
+} // anonymous namespace
 
 static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
                                               const bool specific_legacy_bls_scheme,
@@ -769,7 +769,7 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
         CTxDestination collateral_destination{DecodeDestination(request.params[paramIdx].get_str())};
         if (!IsValidDestination(collateral_destination)) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               strprintf("invalid collaterall address: %s", request.params[paramIdx].get_str()));
+                               strprintf("invalid collateral address: %s", request.params[paramIdx].get_str()));
         }
         typed_request.collateral = interfaces::FundProviderCollateral{collateral_destination};
         paramIdx++;

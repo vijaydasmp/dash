@@ -453,7 +453,7 @@ RegistrationResult BuildRegistration(node::NodeContext& node, Wallet& wallet,
     if (const auto* collateral{std::get_if<FundProviderCollateral>(&request.collateral)}) {
         if (!IsValidDestination(collateral->destination)) {
             return Error(ProviderTxErrorCode::INVALID_ADDRESS_OR_KEY,
-                         strprintf("invalid collaterall address: %s", EncodeDestination(collateral->destination)));
+                         strprintf("invalid collateral address: %s", EncodeDestination(collateral->destination)));
         }
         tx.vout.emplace_back(GetMnType(request.type).collat_amount, GetScriptForDestination(collateral->destination));
     } else {
