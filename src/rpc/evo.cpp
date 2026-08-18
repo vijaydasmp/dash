@@ -52,6 +52,9 @@ using wallet::HELP_REQUIRING_PASSPHRASE;
 using wallet::isminetype;
 #endif // ENABLE_WALLET
 
+// Defined here rather than with the other ToJson() in evo/core_write.cpp: dash-tx never prints
+// a masternode entry, and the g_txindex lookup below needs libbitcoin_node anyway. Hosting it
+// in evo/deterministicmns.cpp instead would create four new circular dependencies.
 UniValue CDeterministicMN::ToJson() const
 {
     UniValue obj(UniValue::VOBJ);
