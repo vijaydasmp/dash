@@ -289,6 +289,7 @@ void CCoinJoinServer::SetNull()
     vecSessionCollaterals.clear();
     setSessionCollateralPrevouts.clear();
     m_fRebalanceSession = false;
+    m_fHasLegacyParticipant = false;
     m_mapDeclaredShapes.clear();
 
     CCoinJoinBaseSession::SetNull();
@@ -944,12 +945,12 @@ bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, int nPeerVers
         return false;
     }
 
-    // Post-V24: the creator's protocol version fixes the session version. Only sessions
-    // created by rebalance-capable peers may ever contain promotion/demotion entries, so
-    // clients that cannot validate an unbalanced final transaction are never mixed into one.
-    const bool fRebalanceSession = nPeerVersion >= COINJOIN_REBALANCE_VERSION &&
-                                   CoinJoin::IsPromotionDemotionActive(m_chainman);
-    if (dsa.IsRebalance() && !fRebalanceSession) {
+    // Post-V24: a promotion/demotion may only be declared once V24 is active and by a peer that
+    // speaks the rebalance protocol. The session takes its capability from what this dsa asks
+    // for, not from the creator's version alone - a rebalance-capable peer doing ordinary 1:1
+    // mixing must not fence older clients out of the session it happens to open.
+    if (dsa.IsRebalance() &&
+        (nPeerVersion < COINJOIN_REBALANCE_VERSION || !CoinJoin::IsPromotionDemotionActive(m_chainman))) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CreateNewSession -- rejecting rebalance dsa, promotion/demotion not active\n");
         nMessageIDRet = ERR_VERSION;
         return false;
@@ -970,7 +971,8 @@ bool CCoinJoinServer::CreateNewSession(const CCoinJoinAccept& dsa, int nPeerVers
         nMessageIDRet = MSG_NOERR;
         nSessionID = GetRand<int>(/*nMax=*/999999) + 1;
         nSessionDenom = dsa.nDenom;
-        m_fRebalanceSession = fRebalanceSession;
+        m_fRebalanceSession = dsa.IsRebalance();
+        m_fHasLegacyParticipant = nPeerVersion < COINJOIN_REBALANCE_VERSION;
         m_mapDeclaredShapes.emplace(dsa.txCollateral.GetHash(), DeclaredShape(dsa));
 
         SetState(POOL_STATE_QUEUE);
@@ -1024,6 +1026,11 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
         return false;
     }
 
+    // Evaluated before taking cs_coinjoin: IsPromotionDemotionActive locks cs_main, and cs_main
+    // is never taken under cs_coinjoin elsewhere in this class.
+    const bool fRebalanceAcceptable = dsa.IsRebalance() && nPeerVersion >= COINJOIN_REBALANCE_VERSION &&
+                                      CoinJoin::IsPromotionDemotionActive(m_chainman);
+
     LOCK(cs_coinjoin);
 
     if (nSessionID != session_id || nSessionDenom != session_denom || nState != POOL_STATE_QUEUE) {
@@ -1035,12 +1042,33 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
         return false;
     }
 
-    // Post-V24: never mix clients below COINJOIN_REBALANCE_VERSION into a session that may
-    // contain promotion/demotion entries - they cannot validate the unbalanced final
-    // transaction, would refuse to sign it and risk being charged their collateral.
-    // ERR_VERSION is within the message range old clients understand, so they reset
-    // immediately and move on to another queue.
-    if (m_fRebalanceSession && nPeerVersion < COINJOIN_REBALANCE_VERSION) {
+    // Checked before the rebalance gating below, which reads dsa.IsRebalance()
+    if (!dsa.HasValidFlags()) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- malformed dsa flags\n");
+        nMessageIDRet = ERR_VERSION;
+        return false;
+    }
+
+    // Post-V24: a promotion/demotion entry and a client that cannot validate the resulting
+    // unbalanced final transaction must never end up in the same session - the old client would
+    // refuse to sign and risk being charged its collateral. The session commits to one or the
+    // other on the first participant that forces the question, so a legacy 1:1 mixer is only
+    // turned away once a rebalance participant is actually present, not because the session
+    // happened to be opened by an upgraded peer. ERR_VERSION is within the message range old
+    // clients understand, so they reset immediately and move on to another queue.
+    if (dsa.IsRebalance()) {
+        if (!fRebalanceAcceptable) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- rejecting rebalance dsa from protocol=%d, promotion/demotion not available\n",
+                nPeerVersion);
+            nMessageIDRet = ERR_VERSION;
+            return false;
+        }
+        if (m_fHasLegacyParticipant) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- rejecting rebalance dsa, session holds a pre-rebalance participant\n");
+            nMessageIDRet = ERR_VERSION;
+            return false;
+        }
+    } else if (nPeerVersion < COINJOIN_REBALANCE_VERSION && m_fRebalanceSession) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- rejecting peer with protocol=%d from rebalance session\n",
             nPeerVersion);
         nMessageIDRet = ERR_VERSION;
@@ -1052,18 +1080,6 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
     if ((int)vecSessionCollaterals.size() >= CoinJoin::GetMaxPoolParticipants()) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- session is full\n");
         nMessageIDRet = ERR_QUEUE_FULL;
-        return false;
-    }
-
-    if (!dsa.HasValidFlags()) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- malformed dsa flags\n");
-        nMessageIDRet = ERR_VERSION;
-        return false;
-    }
-
-    if (dsa.IsRebalance() && !m_fRebalanceSession) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::AddUserToExistingSession -- rejecting rebalance dsa, not a rebalance session\n");
-        nMessageIDRet = ERR_VERSION;
         return false;
     }
 
@@ -1082,6 +1098,10 @@ bool CCoinJoinServer::AddUserToExistingSession(const CCoinJoinAccept& dsa, int n
     // count new user as accepted to an existing session
 
     nMessageIDRet = MSG_NOERR;
+    // Latch what this participant commits the session to. The checks above guarantee the two
+    // never both become true.
+    m_fRebalanceSession |= dsa.IsRebalance();
+    m_fHasLegacyParticipant |= nPeerVersion < COINJOIN_REBALANCE_VERSION;
     m_mapDeclaredShapes.emplace(dsa.txCollateral.GetHash(), DeclaredShape(dsa));
     CommitSessionCollateral(dsa.txCollateral);
 

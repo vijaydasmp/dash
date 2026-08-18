@@ -55,11 +55,15 @@ protected:
     // reuses one of them can be rejected without rescanning them all.
     std::unordered_set<COutPoint, SaltedOutpointHasher> setSessionCollateralPrevouts GUARDED_BY(cs_coinjoin);
 
-    // Post-V24: true when this session may contain promotion/demotion entries. Fixed at
-    // session creation from the creator's protocol version; only peers at or above
-    // COINJOIN_REBALANCE_VERSION are allowed into such a session, so clients that cannot
-    // validate an unbalanced final transaction never end up having to refuse to sign one.
+    // Post-V24: true once a participant has been admitted that declared a promotion/demotion,
+    // i.e. the final transaction may come out unbalanced. Latched on admission rather than
+    // fixed by the creator's protocol version, so a session only commits to this once someone
+    // actually asks for it.
     bool m_fRebalanceSession GUARDED_BY(cs_coinjoin){false};
+    // Post-V24: true once a participant below COINJOIN_REBALANCE_VERSION has been admitted.
+    // Such a peer cannot validate an unbalanced final transaction, so it must never share a
+    // session with a rebalance participant. Mutually exclusive with m_fRebalanceSession.
+    bool m_fHasLegacyParticipant GUARDED_BY(cs_coinjoin){false};
     // The mixing direction each accepted participant declared in its dsa, keyed by collateral
     // hash. Tells us which side of the session denomination a participant will occupy before
     // its entry arrives, and entitles it (and only it) to submit an entry of that shape.
