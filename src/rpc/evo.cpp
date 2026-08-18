@@ -30,6 +30,7 @@
 #include <walletinitinterface.h>
 
 #include <limits>
+#include <optional>
 #include <string_view>
 
 #ifdef ENABLE_WALLET
@@ -397,6 +398,16 @@ static T UnwrapOrThrow(interfaces::ProviderTxResult<T> result)
 {
     if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
     return std::get<T>(std::move(result));
+}
+
+static std::optional<CTxDestination> ParseFeeSource(const UniValue& param)
+{
+    if (param.isNull()) return std::nullopt;
+    CTxDestination fee_source{DecodeDestination(param.get_str())};
+    if (!IsValidDestination(fee_source)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string("Invalid Dash address: ") + param.get_str());
+    }
+    return fee_source;
 }
 
 static std::vector<std::string> ParseCoreNetInfo(const UniValue& input, bool optional)
@@ -830,14 +841,7 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
         paramIdx += 3;
     }
 
-    if (!request.params[paramIdx + 6].isNull()) {
-        CTxDestination fund_destination{DecodeDestination(request.params[paramIdx + 6].get_str())};
-        if (!IsValidDestination(fund_destination)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               std::string("Invalid Dash address: ") + request.params[paramIdx + 6].get_str());
-        }
-        typed_request.fee_source = fund_destination;
-    }
+    typed_request.fee_source = ParseFeeSource(request.params[paramIdx + 6]);
     if ((action == ProTxRegisterAction::External || action == ProTxRegisterAction::Fund) &&
         !request.params[paramIdx + 7].isNull()) {
         typed_request.submit = ParseBoolV(request.params[paramIdx + 7], "submit");
@@ -995,14 +999,7 @@ static UniValue protx_update_service_common_wrapper(const JSONRPCRequest& reques
         }
         typed_request.operator_payout = payout_destination;
     }
-    if (!request.params[paramIdx + 1].isNull()) {
-        CTxDestination fee_source{DecodeDestination(request.params[paramIdx + 1].get_str())};
-        if (!IsValidDestination(fee_source)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               std::string("Invalid Dash address: ") + request.params[paramIdx + 1].get_str());
-        }
-        typed_request.fee_source = fee_source;
-    }
+    typed_request.fee_source = ParseFeeSource(request.params[paramIdx + 1]);
     if (!request.params[paramIdx + 2].isNull()) {
         typed_request.submit = ParseBoolV(request.params[paramIdx + 2], "submit");
     }
@@ -1069,14 +1066,7 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
                 }
                 typed_request.payouts = ParsePayouts(request.params[3], "payouts");
             }
-            if (!request.params[4].isNull()) {
-                CTxDestination fee_source{DecodeDestination(request.params[4].get_str())};
-                if (!IsValidDestination(fee_source)) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                                       std::string("Invalid Dash address: ") + request.params[4].get_str());
-                }
-                typed_request.fee_source = fee_source;
-            }
+            typed_request.fee_source = ParseFeeSource(request.params[4]);
             if (!request.params[5].isNull()) {
                 typed_request.submit = ParseBoolV(request.params[5], "submit");
             }
@@ -1139,14 +1129,7 @@ static RPCHelpMan protx_revoke()
                 }
                 typed_request.reason = static_cast<uint16_t>(nReason);
             }
-            if (!request.params[3].isNull()) {
-                CTxDestination fee_source{DecodeDestination(request.params[3].get_str())};
-                if (!IsValidDestination(fee_source)) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                                       std::string("Invalid Dash address: ") + request.params[3].get_str());
-                }
-                typed_request.fee_source = fee_source;
-            }
+            typed_request.fee_source = ParseFeeSource(request.params[3]);
             if (!request.params[4].isNull()) {
                 typed_request.submit = ParseBoolV(request.params[4], "submit");
             }
