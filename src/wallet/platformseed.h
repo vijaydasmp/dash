@@ -13,14 +13,15 @@ class CWallet;
 namespace platformkeys {
 
 //! Fetch the BIP39 seed the platform key provider derives from (requires the
-//! wallet to be unlocked; fails for watch-only wallets and wallets without a
-//! recoverable mnemonic).
+//! wallet to be unlocked; fails for watch-only wallets, legacy wallets —
+//! DashPay is descriptor-wallet-only — and wallets without a recoverable
+//! mnemonic).
 //!
 //! A descriptor wallet can hold active spk_mans with different mnemonics, so
 //! candidates are selected deterministically: the wallet's "platform/seed-id"
 //! record (the SeedFingerprint of the seed its platform data was created
 //! from) takes precedence, otherwise the candidate from the spk_man with the
-//! lowest ID wins. Legacy wallets use their HD chain seed.
+//! lowest ID wins.
 bool GetPlatformSeed(const CWallet& wallet, SecureVector& seed_out);
 
 } // namespace platformkeys

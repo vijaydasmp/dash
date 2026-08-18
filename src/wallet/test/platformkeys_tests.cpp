@@ -16,6 +16,7 @@
 #include <wallet/coincontrol.h>
 #include <wallet/context.h>
 #include <wallet/platformkeys.h>
+#include <wallet/platformseed.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
@@ -492,6 +493,34 @@ BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_seed, FriendshipWalletS
     const auto seed_id{valid.second->getPlatformSeedId()};
     BOOST_REQUIRE(seed_id);
     BOOST_CHECK(*seed_id == SeedFingerprint(Dip14Seed()));
+}
+
+//! DashPay is descriptor-wallet-only: a legacy wallet must be refused even
+//! with a perfectly recoverable HD chain seed, so no Platform key universe
+//! can ever be created that a later wallet migration would orphan.
+BOOST_FIXTURE_TEST_CASE(legacy_wallet_has_no_platform_seed, FriendshipWalletSetup)
+{
+    auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
+                                            CreateMockWalletDatabase());
+    wallet->LoadWallet();
+    {
+        LOCK(wallet->cs_wallet);
+        auto* spk_man = wallet->GetOrCreateLegacyScriptPubKeyMan();
+        BOOST_REQUIRE(spk_man);
+        spk_man->GenerateNewHDChain(SecureString{DIP14_MNEMONIC}, "");
+        // The refusal must come from the wallet type, not a missing seed:
+        // the HD chain really holds the DIP-14 seed.
+        CHDChain hd_chain;
+        BOOST_REQUIRE(spk_man->GetHDChain(hd_chain));
+        BOOST_CHECK(hd_chain.GetSeed() == Dip14Seed());
+    }
+
+    SecureVector seed;
+    BOOST_CHECK(!GetPlatformSeed(*wallet, seed));
+    BOOST_CHECK(seed.empty());
+
+    auto iface = interfaces::MakeWallet(m_context, wallet);
+    BOOST_CHECK(!iface->getPlatformSeedId());
 }
 
 //! Two independent wallet instances restored from the same recovery phrase:
