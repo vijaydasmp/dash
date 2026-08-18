@@ -372,7 +372,6 @@ BITCOIN_CORE_H = \
   rest.h \
   rpc/blockchain.h \
   rpc/client.h \
-  rpc/evo_util.h \
   rpc/json_help.h \
   rpc/mempool.h \
   rpc/mining.h \

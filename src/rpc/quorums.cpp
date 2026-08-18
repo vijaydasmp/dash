@@ -21,7 +21,6 @@
 #include <llmq/signing_shares.h>
 #include <llmq/snapshot.h>
 #include <llmq/utils.h>
-#include <rpc/evo_util.h>
 #include <rpc/json_help.h>
 #include <util/helpers.h>
 
