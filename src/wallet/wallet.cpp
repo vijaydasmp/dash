@@ -3938,18 +3938,11 @@ PlatformKeyResult<FriendshipXpub> CWallet::EnsureFriendshipReceivingKeychain(con
     CExtKey xprv{};
     xprv.chaincode = key.chaincode;
     xprv.key = key.key;
+    const CExtPubKey xpub{xprv.Neuter()};
     FlatSigningProvider provider;
-    struct StringCleanser {
-        std::string& value;
-        ~StringCleanser() { memory_cleanse(value.data(), value.size()); }
-    };
+    provider.keys.emplace(xpub.pubkey.GetID(), xprv.key);
     std::string parse_error;
-    StringCleanser parse_error_cleanser{parse_error};
-    std::string encoded_xprv{EncodeExtKey(xprv)};
-    StringCleanser encoded_xprv_cleanser{encoded_xprv};
-    std::string descriptor_string{"pkh(" + encoded_xprv + "/*)"};
-    StringCleanser descriptor_cleanser{descriptor_string};
-    auto parsed{Parse(descriptor_string, provider, parse_error, /*require_checksum=*/false)};
+    auto parsed{Parse("pkh(" + EncodeExtPubKey(xpub) + "/*)", provider, parse_error, /*require_checksum=*/false)};
     if (!parsed) {
         result.status = PlatformKeyStatus::DERIVATION_ERROR;
         return result;
