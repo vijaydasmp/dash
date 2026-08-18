@@ -159,7 +159,7 @@ public:
                                              const chainlock::Chainlocks& chainlocks,
                                              chainlock::ChainlockHandler& clhandler,
                                              CActiveMasternodeManager* nodeman,
-                                             const std::unique_ptr<CDeterministicMNManager>& dmnman,
+                                             CDeterministicMNManager& dmnman,
                                              const std::unique_ptr<CJWalletManager>& cj_walletman,
                                              llmq::CInstantSendManager& isman,
                                              const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
