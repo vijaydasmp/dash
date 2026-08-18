@@ -29,7 +29,6 @@ EXPECTED_BITCOIN_CIRCULAR_DEPENDENCIES = (
 )
 
 EXPECTED_DASH_CIRCULAR_DEPENDENCIES = (
-    "core_io -> evo/smldiff -> core_io",
     "core_io -> governance/governance -> governance/superblock -> core_io",
     "coinjoin/coinjoin -> core_io -> rpc/util -> node/transaction -> net_processing -> coinjoin/coinjoin",
     "coinjoin/coinjoin -> core_io -> rpc/util -> node/transaction -> node/context -> coinjoin/coinjoin",
