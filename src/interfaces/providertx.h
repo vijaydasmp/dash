@@ -75,6 +75,8 @@ struct ProviderNetInfo {
 };
 
 struct ProviderPayout {
+    static constexpr uint16_t MAX_REWARD{10000};
+
     CTxDestination destination;
     uint16_t reward{0};
 };
