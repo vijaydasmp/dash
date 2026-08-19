@@ -524,7 +524,7 @@ BOOST_FIXTURE_TEST_CASE(credit_pool_package_atomicity, TestChain100Setup)
     const auto unlock_seven = CreateCreditPoolUnlockTx(1, 7 * COIN);
     const auto unlock_four = CreateCreditPoolUnlockTx(2, 4 * COIN);
     const auto* tip = m_node.chainman->ActiveChain().Tip();
-    CCreditPoolDiff diff{CCreditPool{100 * COIN, 10 * COIN}, tip, Params().GetConsensus(), 0};
+    CCreditPoolDiff diff{CCreditPool{100 * COIN, 10 * COIN}, tip, m_node.chainman->GetConsensus(), 0};
 
     TxValidationState package_state;
     BOOST_CHECK(!diff.ProcessLockUnlockTransactions({unlock_seven, unlock_four}, package_state));
