@@ -3514,8 +3514,22 @@ void PeerManagerImpl::ProcessGetCFCheckPt(CNode& node, Peer& peer, CDataStream& 
 enum class DSTXValidationScore : int {
     NONE = 0,
     UNKNOWN_MASTERNODE = 1,
+    PREMATURE = 1, // deliberately shares UNKNOWN_MASTERNODE's weight: both are tip-skew tolerances
     INVALID = 10,
 };
+
+//! Whether a DSTX may be announced as MSG_DSTX to a peer at the given negotiated protocol
+//! version. Post-V24 promotion/demotion DSTXes are unbalanced and thus structurally invalid to
+//! peers below COINJOIN_REBALANCE_VERSION - they would drop the transaction and penalize us for
+//! relaying it. Pre-COINJOIN_REBALANCE_VERSION peers also enforce a smaller structural size
+//! cap (GetMaxPoolInputOutputCount), so a balanced-but-oversized final transaction is likewise
+//! invalid to them. Callers announce such transactions as plain MSG_TX instead.
+static bool CanAnnounceDstxTo(const CCoinJoinBroadcastTx& dstx, int peer_version)
+{
+    return (dstx.tx->vin.size() == dstx.tx->vout.size() &&
+            dstx.tx->vin.size() <= CoinJoin::GetMaxPoolInputOutputCount()) ||
+           peer_version >= COINJOIN_REBALANCE_VERSION;
+}
 
 // do_return signals the caller to stop further processing of the DSTX.
 struct DSTXValidationResult {
@@ -3528,10 +3542,6 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
 {
     assert(mn_metaman.IsValid());
 
-    if (!dstx.IsValidStructure()) {
-        LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
-        return {DSTXValidationScore::INVALID, true};
-    }
     if (dstxman.GetDSTX(hashTx)) {
         LogPrint(BCLog::COINJOIN, "DSTX -- Already have %s, skipping...\n", hashTx.ToString());
         return {DSTXValidationScore::NONE, true}; // not an error
@@ -3542,6 +3552,21 @@ static DSTXValidationResult ValidateDSTX(CDeterministicMNManager& dmnman, CDSTXM
     {
         LOCK(cs_main);
         pindex = chainman.ActiveChain().Tip();
+    }
+
+    bool fPossiblyValidPostV24{false};
+    if (!dstx.IsValidStructure(pindex, chainman, &fPossiblyValidPostV24)) {
+        LogPrint(BCLog::COINJOIN, "DSTX -- Invalid DSTX structure: %s\n", hashTx.ToString());
+        // A tx that is structurally valid under post-V24 rules may come from a masternode whose
+        // tip is one block ahead of ours at the activation boundary. Like the 24-block-deep
+        // masternode scan below, tolerate that much skew: drop it with only a small penalty so
+        // honest relayers are unaffected while a peer flooding us still gets discouraged
+        // eventually. Beyond one block we treat it as malformed and take the full penalty; a
+        // node that far behind at activation has bigger problems than mixing.
+        if (fPossiblyValidPostV24 && CoinJoin::IsPromotionDemotionActive(chainman, /*fNextBlock=*/true)) {
+            return {DSTXValidationScore::PREMATURE, true};
+        }
+        return {DSTXValidationScore::INVALID, true};
     }
     // It could be that a MN is no longer in the list but its DSTX is not yet mined.
     // Try to find a MN up to 24 blocks deep to make sure such dstx-es are relayed and processed correctly.
@@ -6464,7 +6489,14 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     tx_relay->m_tx_inventory_to_send.erase(hash);
                     if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
 
-                    int nInvType = m_dstxman.GetDSTX(hash) ? MSG_DSTX : MSG_TX;
+                    int nInvType = MSG_TX;
+                    // A DSTX this peer would reject as malformed is announced as a plain
+                    // transaction instead of being dropped: the peer still gets the transaction
+                    // (ProcessGetData serves a NetMsgType::TX for it), just without the mixing
+                    // metadata it cannot parse, so it is not left waiting for block inclusion.
+                    if (const auto dstx = m_dstxman.GetDSTX(hash); dstx && CanAnnounceDstxTo(dstx, pto->GetCommonVersion())) {
+                        nInvType = MSG_DSTX;
+                    }
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
 
@@ -6525,6 +6557,13 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                         continue;
                     }
                     if (tx_relay->m_bloom_filter && !tx_relay->m_bloom_filter->IsRelevantAndUpdate(*txinfo.tx)) continue;
+                    int nInvType = MSG_TX;
+                    // See the mempool-request path above: a DSTX this peer would reject as
+                    // malformed is downgraded to a plain transaction announcement rather than
+                    // withheld, so pre-rebalance peers still receive it.
+                    if (const auto dstx = m_dstxman.GetDSTX(hash); dstx && CanAnnounceDstxTo(dstx, pto->GetCommonVersion())) {
+                        nInvType = MSG_DSTX;
+                    }
                     // Send
                     State(pto->GetId())->m_recently_announced_invs.insert(hash);
                     nRelayedTransactions++;
@@ -6541,7 +6580,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                             g_relay_expiration.emplace_back(current_time + RELAY_TX_CACHE_TIME, ret.first);
                         }
                     }
-                    int nInvType = m_dstxman.GetDSTX(hash) ? MSG_DSTX : MSG_TX;
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
                 }

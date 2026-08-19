@@ -103,7 +103,13 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     result.is_platform_transfer = wtx.IsPlatformTransfer();
     // The determination of is_denominate is based on simplified checks here because in this part of the code
     // we only want to know about mixing transactions belonging to this specific wallet.
-    result.is_denominate = wtx.tx->vin.size() == wtx.tx->vout.size() && // Number of inputs is same as number of outputs
+    // Post-V24 a session may contain promotion (10 inputs to 1 output) and demotion (1 to 10)
+    // entries, so the input and output counts of a mixing transaction no longer have to match.
+    // Every output being a denominated amount is what still sets one apart from an ordinary
+    // payment, which would have a non-denominated payment or change output.
+    const bool fAllOutputsDenominated = std::ranges::all_of(
+        wtx.tx->vout, [](const CTxOut& txout) { return CoinJoin::IsDenominatedAmount(txout.nValue); });
+    result.is_denominate = fAllOutputsDenominated &&
                            (result.credit - result.debit) == 0 && // Transaction pays no tx fee
                            fInputDenomFound && fOutputDenomFound; // At least 1 input and 1 output are denominated belonging to the provided wallet
     return result;
