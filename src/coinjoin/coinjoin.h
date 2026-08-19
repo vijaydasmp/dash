@@ -417,6 +417,10 @@ public:
     CoinJoin::MixSideCounts GetMixSideCounts() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin)
     {
         LOCK(cs_coinjoin);
+        return GetMixSideCountsLocked();
+    }
+    CoinJoin::MixSideCounts GetMixSideCountsLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin)
+    {
         CoinJoin::MixSideCounts counts;
         for (const auto& entry : vecEntries) {
             counts.Add(entry.GetMixShape());

@@ -301,59 +301,83 @@ void CCoinJoinServer::SetNull()
 //
 void CCoinJoinServer::CheckPool()
 {
-    if (int entries = GetEntriesCount(); entries != 0)
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- entries count %lu\n", entries);
+    // Every decision below reads several pieces of session state at once, so take them as one
+    // snapshot. Sampling them separately let the message-handling thread commit an entry
+    // between two reads: the side counts could be read before the last entry arrived while the
+    // entry count was read after it, so a session that was about to finalize looked like one
+    // whose entries were all in but left a side uncovered - and got reset. Reading
+    // vecSessionCollaterals without the lock could also race SetNull() clearing it.
+    const auto snap = GetPoolSnapshot();
+
+    if (snap.entries != 0)
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- entries count %lu\n", snap.entries);
 
     // PRIVACY: a final transaction is only worth publishing when each side of the session
     // denomination is occupied by nobody or by at least two participants; a lone participant
     // on a side would have the only coins of that size there and be trivially identifiable.
-    const auto sides = GetMixSideCounts();
 
     // If we have an entry for each collateral, then create final tx
-    if (nState == POOL_STATE_ACCEPTING_ENTRIES && static_cast<size_t>(GetEntriesCount()) == vecSessionCollaterals.size()) {
-        if (sides.IsCovered()) {
+    if (snap.state == POOL_STATE_ACCEPTING_ENTRIES && snap.entries == snap.collaterals) {
+        if (snap.sides.IsCovered()) {
             LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- FINALIZE TRANSACTIONS\n");
-            CreateFinalTransaction();
+            CreateFinalTransaction(snap.session_id);
             return;
         }
         // The participant set is frozen once entries are being accepted, so this session can
         // never gain the missing counterparty - reset instead of stalling everyone until
         // timeout. Shouldn't happen: admission checks the declared shapes up front.
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- all entries received but a session denom side is uncovered (%d in, %d out), resetting session\n",
-                 sides.inputs, sides.outputs);
+                 snap.sides.inputs, snap.sides.outputs);
         // Tell the participants before dropping them, so they release their inputs and collateral
         // right away instead of waiting out their own timeout. Must precede SetNull(), which
         // clears the entries this iterates.
         RelayCompletedTransaction(ERR_SESSION);
-        WITH_LOCK(cs_coinjoin, SetNull());
+        // Only drop the session the snapshot described; the message-handling thread may have
+        // reset and restarted one while we were relaying.
+        WITH_LOCK(cs_coinjoin, if (IsCurrentSession(snap.session_id)) SetNull());
         return;
     }
 
     // Check for Time Out
     // If we timed out while accepting entries, then if we have more than minimum, create final tx
-    if (nState == POOL_STATE_ACCEPTING_ENTRIES && CCoinJoinServer::HasTimedOut() && sides.IsCovered() &&
-        GetEntriesCount() >= CoinJoin::GetMinPoolParticipants()) {
+    if (snap.state == POOL_STATE_ACCEPTING_ENTRIES && CCoinJoinServer::HasTimedOut() && snap.sides.IsCovered() &&
+        snap.entries >= static_cast<size_t>(CoinJoin::GetMinPoolParticipants())) {
         // Punish misbehaving participants
         ChargeFees();
         // Try to complete this session ignoring the misbehaving ones
-        CreateFinalTransaction();
+        CreateFinalTransaction(snap.session_id);
         return;
     }
 
     // If we have all the signatures, try to compile the transaction
-    if (nState == POOL_STATE_SIGNING && IsSignaturesComplete()) {
+    if (snap.state == POOL_STATE_SIGNING && IsSignaturesComplete()) {
         LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- SIGNING\n");
         CommitFinalTransaction();
         return;
     }
 }
 
-void CCoinJoinServer::CreateFinalTransaction()
+CCoinJoinServer::PoolSnapshot CCoinJoinServer::GetPoolSnapshot() const
+{
+    AssertLockNotHeld(cs_coinjoin);
+    LOCK(cs_coinjoin);
+    return PoolSnapshot{nSessionID, nState, vecEntries.size(), vecSessionCollaterals.size(),
+                        GetMixSideCountsLocked()};
+}
+
+void CCoinJoinServer::CreateFinalTransaction(int session_id)
 {
     AssertLockNotHeld(cs_coinjoin);
     LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CreateFinalTransaction -- FINALIZE TRANSACTIONS\n");
 
     LOCK(cs_coinjoin);
+
+    // The decision to finalize came from a snapshot taken before this lock, so make sure it
+    // still describes the live session - it may have timed out and been replaced in between.
+    if (!IsCurrentSession(session_id)) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CreateFinalTransaction -- session changed, not finalizing\n");
+        return;
+    }
 
     CMutableTransaction txNew;
 

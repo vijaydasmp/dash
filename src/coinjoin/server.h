@@ -96,13 +96,26 @@ private:
 
     /// Is session_id still the session we are accepting entries for?
     bool IsCurrentSession(int session_id) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+
+    //! One consistent view of the session, for decisions that read several pieces of its state.
+    //! Sampling them one at a time lets the message-handling thread commit an entry in between,
+    //! producing a mix of old and new values that describes no state the session was ever in.
+    struct PoolSnapshot {
+        int session_id{0};
+        PoolState state{POOL_STATE_IDLE};
+        size_t entries{0};
+        size_t collaterals{0};
+        CoinJoin::MixSideCounts sides;
+    };
+    PoolSnapshot GetPoolSnapshot() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     /// Is txref one of the collaterals accepted into the current session?
     bool HasSessionCollateral(const CTransactionRef& txref) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
 
     /// Check for process
     void CheckPool();
 
-    void CreateFinalTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    /// Build and relay the final transaction, unless session_id is no longer the live session
+    void CreateFinalTransaction(int session_id) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
     void CommitFinalTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
 
     /// Is this nDenom and txCollateral acceptable?
