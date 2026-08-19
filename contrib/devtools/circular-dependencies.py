@@ -13,6 +13,7 @@ MAPPING = {
     'core_write.cpp': 'core_io.cpp',
     'evo/core_write.cpp': 'core_io.cpp',
     'llmq/core_write.cpp': 'core_io.cpp',
+    'qt/guiutil_font.cpp': 'qt/guiutil.cpp',
 }
 
 # Directories with header-based modules, where the assumption that .cpp files
