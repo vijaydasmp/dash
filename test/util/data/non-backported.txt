@@ -85,4 +85,7 @@ src/util/wpipe.*
 src/wallet/bip39*
 src/wallet/coinjoin.*
 src/wallet/hdchain.*
+src/wallet/platformkeys.*
+src/wallet/platformtypes.h
+src/wallet/test/platformkeys_tests.cpp
 src/hash_x11.h

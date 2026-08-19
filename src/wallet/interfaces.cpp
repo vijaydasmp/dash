@@ -5,6 +5,7 @@
 #include <interfaces/wallet.h>
 
 #include <chain.h>
+#include <chainparams.h>
 #include <coinjoin/client.h>
 #include <consensus/amount.h>
 #include <interfaces/chain.h>
@@ -33,6 +34,7 @@
 #include <wallet/wallet.h>
 #include <wallet/hdchain.h>
 #include <wallet/scriptpubkeyman.h>
+#include <wallet/walletutil.h>
 #include <evo/deterministicmns.h>
 #include <masternode/sync.h>
 #include <txdb.h>
@@ -239,6 +241,25 @@ public:
     {
         return m_wallet->SignSpecialTxPayload(hash, keyid, vchSig);
     }
+    wallet::PlatformKeyResult<CPubKey> getPlatformPubKey(const wallet::PlatformKeyRequest& request) override
+    {
+        return m_wallet->GetPlatformPubKey(request);
+    }
+    wallet::PlatformKeyResult<std::vector<unsigned char>> signPlatformDigest(const wallet::PlatformKeyRequest& request,
+                                                                             const uint256& digest) override
+    {
+        return m_wallet->SignPlatformDigest(request, digest);
+    }
+    wallet::PlatformKeyResult<SecureVector> platformECDHSecret(const wallet::IdentityAuthKey& key,
+                                                               const CPubKey& counterparty) override
+    {
+        return m_wallet->PlatformECDHSecret(key, counterparty);
+    }
+    wallet::PlatformKeyResult<wallet::FriendshipXpub> ensureFriendshipReceivingKeychain(
+        const wallet::FriendshipKeychainRequest& request) override
+    {
+        return m_wallet->EnsureFriendshipReceivingKeychain(request);
+    }
     bool isSpendable(const CScript& script) override
     {
         LOCK(m_wallet->cs_wallet);
@@ -315,6 +336,16 @@ public:
         WalletBatch batch{m_wallet->GetDatabase()};
         return value.empty() ? m_wallet->EraseAddressReceiveRequest(batch, dest, id)
                              : m_wallet->SetAddressReceiveRequest(batch, dest, id, value);
+    }
+    bool writePlatformData(const std::string& key, const std::vector<unsigned char>& value) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->WritePlatformData(key, value);
+    }
+    std::map<std::string, std::vector<unsigned char>> getPlatformData(const std::string& prefix) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->GetPlatformData(prefix);
     }
     bool displayAddress(const CTxDestination& dest) override
     {

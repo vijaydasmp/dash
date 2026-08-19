@@ -15,6 +15,7 @@
 #include <util/message.h>
 #include <util/result.h>
 #include <util/ui_change_type.h>
+#include <wallet/platformtypes.h>
 
 #include <cstdint>
 #include <functional>
@@ -142,6 +143,26 @@ public:
     //! Sign special transaction payload
     virtual bool signSpecialTxPayload(const uint256& hash, const CKeyID& keyid, std::vector<unsigned char>& vchSig) = 0;
 
+    //! Derive and return a public Platform key. The mnemonic-owning key
+    //! manager performs derivation without exposing the wallet's root seed.
+    virtual wallet::PlatformKeyResult<CPubKey> getPlatformPubKey(const wallet::PlatformKeyRequest& request) = 0;
+
+    //! Sign a 32-byte digest with a platform key (compact/recoverable ECDSA,
+    //! as used by Platform state transitions).
+    virtual wallet::PlatformKeyResult<std::vector<unsigned char>> signPlatformDigest(const wallet::PlatformKeyRequest& request,
+                                                                                     const uint256& digest) = 0;
+
+    //! ECDH shared secret between the identity authentication key
+    //! and a counterparty public key, using the libsecp256k1 ECDH KDF.
+    virtual wallet::PlatformKeyResult<SecureVector> platformECDHSecret(const wallet::IdentityAuthKey& key,
+                                                                       const CPubKey& counterparty) = 0;
+
+    //! Ensure our private DIP-15 receiving chain is imported as a ranged
+    //! descriptor and return the corresponding public chain. Derivation,
+    //! descriptor update and result publication are one wallet-locked action.
+    virtual wallet::PlatformKeyResult<wallet::FriendshipXpub> ensureFriendshipReceivingKeychain(
+        const wallet::FriendshipKeychainRequest& request) = 0;
+
     //! Return whether wallet has private key.
     virtual bool isSpendable(const CScript& script) = 0;
     virtual bool isSpendable(const CTxDestination& dest) = 0;
@@ -169,6 +190,14 @@ public:
 
     //! Save or remove receive request.
     virtual bool setAddressReceiveRequest(const CTxDestination& dest, const std::string& id, const std::string& value) = 0;
+
+    //! Write (or, with an empty value, erase) a generic Platform data
+    //! record. Records are persisted in the wallet database and travel with
+    //! backups; they are opaque to the wallet itself.
+    virtual bool writePlatformData(const std::string& key, const std::vector<unsigned char>& value) = 0;
+
+    //! All Platform data records whose key starts with prefix.
+    virtual std::map<std::string, std::vector<unsigned char>> getPlatformData(const std::string& prefix) = 0;
 
     //! Display address on external signer
     virtual bool displayAddress(const CTxDestination& dest) = 0;
