@@ -48,7 +48,10 @@ using MasternodePayoutShares = std::vector<MasternodePayoutShare>;
 
 [[nodiscard]] MasternodePayoutShares LegacyPayoutAsList(const CScript& script_payout);
 template<class T>
-[[nodiscard]] MasternodePayoutShares GetOwnerPayouts(const T& protx);
+[[nodiscard]] MasternodePayoutShares GetOwnerPayouts(const T& protx)
+{
+    return protx.nVersion >= ProTxVersion::ExtAddr ? protx.payouts : LegacyPayoutAsList(protx.scriptPayout);
+}
 
 [[nodiscard]] bool IsPayoutListTriviallyValid(const MasternodePayoutShares& payouts, const CKeyID& keyIDOwner,
                                               const CKeyID& keyIDVoting, TxValidationState& state);
