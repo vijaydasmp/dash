@@ -24,6 +24,8 @@
 #include <util/time.h>
 #include <validationinterface.h>
 
+#include <univalue.h>
+
 #include <ranges>
 
 const std::string GovernanceStore::SERIALIZATION_VERSION_STRING = "CGovernanceManager-Version-16";
@@ -1060,6 +1062,38 @@ std::string CGovernanceManager::ToString() const
 {
     AssertLockNotHeld(cs_store);
     return strprintf("%s, Votes: %d", GovernanceStore::ToString(), static_cast<int>(cmapVoteToObject.GetSize()));
+}
+
+UniValue CGovernanceManager::ToJson() const
+{
+    LOCK(cs_store);
+
+    int nProposalCount = 0;
+    int nTriggerCount = 0;
+    int nOtherCount = 0;
+
+    for (const auto& [_, govobj] : mapObjects) {
+        switch (Assert(govobj)->GetObjectType()) {
+        case GovernanceObject::PROPOSAL:
+            nProposalCount++;
+            break;
+        case GovernanceObject::TRIGGER:
+            nTriggerCount++;
+            break;
+        default:
+            nOtherCount++;
+            break;
+        }
+    }
+
+    UniValue jsonObj(UniValue::VOBJ);
+    jsonObj.pushKV("objects_total", mapObjects.size());
+    jsonObj.pushKV("proposals", nProposalCount);
+    jsonObj.pushKV("triggers", nTriggerCount);
+    jsonObj.pushKV("other", nOtherCount);
+    jsonObj.pushKV("erased", mapErasedGovernanceObjects.size());
+    jsonObj.pushKV("votes", cmapVoteToObject.GetSize());
+    return jsonObj;
 }
 
 void CGovernanceManager::UpdatedBlockTip(const CBlockIndex* pindex)

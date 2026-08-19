@@ -13,7 +13,6 @@
 
 #include <chainparams.h>
 #include <consensus/merkle.h>
-#include <core_io.h>
 #include <deploymentstatus.h>
 #include <node/blockstorage.h>
 #include <serialize.h>

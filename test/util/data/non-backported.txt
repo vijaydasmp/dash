@@ -52,8 +52,8 @@ src/qt/proposalmodel.*
 src/qt/proposalresume.*
 src/rpc/coinjoin.cpp
 src/rpc/evo.cpp
-src/rpc/evo_util.*
 src/rpc/governance.cpp
+src/rpc/json_help.*
 src/rpc/masternode.cpp
 src/rpc/quorums.cpp
 src/saltedhasher.*

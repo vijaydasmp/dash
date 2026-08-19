@@ -8,7 +8,6 @@
 #include <evo/deterministicmns.h>
 #include <masternode/meta.h>
 #include <masternode/sync.h>
-#include <rpc/evo_util.h>
 #include <util/helpers.h>
 #include <wallet/coinjoin.h>
 

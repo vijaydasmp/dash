@@ -9,7 +9,7 @@
 #include <evo/deterministicmns.h>
 #include <governance/superblock.h>
 #include <masternode/payments.h>
-#include <rpc/evo_util.h>
+#include <rpc/json_help.h>
 
 #include <chainparams.h>
 #include <core_io.h>
