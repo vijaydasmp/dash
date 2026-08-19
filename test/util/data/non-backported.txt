@@ -25,9 +25,9 @@ src/index/spent*.cpp
 src/index/spent*.h
 src/index/timestamp*.cpp
 src/index/timestamp*.h
-src/interfaces/providertx.h
 src/instantsend/*.cpp
 src/instantsend/*.h
+src/interfaces/providertx.h
 src/llmq/*.cpp
 src/llmq/*.h
 src/masternode/*.cpp

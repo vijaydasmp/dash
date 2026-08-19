@@ -265,6 +265,23 @@ PayoutResult BuildPayouts(const std::vector<ProviderPayout>& payouts)
     return result;
 }
 
+std::optional<ProviderTxError> ResolveFeeSource(const std::optional<CTxDestination>& fee_source,
+                                                const CScript& operator_payout, const CDeterministicMNState& dmn_state,
+                                                std::string missing_error, CTxDestination& fund_destination)
+{
+    if (fee_source) {
+        fund_destination = *fee_source;
+    } else if (!operator_payout.empty()) {
+        ExtractDestination(operator_payout, fund_destination);
+    } else {
+        const auto owner_payouts{GetOwnerPayouts(dmn_state)};
+        if (owner_payouts.empty() || !ExtractDestination(owner_payouts.front().scriptPayout, fund_destination)) {
+            return Error(ProviderTxErrorCode::INVALID_PARAMETER, std::move(missing_error));
+        }
+    }
+    return std::nullopt;
+}
+
 template <typename Payload>
 void UpdateInputsHash(const CMutableTransaction& tx, Payload& payload)
 {
@@ -436,7 +453,7 @@ RegistrationResult BuildRegistration(node::NodeContext& node, Wallet& wallet,
     if (const auto* collateral{std::get_if<FundProviderCollateral>(&request.collateral)}) {
         if (!IsValidDestination(collateral->destination)) {
             return Error(ProviderTxErrorCode::INVALID_ADDRESS_OR_KEY,
-                         strprintf("invalid collaterall address: %s", EncodeDestination(collateral->destination)));
+                         strprintf("invalid collateral address: %s", EncodeDestination(collateral->destination)));
         }
         tx.vout.emplace_back(GetMnType(request.type).collat_amount, GetScriptForDestination(collateral->destination));
     } else {
@@ -675,16 +692,10 @@ ProviderTxResult<ProviderTxSubmission> UpdateService(node::NodeContext& node, Wa
                                                            : dmn->pdmnState->scriptOperatorPayout;
 
     CTxDestination fund_destination;
-    if (request.fee_source) {
-        fund_destination = *request.fee_source;
-    } else if (!payload.scriptOperatorPayout.empty()) {
-        ExtractDestination(payload.scriptOperatorPayout, fund_destination);
-    } else {
-        const auto owner_payouts{GetOwnerPayouts(*dmn->pdmnState)};
-        if (owner_payouts.empty() || !ExtractDestination(owner_payouts.front().scriptPayout, fund_destination)) {
-            return Error(ProviderTxErrorCode::INVALID_PARAMETER,
-                         "masternode has no default fee source; specify feeSourceAddress");
-        }
+    if (auto error{ResolveFeeSource(request.fee_source, payload.scriptOperatorPayout, *dmn->pdmnState,
+                                    "masternode has no default fee source; specify feeSourceAddress",
+                                    fund_destination)}) {
+        return *error;
     }
 
     CMutableTransaction tx;
@@ -798,16 +809,9 @@ ProviderTxResult<ProviderTxSubmission> Revoke(node::NodeContext& node, Wallet& w
     payload.nReason = request.reason;
 
     CTxDestination fund_destination;
-    if (request.fee_source) {
-        fund_destination = *request.fee_source;
-    } else if (!dmn->pdmnState->scriptOperatorPayout.empty()) {
-        ExtractDestination(dmn->pdmnState->scriptOperatorPayout, fund_destination);
-    } else {
-        const auto owner_payouts{GetOwnerPayouts(*dmn->pdmnState)};
-        if (owner_payouts.empty() || !ExtractDestination(owner_payouts.front().scriptPayout, fund_destination)) {
-            return Error(ProviderTxErrorCode::INVALID_PARAMETER,
-                         "No payout or fee source addresses found, can't revoke");
-        }
+    if (auto error{ResolveFeeSource(request.fee_source, dmn->pdmnState->scriptOperatorPayout, *dmn->pdmnState,
+                                    "No payout or fee source addresses found, can't revoke", fund_destination)}) {
+        return *error;
     }
 
     CMutableTransaction tx;

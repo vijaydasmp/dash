@@ -30,6 +30,7 @@
 #include <walletinitinterface.h>
 
 #include <limits>
+#include <optional>
 #include <string_view>
 
 #ifdef ENABLE_WALLET
@@ -392,6 +393,23 @@ static std::string SubmissionToString(const interfaces::ProviderTxSubmission& su
     return submission.submitted ? submission.tx->GetHash().GetHex() : EncodeHexTx(*submission.tx);
 }
 
+template <typename T>
+static T UnwrapOrThrow(interfaces::ProviderTxResult<T> result)
+{
+    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
+    return std::get<T>(std::move(result));
+}
+
+static std::optional<CTxDestination> ParseFeeSource(const UniValue& param)
+{
+    if (param.isNull()) return std::nullopt;
+    CTxDestination fee_source{DecodeDestination(param.get_str())};
+    if (!IsValidDestination(fee_source)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string("Invalid Dash address: ") + param.get_str());
+    }
+    return fee_source;
+}
+
 static std::vector<std::string> ParseCoreNetInfo(const UniValue& input, bool optional)
 {
     if (input.isStr()) {
@@ -469,7 +487,7 @@ enum class ProTxRegisterAction
     Fund,
     Prepare,
 };
-} // anonumous namespace
+} // anonymous namespace
 
 static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
                                               const bool specific_legacy_bls_scheme,
@@ -769,7 +787,7 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
         CTxDestination collateral_destination{DecodeDestination(request.params[paramIdx].get_str())};
         if (!IsValidDestination(collateral_destination)) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               strprintf("invalid collaterall address: %s", request.params[paramIdx].get_str()));
+                               strprintf("invalid collateral address: %s", request.params[paramIdx].get_str()));
         }
         typed_request.collateral = interfaces::FundProviderCollateral{collateral_destination};
         paramIdx++;
@@ -823,14 +841,7 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
         paramIdx += 3;
     }
 
-    if (!request.params[paramIdx + 6].isNull()) {
-        CTxDestination fund_destination{DecodeDestination(request.params[paramIdx + 6].get_str())};
-        if (!IsValidDestination(fund_destination)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               std::string("Invalid Dash address: ") + request.params[paramIdx + 6].get_str());
-        }
-        typed_request.fee_source = fund_destination;
-    }
+    typed_request.fee_source = ParseFeeSource(request.params[paramIdx + 6]);
     if ((action == ProTxRegisterAction::External || action == ProTxRegisterAction::Fund) &&
         !request.params[paramIdx + 7].isNull()) {
         typed_request.submit = ParseBoolV(request.params[paramIdx + 7], "submit");
@@ -838,18 +849,14 @@ static UniValue protx_register_common_wrapper(const JSONRPCRequest& request,
 
     auto wallet_interface{MakeWalletInterface(node, pwallet)};
     if (action == ProTxRegisterAction::Prepare) {
-        auto result{evo::provider::PrepareRegistration(node, *wallet_interface, typed_request)};
-        if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-        const auto& prepared{std::get<interfaces::PreparedProviderRegistration>(result)};
+        const auto prepared{UnwrapOrThrow(evo::provider::PrepareRegistration(node, *wallet_interface, typed_request))};
         UniValue response{UniValue::VOBJ};
         response.pushKV("tx", EncodeHexTx(*prepared.tx));
         response.pushKV("collateralAddress", EncodeDestination(prepared.collateral_address));
         response.pushKV("signMessage", prepared.sign_message);
         return response;
     }
-    auto result{evo::provider::Register(node, *wallet_interface, typed_request)};
-    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-    return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+    return SubmissionToString(UnwrapOrThrow(evo::provider::Register(node, *wallet_interface, typed_request)));
 }
 
 static RPCHelpMan protx_register_submit()
@@ -883,10 +890,8 @@ static RPCHelpMan protx_register_submit()
             }
 
             auto wallet_interface{MakeWalletInterface(node, wallet)};
-            auto result{evo::provider::SubmitRegistration(node, *wallet_interface, MakeTransactionRef(std::move(tx)),
-                                                          *opt_vchSig)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(UnwrapOrThrow(evo::provider::SubmitRegistration(
+                node, *wallet_interface, MakeTransactionRef(std::move(tx)), *opt_vchSig)));
         },
     };
 }
@@ -994,22 +999,13 @@ static UniValue protx_update_service_common_wrapper(const JSONRPCRequest& reques
         }
         typed_request.operator_payout = payout_destination;
     }
-    if (!request.params[paramIdx + 1].isNull()) {
-        CTxDestination fee_source{DecodeDestination(request.params[paramIdx + 1].get_str())};
-        if (!IsValidDestination(fee_source)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                               std::string("Invalid Dash address: ") + request.params[paramIdx + 1].get_str());
-        }
-        typed_request.fee_source = fee_source;
-    }
+    typed_request.fee_source = ParseFeeSource(request.params[paramIdx + 1]);
     if (!request.params[paramIdx + 2].isNull()) {
         typed_request.submit = ParseBoolV(request.params[paramIdx + 2], "submit");
     }
 
     auto wallet_interface{MakeWalletInterface(node, wallet)};
-    auto result{evo::provider::UpdateService(node, *wallet_interface, typed_request)};
-    if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-    return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+    return SubmissionToString(UnwrapOrThrow(evo::provider::UpdateService(node, *wallet_interface, typed_request)));
 }
 
 static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_scheme)
@@ -1070,22 +1066,14 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
                 }
                 typed_request.payouts = ParsePayouts(request.params[3], "payouts");
             }
-            if (!request.params[4].isNull()) {
-                CTxDestination fee_source{DecodeDestination(request.params[4].get_str())};
-                if (!IsValidDestination(fee_source)) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                                       std::string("Invalid Dash address: ") + request.params[4].get_str());
-                }
-                typed_request.fee_source = fee_source;
-            }
+            typed_request.fee_source = ParseFeeSource(request.params[4]);
             if (!request.params[5].isNull()) {
                 typed_request.submit = ParseBoolV(request.params[5], "submit");
             }
 
             auto wallet_interface{MakeWalletInterface(node, wallet)};
-            auto result{evo::provider::UpdateRegistrar(node, *wallet_interface, typed_request)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(
+                UnwrapOrThrow(evo::provider::UpdateRegistrar(node, *wallet_interface, typed_request)));
         },
     };
 }
@@ -1141,22 +1129,13 @@ static RPCHelpMan protx_revoke()
                 }
                 typed_request.reason = static_cast<uint16_t>(nReason);
             }
-            if (!request.params[3].isNull()) {
-                CTxDestination fee_source{DecodeDestination(request.params[3].get_str())};
-                if (!IsValidDestination(fee_source)) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                                       std::string("Invalid Dash address: ") + request.params[3].get_str());
-                }
-                typed_request.fee_source = fee_source;
-            }
+            typed_request.fee_source = ParseFeeSource(request.params[3]);
             if (!request.params[4].isNull()) {
                 typed_request.submit = ParseBoolV(request.params[4], "submit");
             }
 
             auto wallet_interface{MakeWalletInterface(node, pwallet)};
-            auto result{evo::provider::Revoke(node, *wallet_interface, typed_request)};
-            if (const auto* error{std::get_if<interfaces::ProviderTxError>(&result)}) ThrowProviderTxError(*error);
-            return SubmissionToString(std::get<interfaces::ProviderTxSubmission>(result));
+            return SubmissionToString(UnwrapOrThrow(evo::provider::Revoke(node, *wallet_interface, typed_request)));
         },
     };
 }
