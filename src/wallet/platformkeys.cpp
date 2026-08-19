@@ -81,14 +81,13 @@ Path FriendshipPath(uint32_t coin_type, uint32_t account, Span<const uint8_t> us
     };
 }
 
-bool DeriveExtKey(Span<const uint8_t> seed, const Path& path, ExtKey256& out)
+bool DeriveExtKey(const CExtKey& parent, const Path& path, ExtKey256& out)
 {
-    CExtKey master;
-    master.SetSeed(MakeByteSpan(seed));
-    if (!master.key.IsValid()) return false;
+    out = {};
+    if (!parent.key.IsValid()) return false;
 
-    CKey key{master.key};
-    ChainCode chaincode{master.chaincode};
+    CKey key{parent.key};
+    ChainCode chaincode{parent.chaincode};
 
     for (const auto& element : path) {
         CKey child_key;

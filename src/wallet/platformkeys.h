@@ -87,9 +87,9 @@ Path PlatformKeyPath(uint32_t coin_type, const PlatformKeyRequest& request);
 //! (userA = my id, userB = their id), the sending chain is the reverse.
 Path FriendshipPath(uint32_t coin_type, uint32_t account, Span<const uint8_t> user_a_id, Span<const uint8_t> user_b_id);
 
-//! Derive the extended key at `path` from a BIP39 seed (the same 64-byte
-//! seed CHDChain stores). Returns false if any derivation step fails.
-[[nodiscard]] bool DeriveExtKey(Span<const uint8_t> seed, const Path& path, ExtKey256& out);
+//! Derive the extended key at `path` from a BIP32 extended private key.
+//! Returns false if the parent key or any derivation step is invalid.
+[[nodiscard]] bool DeriveExtKey(const CExtKey& parent, const Path& path, ExtKey256& out);
 
 //! Derive a (non-hardened) child extended pubkey. Fails on hardened steps.
 [[nodiscard]] bool DerivePubKey(const ExtPubKey256& parent, const PathElement& element, ExtPubKey256& out);

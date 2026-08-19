@@ -235,12 +235,12 @@ public:
     /** Sign a message with the given script */
     virtual SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const { return SigningResult::SIGNING_FAILED; };
     virtual bool SignSpecialTxPayload(const uint256& hash, const CKeyID& keyid, std::vector<unsigned char>& vchSig) const { return false; }
-    //! Return an unlock-free identifier for this manager's mnemonic source.
+    //! Return an unlock-free identifier for this manager's root extended key.
     virtual PlatformKeyStatus GetPlatformKeySource(std::vector<unsigned char>& identifier) const
     {
         return PlatformKeyStatus::NOT_SUPPORTED;
     }
-    //! Derive one Platform child without exposing the mnemonic-derived root.
+    //! Derive one Platform child without exposing the root extended key.
     virtual PlatformKeyStatus DerivePlatformKey(const platformkeys::Path& path, platformkeys::ExtKey256& out) const
     {
         return PlatformKeyStatus::NOT_SUPPORTED;

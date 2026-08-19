@@ -44,6 +44,14 @@ static SecureVector Dip14Seed()
     return SecureVector{seed.begin(), seed.end()};
 }
 
+static CExtKey Dip14Master()
+{
+    const SecureVector seed{Dip14Seed()};
+    CExtKey master;
+    master.SetSeed(MakeByteSpan(seed));
+    return master;
+}
+
 static std::array<uint8_t, 32> Arr32(const std::string& hex)
 {
     const std::vector<unsigned char> v{ParseHex(hex)};
@@ -56,7 +64,7 @@ static std::array<uint8_t, 32> Arr32(const std::string& hex)
 static std::string DerivedKeyHex(const Path& path)
 {
     ExtKey256 out;
-    BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), path, out));
+    BOOST_REQUIRE(DeriveExtKey(Dip14Master(), path, out));
     return HexStr(Span{out.key.begin(), out.key.size()});
 }
 
@@ -118,7 +126,7 @@ BOOST_AUTO_TEST_CASE(dip14_public_derivation_matches)
         PathElement::Hardened(0),
     };
     ExtKey256 parent;
-    BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), parent_path, parent));
+    BOOST_REQUIRE(DeriveExtKey(Dip14Master(), parent_path, parent));
 
     const auto id_a{Arr32("555d3854c910b7dee436869c4724bed2fe0784e198b8a39f02bbb49d8ebcfc3a")};
     const auto id_b{Arr32("a137439f36d04a15474ff7423e4b904a14373fafb37a41db74c84f1dbb5c89b5")};
@@ -128,7 +136,7 @@ BOOST_AUTO_TEST_CASE(dip14_public_derivation_matches)
     leaf_path.push_back(PathElement::Normal256(id_a));
     leaf_path.push_back(PathElement::Normal256(id_b));
     ExtKey256 leaf;
-    BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), leaf_path, leaf));
+    BOOST_REQUIRE(DeriveExtKey(Dip14Master(), leaf_path, leaf));
 
     // Public side: neuter parent, then derive idA/idB
     ExtPubKey256 pub_parent{parent.key.GetPubKey(), parent.chaincode};
@@ -177,7 +185,7 @@ BOOST_AUTO_TEST_CASE(friendship_derivation_matches_key_wallet)
     }
     const auto path{FriendshipPath(/*coin_type=*/1, /*account=*/0, id_a, id_b)};
     ExtKey256 out;
-    BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), path, out));
+    BOOST_REQUIRE(DeriveExtKey(Dip14Master(), path, out));
     BOOST_CHECK_EQUAL(HexStr(Span{out.key.begin(), out.key.size()}),
                       "815adcfab00d029d50a044a255cebc510fe6800c46082cf679dae8c46ca5e1f5");
     BOOST_CHECK_EQUAL(HexStr(out.chaincode),
@@ -230,6 +238,31 @@ struct FriendshipWalletSetup : public TestChain100Setup {
             wallet->SetupDescriptorScriptPubKeyMans(mnemonic, "");
         }
         auto iface = interfaces::MakeWallet(m_context, wallet);
+        return {std::move(wallet), std::move(iface)};
+    }
+
+    std::pair<std::shared_ptr<CWallet>, std::unique_ptr<interfaces::Wallet>>
+    MakeXprvWallet(const CExtKey& root)
+    {
+        auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
+                                                CreateMockWalletDatabase());
+        wallet->LoadWallet();
+
+        FlatSigningProvider provider;
+        std::string error;
+        auto parsed{Parse("pkh(" + EncodeExtKey(root) + "/*)", provider, error, /*require_checksum=*/false)};
+        BOOST_REQUIRE_MESSAGE(parsed, error);
+        WalletDescriptor descriptor(std::move(parsed), /*creation_time=*/0, /*range_start=*/0,
+                                    /*range_end=*/10, /*next_index=*/0);
+        {
+            LOCK(wallet->cs_wallet);
+            wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+            auto* spk_man{wallet->AddWalletDescriptor(descriptor, provider, "", /*internal=*/false)};
+            BOOST_REQUIRE(spk_man);
+            wallet->AddActiveScriptPubKeyMan(spk_man->GetID(), /*internal=*/false);
+        }
+
+        auto iface{interfaces::MakeWallet(m_context, wallet)};
         return {std::move(wallet), std::move(iface)};
     }
 
@@ -324,7 +357,7 @@ struct Dip14WalletSetup : public FriendshipWalletSetup {
     Dip14WalletSetup() : FriendshipWalletSetup(SecureString{DIP14_MNEMONIC}) {}
 };
 
-//! All active descriptor managers may share one mnemonic source, but the
+//! All active descriptor managers may share one root extended key, but the
 //! provider must reject a wallet whose active managers disagree on the source.
 BOOST_FIXTURE_TEST_CASE(platform_key_source_must_be_unambiguous, Dip14WalletSetup)
 {
@@ -362,41 +395,60 @@ BOOST_FIXTURE_TEST_CASE(platform_key_source_must_be_unambiguous, Dip14WalletSetu
     BOOST_CHECK(ambiguous.status == PlatformKeyStatus::AMBIGUOUS_SOURCE);
 }
 
-//! An active descriptor imported from a raw xprv stores an empty mnemonic.
-//! Platform key derivation must fail instead of deriving from the publicly
-//! reproducible empty-mnemonic BIP39 seed.
-BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_has_no_platform_keys, FriendshipWalletSetup)
+//! An imported root xprv is sufficient for Platform derivation. The mnemonic
+//! and BIP39 seed are only one way to create that extended private key.
+BOOST_FIXTURE_TEST_CASE(xprv_only_wallet_derives_platform_keys, FriendshipWalletSetup)
 {
-    auto wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args,
-                                            CreateMockWalletDatabase());
-    wallet->LoadWallet();
+    const CExtKey master{Dip14Master()};
+    const auto [wallet, iface]{MakeXprvWallet(master)};
+    const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_REQUIRE(result);
 
-    CExtKey master;
-    master.SetSeed(MakeByteSpan(Dip14Seed()));
-    FlatSigningProvider provider;
-    std::string error;
-    auto parsed = Parse("pkh(" + EncodeExtKey(master) + "/*)", provider, error, /*require_checksum=*/false);
-    BOOST_REQUIRE_MESSAGE(parsed, error);
-    WalletDescriptor descriptor(std::move(parsed), /*creation_time=*/0, /*range_start=*/0,
-                                /*range_end=*/10, /*next_index=*/0);
-    {
-        LOCK(wallet->cs_wallet);
-        wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
-        auto* spk_man = wallet->AddWalletDescriptor(descriptor, provider, "", /*internal=*/false);
-        BOOST_REQUIRE(spk_man);
-        wallet->AddActiveScriptPubKeyMan(spk_man->GetID(), /*internal=*/false);
-    }
+    ExtKey256 expected;
+    BOOST_REQUIRE(DeriveExtKey(master, IdentityAuthKeyPath(static_cast<uint32_t>(Params().ExtCoinType()), 0, 0), expected));
+    BOOST_CHECK(result.value == expected.key.GetPubKey());
+}
 
-    auto iface = interfaces::MakeWallet(m_context, wallet);
+//! The standardized Platform paths are absolute paths from m. An imported
+//! child xprv cannot be treated as m because hardened ancestors are not
+//! recoverable from it.
+BOOST_FIXTURE_TEST_CASE(child_xprv_has_no_platform_keys, FriendshipWalletSetup)
+{
+    CExtKey child;
+    BOOST_REQUIRE(Dip14Master().Derive(child, 0));
+    const auto [wallet, iface]{MakeXprvWallet(child)};
     const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
     BOOST_CHECK(result.status == PlatformKeyStatus::NOT_SUPPORTED);
 }
 
-//! A stored mnemonic that is nonempty but fails BIP39 validation — what a
-//! corrupted wallet record deserializes to — must not become a Platform key
-//! source: ToSeed() hashes any string, so accepting it would silently derive
-//! an unrelated Platform key universe.
-BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_keys, FriendshipWalletSetup)
+//! A root source is the complete extended public key, including its chain
+//! code. The same private scalar paired with another chain code defines a
+//! different Platform key tree and must be rejected as ambiguous.
+BOOST_FIXTURE_TEST_CASE(platform_key_source_includes_chaincode, Dip14WalletSetup)
+{
+    CExtKey alternate{Dip14Master()};
+    *alternate.chaincode.begin() ^= 1;
+
+    FlatSigningProvider provider;
+    std::string error;
+    auto parsed{Parse("pkh(" + EncodeExtKey(alternate) + "/*)", provider, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_MESSAGE(parsed, error);
+    WalletDescriptor descriptor(std::move(parsed), /*creation_time=*/0, /*range_start=*/0,
+                                /*range_end=*/10, /*next_index=*/0);
+    {
+        LOCK(m_wallet->cs_wallet);
+        auto* spk_man{m_wallet->AddWalletDescriptor(descriptor, provider, "", /*internal=*/true)};
+        BOOST_REQUIRE(spk_man);
+        m_wallet->AddActiveScriptPubKeyMan(spk_man->GetID(), /*internal=*/true);
+    }
+
+    const auto result{m_iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
+    BOOST_CHECK(result.status == PlatformKeyStatus::AMBIGUOUS_SOURCE);
+}
+
+//! Platform derivation uses the descriptor root xprv, so damage to the
+//! optional mnemonic metadata cannot redirect it to a different key tree.
+BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_does_not_change_platform_keys, FriendshipWalletSetup)
 {
     const SecureString bad_mnemonic{
         "birth kingdom trash renew flavor utility donkey gasp regular alert pave kingdom"};
@@ -431,12 +483,11 @@ BOOST_FIXTURE_TEST_CASE(invalid_mnemonic_has_no_platform_keys, FriendshipWalletS
 
     auto iface = interfaces::MakeWallet(m_context, wallet);
     const auto result{iface->getPlatformPubKey(IdentityAuthKey{0, 0})};
-    BOOST_CHECK(result.status == PlatformKeyStatus::INVALID_SOURCE);
+    BOOST_REQUIRE(result);
 
-    // The same path with a valid mnemonic still derives the expected key.
-    const auto valid{MakeSeededWallet(SecureString{DIP14_MNEMONIC})};
-    const auto valid_result{valid.second->getPlatformPubKey(IdentityAuthKey{0, 0})};
-    BOOST_REQUIRE(valid_result);
+    ExtKey256 expected;
+    BOOST_REQUIRE(DeriveExtKey(master, IdentityAuthKeyPath(static_cast<uint32_t>(Params().ExtCoinType()), 0, 0), expected));
+    BOOST_CHECK(result.value == expected.key.GetPubKey());
 }
 
 //! DashPay is descriptor-wallet-only: a legacy wallet must be refused even
@@ -490,7 +541,7 @@ BOOST_FIXTURE_TEST_CASE(recovery_auth_key_rederivation, SeededWalletPair)
             BOOST_CHECK(original.value == restored.value);
 
             ExtKey256 expected;
-            BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), IdentityAuthKeyPath(coin_type, identity, key), expected));
+            BOOST_REQUIRE(DeriveExtKey(Dip14Master(), IdentityAuthKeyPath(coin_type, identity, key), expected));
             BOOST_CHECK(original.value == expected.key.GetPubKey());
         }
     }
@@ -522,7 +573,7 @@ BOOST_AUTO_TEST_CASE(dip13_funding_vectors)
     };
     for (const auto& vector : vectors) {
         ExtKey256 key;
-        BOOST_REQUIRE(DeriveExtKey(Dip14Seed(), PlatformKeyPath(/*coin_type=*/1, vector.request), key));
+        BOOST_REQUIRE(DeriveExtKey(Dip14Master(), PlatformKeyPath(/*coin_type=*/1, vector.request), key));
         BOOST_CHECK_EQUAL(HexStr(Span{key.key.begin(), key.key.size()}), vector.expected_key);
         BOOST_CHECK_EQUAL(HexStr(key.chaincode), vector.expected_chaincode);
     }
