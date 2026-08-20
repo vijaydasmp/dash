@@ -173,6 +173,10 @@ void ProviderTransactionTests::transactionTypeSettingPersistence_data()
                                 << QString{"Masternode"};
     QTest::newRow("data") << TransactionFilterProxy::TYPE(TransactionRecord::DataTransaction)
                           << QString{"Data Transaction"};
+    QTest::newRow("dust") << TransactionFilterProxy::TYPE(TransactionRecord::DustReceive)
+                          << QString{"Dust Receive"};
+    QTest::newRow("other") << TransactionFilterProxy::TYPE(TransactionRecord::Other)
+                           << QString{"Other"};
     // An unknown stored filter selects nothing instead of an arbitrary entry.
     QTest::newRow("unknown") << quint32{0} << QString{};
 }
@@ -350,6 +354,53 @@ void ProviderTransactionTests::providerTransactionHistory()
             QTableView* const table{transaction_view.findChild<QTableView*>("transactionView")};
             QVERIFY(table != nullptr);
             QCOMPARE(table->model()->rowCount(), static_cast<int>(expected.size()));
+
+            struct RestoreCase {
+                quint32 saved_filter;
+                quint32 expected_filter;
+                QString expected_text;
+            };
+            const std::vector<RestoreCase> restore_cases{
+                {TransactionFilterProxy::TYPE(TransactionRecord::DataTransaction),
+                 TransactionFilterProxy::TYPE(TransactionRecord::DataTransaction),
+                 QString{"Data Transaction"}},
+                {TransactionFilterProxy::TYPE(TransactionRecord::DustReceive),
+                 TransactionFilterProxy::TYPE(TransactionRecord::DustReceive),
+                 QString{"Dust Receive"}},
+                {TransactionFilterProxy::TYPE(TransactionRecord::Other),
+                 TransactionFilterProxy::TYPE(TransactionRecord::Other),
+                 QString{"Other"}},
+                // Hidden CoinJoin filter falls back to "Most Common" when CoinJoin is disabled.
+                {TransactionFilterProxy::TYPE(TransactionRecord::CoinJoinSend),
+                 TransactionFilterProxy::COMMON_TYPES,
+                 QString{"Most Common"}},
+                // Unknown stored filter falls back to "Most Common" when CoinJoin is disabled.
+                {0, TransactionFilterProxy::COMMON_TYPES, QString{"Most Common"}},
+            };
+
+            TransactionTypeSettingRestorer setting_restorer;
+            for (const RestoreCase& restore_case : restore_cases) {
+                QSettings{}.setValue("transactionTypeFilter", restore_case.saved_filter);
+                TransactionView restored_view;
+                restored_view.setModel(&wallet_model);
+                QComboBox* const restored_widget{FindTransactionTypeWidget(restored_view)};
+                QVERIFY(restored_widget != nullptr);
+                QCOMPARE(restored_widget->currentText(), restore_case.expected_text);
+                QCOMPARE(restored_widget->currentData().toUInt(), restore_case.expected_filter);
+                QCOMPARE(QSettings{}.value("transactionTypeFilter").toUInt(), restore_case.expected_filter);
+            }
+
+            {
+                // When no setting exists, setModel() defaults to "Most Common" (when CoinJoin is disabled).
+                QSettings{}.remove("transactionTypeFilter");
+                TransactionView default_view;
+                default_view.setModel(&wallet_model);
+                QComboBox* const default_widget{FindTransactionTypeWidget(default_view)};
+                QVERIFY(default_widget != nullptr);
+                QCOMPARE(default_widget->currentText(), QString{"Most Common"});
+                QCOMPARE(default_widget->currentData().toUInt(), TransactionFilterProxy::COMMON_TYPES);
+                QCOMPARE(QSettings{}.value("transactionTypeFilter").toUInt(), TransactionFilterProxy::COMMON_TYPES);
+            }
         }
     }
 
