@@ -570,9 +570,10 @@ public:
                     CSporkManager& sporkman, const chainlock::Chainlocks& chainlocks,
                     chainlock::ChainlockHandler& clhandler,
                     CActiveMasternodeManager* nodeman,
-                    const std::unique_ptr<CDeterministicMNManager>& dmnman,
-                    const std::unique_ptr<CJWalletManager>& cj_walletman,
-                    const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs);
+                    CDeterministicMNManager& dmnman,
+                    CJWalletManager* cj_walletman,
+                    llmq::CInstantSendManager& isman,
+                    LLMQContext& llmq_ctx, bool ignore_incoming_txs);
 
     ~PeerManagerImpl()
     {
@@ -807,9 +808,10 @@ private:
     CTxMemPool& m_mempool;
     std::unique_ptr<TxReconciliationTracker> m_txreconciliation;
     CActiveMasternodeManager* const m_nodeman; //!< null if non-masternode mode; non-null implies masternode mode
-    const std::unique_ptr<CDeterministicMNManager>& m_dmnman;
-    const std::unique_ptr<CJWalletManager>& m_cj_walletman;
-    const std::unique_ptr<LLMQContext>& m_llmq_ctx;
+    CDeterministicMNManager& m_dmnman;
+    CJWalletManager* const m_cj_walletman; //!< null in masternode mode and in wallet-disabled builds
+    llmq::CInstantSendManager& m_isman;
+    LLMQContext& m_llmq_ctx;
     CMasternodeMetaMan& m_mn_metaman;
     CMasternodeSync& m_mn_sync;
     CSporkManager& m_sporkman;
@@ -867,7 +869,7 @@ private:
      */
     bool BlockRequestAllowed(const CBlockIndex* pindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     bool AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv, llmq::CInstantSendManager& isman) EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
+    void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!m_most_recent_block_mutex);
 
     /**
      * Validation logic for compact filters request handling.
@@ -2039,11 +2041,12 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                CSporkManager& sporkman, const chainlock::Chainlocks& chainlocks,
                                                chainlock::ChainlockHandler& clhandler,
                                                CActiveMasternodeManager* nodeman,
-                                               const std::unique_ptr<CDeterministicMNManager>& dmnman,
-                                               const std::unique_ptr<CJWalletManager>& cj_walletman,
-                                               const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
+                                               CDeterministicMNManager& dmnman,
+                                               CJWalletManager* cj_walletman,
+                                               llmq::CInstantSendManager& isman,
+                                               LLMQContext& llmq_ctx, bool ignore_incoming_txs)
 {
-    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, llmq_ctx, ignore_incoming_txs);
+    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, isman, llmq_ctx, ignore_incoming_txs);
 }
 
 PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* banman,
@@ -2053,9 +2056,10 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
                                  const chainlock::Chainlocks& chainlocks,
                                  chainlock::ChainlockHandler& clhandler,
                                  CActiveMasternodeManager* nodeman,
-                                 const std::unique_ptr<CDeterministicMNManager>& dmnman,
-                                 const std::unique_ptr<CJWalletManager>& cj_walletman,
-                                 const std::unique_ptr<LLMQContext>& llmq_ctx, bool ignore_incoming_txs)
+                                 CDeterministicMNManager& dmnman,
+                                 CJWalletManager* cj_walletman,
+                                 llmq::CInstantSendManager& isman,
+                                 LLMQContext& llmq_ctx, bool ignore_incoming_txs)
     : m_chainparams(chainman.GetParams()),
       m_connman(connman),
       m_addrman(addrman),
@@ -2066,6 +2070,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
       m_nodeman(nodeman),
       m_dmnman(dmnman),
       m_cj_walletman(cj_walletman),
+      m_isman(isman),
       m_llmq_ctx(llmq_ctx),
       m_mn_metaman(mn_metaman),
       m_mn_sync(mn_sync),
@@ -2319,8 +2324,8 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
             // crafted invalid DSTX-es and potentially cause high load cheaply, because
             // corresponding checks in ProcessMessage won't let it to send DSTX-es too often.
             bool fIgnoreRecentRejects = inv.IsMsgDstx() ||
-                                        m_llmq_ctx->isman->IsWaitingForTx(inv.hash) ||
-                                        m_llmq_ctx->isman->IsLocked(inv.hash);
+                                        m_isman.IsWaitingForTx(inv.hash) ||
+                                        m_isman.IsLocked(inv.hash);
 
             return (!fIgnoreRecentRejects && m_recent_rejects.contains(inv.hash)) ||
                    (inv.IsMsgDstx() && static_cast<bool>(m_dstxman.GetDSTX(inv.hash))) ||
@@ -2351,15 +2356,15 @@ bool PeerManagerImpl::AlreadyHave(const CInv& inv)
         return false;
 
     case MSG_QUORUM_FINAL_COMMITMENT:
-        return m_llmq_ctx->quorum_block_processor->HasMineableCommitment(inv.hash);
+        return m_llmq_ctx.quorum_block_processor->HasMineableCommitment(inv.hash);
     case MSG_QUORUM_RECOVERED_SIG:
     // TODO: move it to NetSigning
-        return m_llmq_ctx->sigman->AlreadyHave(inv);
+        return m_llmq_ctx.sigman->AlreadyHave(inv);
     case MSG_CLSIG:
         return m_clhandler.AlreadyHave(inv);
     // TODO: move it to NetInstantSend
     case MSG_ISDLOCK:
-        return m_llmq_ctx->isman->AlreadyHave(inv);
+        return m_isman.AlreadyHave(inv);
     case MSG_PLATFORM_BAN:
         return m_mn_metaman.AlreadyHavePlatformBan(inv.hash);
 
@@ -2652,7 +2657,7 @@ void PeerManagerImpl::RelayAddress(NodeId originator,
     }
 }
 
-void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv, llmq::CInstantSendManager& isman)
+void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& inv)
 {
     std::shared_ptr<const CBlock> a_recent_block;
     std::shared_ptr<const CBlockHeaderAndShortTxIDs> a_recent_compact_block;
@@ -2773,7 +2778,7 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
                     m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::TX, *pblock->vtx[pair.first]));
                 }
                 for (PairType &pair : merkleBlock.vMatchedTxn) {
-                    auto islock = isman.GetInstantSendLockByTxid(pair.second);
+                    auto islock = m_isman.GetInstantSendLockByTxid(pair.second);
                     if (islock != nullptr) {
                         m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::ISDLOCK, *islock));
                     }
@@ -2936,7 +2941,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && (inv.type == MSG_QUORUM_FINAL_COMMITMENT)) {
             llmq::CFinalCommitment o;
-            if (m_llmq_ctx->quorum_block_processor->GetMineableCommitmentByHash(
+            if (m_llmq_ctx.quorum_block_processor->GetMineableCommitmentByHash(
                     inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QFCOMMITMENT, o));
                 push = true;
@@ -2945,7 +2950,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && (inv.type == MSG_QUORUM_RECOVERED_SIG)) {
             llmq::CRecoveredSig o;
-            if (m_llmq_ctx->sigman->GetRecoveredSigForGetData(inv.hash, o)) {
+            if (m_llmq_ctx.sigman->GetRecoveredSigForGetData(inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QSIGREC, o));
                 push = true;
             }
@@ -2961,7 +2966,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
 
         if (!push && inv.type == MSG_ISDLOCK) {
             instantsend::InstantSendLock o;
-            if (m_llmq_ctx->isman->GetInstantSendLockByHash(inv.hash, o)) {
+            if (m_isman.GetInstantSendLockByHash(inv.hash, o)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::ISDLOCK, o));
                 push = true;
             }
@@ -2996,7 +3001,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
     if (it != peer.m_getdata_requests.end() && !pfrom.fPauseSend) {
         const CInv &inv = *it++;
         if (inv.IsGenBlkMsg()) {
-            ProcessGetBlockData(pfrom, peer, inv, *m_llmq_ctx->isman);
+            ProcessGetBlockData(pfrom, peer, inv);
         }
         // else: If the first item on the queue is an unknown type, we erase it
         // and continue processing the queue on the next call.
@@ -3762,7 +3767,7 @@ MessageProcessingResult PeerManagerImpl::ProcessPlatformBanMessage(NodeId node, 
     MessageProcessingResult ret{};
     ret.m_to_erase = CInv{MSG_PLATFORM_BAN, hash};
 
-    const auto list = Assert(m_dmnman)->GetListAtChainTip();
+    const auto list = m_dmnman.GetListAtChainTip();
     auto dmn = list.GetMN(ban_msg.m_protx_hash);
     if (!dmn) {
         // small P2P penalty (1), as the evonode may have very recently been removed
@@ -3790,7 +3795,7 @@ MessageProcessingResult PeerManagerImpl::ProcessPlatformBanMessage(NodeId node, 
     }
 
     Consensus::LLMQType llmq_type = m_chainparams.GetConsensus().llmqTypePlatform;
-    auto quorum = m_llmq_ctx->qman->GetQuorum(llmq_type, ban_msg.m_quorum_hash);
+    auto quorum = m_llmq_ctx.qman->GetQuorum(llmq_type, ban_msg.m_quorum_hash);
     if (!quorum) {
         LogPrintf("PLATFORMBAN -- hash: %s protx_hash: %s missing quorum_hash: %s llmq_type: %d\n", hash.ToString(), ban_msg.m_protx_hash.ToString(), ban_msg.m_quorum_hash.ToString(), std23::to_underlying(llmq_type));
         ret.m_error = MisbehavingError{100};
@@ -4126,8 +4131,8 @@ void PeerManagerImpl::ProcessMessage(
             // Tell our peer that he should send us CoinJoin queue messages
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDDSQUEUE, true));
             // Tell our peer that he should send us intra-quorum messages
-            const auto tip_mn_list = Assert(m_dmnman)->GetListAtChainTip();
-            if (m_llmq_ctx->qman->IsWatching() && m_connman.IsMasternodeQuorumNode(&pfrom, tip_mn_list)) {
+            const auto tip_mn_list = m_dmnman.GetListAtChainTip();
+            if (m_llmq_ctx.qman->IsWatching() && m_connman.IsMasternodeQuorumNode(&pfrom, tip_mn_list)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QWATCH));
             }
         }
@@ -4782,7 +4787,7 @@ void PeerManagerImpl::ProcessMessage(
         // Process custom logic, no matter if tx will be accepted to mempool later or not
         if (nInvType == MSG_DSTX) {
             uint256 hashTx = tx.GetHash();
-            const auto result = ValidateDSTX(*m_dmnman, m_dstxman, m_chainman, m_mn_metaman, m_mempool, dstx, hashTx);
+            const auto result = ValidateDSTX(m_dmnman, m_dstxman, m_chainman, m_mn_metaman, m_mempool, dstx, hashTx);
             if (result.do_return) {
                 if (result.score != DSTXValidationScore::NONE) {
                     Misbehaving(*peer, static_cast<int>(result.score), "invalid dstx");
@@ -4884,7 +4889,7 @@ void PeerManagerImpl::ProcessMessage(
                 // parents so avoid re-requesting it from other peers.
                 m_recent_rejects.insert(tx.GetHash());
                 ForgetTx(tx.GetHash());
-                m_llmq_ctx->isman->TransactionIsRemoved(ptx);
+                m_isman.TransactionIsRemoved(ptx);
             }
         } else {
             m_recent_rejects.insert(tx.GetHash());
@@ -4916,7 +4921,7 @@ void PeerManagerImpl::ProcessMessage(
                 pfrom.GetId(),
                 state.ToString());
             MaybePunishNodeForTx(pfrom.GetId(), state);
-            m_llmq_ctx->isman->TransactionIsRemoved(ptx);
+            m_isman.TransactionIsRemoved(ptx);
         }
         return;
     }
@@ -5488,7 +5493,7 @@ void PeerManagerImpl::ProcessMessage(
 
         CSimplifiedMNListDiff mnListDiff;
         std::string strError;
-        if (BuildSimplifiedMNListDiff(*m_dmnman, m_chainman, *m_llmq_ctx->quorum_block_processor, *m_llmq_ctx->qman,
+        if (BuildSimplifiedMNListDiff(m_dmnman, m_chainman, *m_llmq_ctx.quorum_block_processor, *m_llmq_ctx.qman,
                                       cmd.baseBlockHash, cmd.blockHash, mnListDiff, strError))
         {
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::MNLISTDIFF, mnListDiff));
@@ -5538,7 +5543,7 @@ void PeerManagerImpl::ProcessMessage(
         llmq::CQuorumRotationInfo quorumRotationInfoRet;
         std::string strError;
         bool use_legacy_construction = pfrom.GetCommonVersion() < EFFICIENT_QRINFO_VERSION;;
-        if (BuildQuorumRotationInfo(*m_dmnman, *m_llmq_ctx->qsnapman, m_chainman, *m_llmq_ctx->qman, *m_llmq_ctx->quorum_block_processor, cmd, use_legacy_construction, quorumRotationInfoRet, strError)) {
+        if (BuildQuorumRotationInfo(m_dmnman, *m_llmq_ctx.qsnapman, m_chainman, *m_llmq_ctx.qman, *m_llmq_ctx.quorum_block_processor, cmd, use_legacy_construction, quorumRotationInfoRet, strError)) {
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::QUORUMROTATIONINFO, quorumRotationInfoRet));
         } else {
             strError = strprintf("getquorumrotationinfo failed for size(baseBlockHashes)=%d, blockRequestHash=%s. error=%s", cmd.baseBlockHashes.size(), cmd.blockRequestHash.ToString(), strError);
@@ -5643,8 +5648,8 @@ void PeerManagerImpl::ProcessMessage(
         if (m_cj_walletman) {
             PostProcessMessage(m_cj_walletman->processMessage(pfrom, m_chainman.ActiveChainstate(), m_connman, m_mempool, msg_type, vRecv), pfrom.GetId());
         }
-        PostProcessMessage(CMNAuth::ProcessMessage(pfrom, peer->m_their_services, m_connman, m_mn_metaman, m_nodeman, m_mn_sync, m_dmnman->GetListAtChainTip(), msg_type, vRecv), pfrom.GetId());
-        PostProcessMessage(m_llmq_ctx->quorum_block_processor->ProcessMessage(
+        PostProcessMessage(CMNAuth::ProcessMessage(pfrom, peer->m_their_services, m_connman, m_mn_metaman, m_nodeman, m_mn_sync, m_dmnman.GetListAtChainTip(), msg_type, vRecv), pfrom.GetId());
+        PostProcessMessage(m_llmq_ctx.quorum_block_processor->ProcessMessage(
                                pfrom, msg_type, vRecv,
                                [this, &pfrom](const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(!::cs_main) {
                                    return WITH_LOCK(::cs_main,
@@ -5674,7 +5679,7 @@ void PeerManagerImpl::ProcessMessage(
                     Misbehaving(*peer, UNREQUESTED_OBJECT_MISBEHAVIOR_SCORE, "unrequested clsig");
                     return;
                 }
-                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx->qman,
+                PostProcessMessage(m_clhandler.ProcessNewChainLock(pfrom.GetId(), clsig, *m_llmq_ctx.qman,
                                                                    clsig_inv.hash),
                                    pfrom.GetId());
             }
@@ -6162,8 +6167,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
 {
     AssertLockHeld(g_msgproc_mutex);
 
-    assert(m_llmq_ctx);
-
     const bool is_masternode = m_nodeman != nullptr;
 
     PeerRef peer = GetPeerRef(pto->GetId());
@@ -6500,7 +6503,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     tx_relay->m_tx_inventory_known_filter.insert(hash);
                     queueAndMaybePushInv(CInv(nInvType, hash));
 
-                    const auto islock = m_llmq_ctx->isman->GetInstantSendLockByTxid(hash);
+                    const auto islock = m_isman.GetInstantSendLockByTxid(hash);
                     if (islock == nullptr) continue;
                     uint256 isLockHash{::SerializeHash(*islock)};
                     tx_relay->m_tx_inventory_known_filter.insert(isLockHash);

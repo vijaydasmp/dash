@@ -358,7 +358,7 @@ BOOST_AUTO_TEST_CASE(getInstantSendLock)
     constexpr const char* REGTEST_SPORK_PRIVKEY{"cP4EKFyJsHT39LDqgdcB43Y3YXjNyjb5Fuas1GQSeAtjnZWmZEQK"};
 
     auto node{interfaces::MakeNode(m_node)};
-    auto& isman{*Assert(m_node.llmq_ctx)->isman};
+    auto& isman{*Assert(m_node.isman)};
 
     auto islock{std::make_shared<instantsend::InstantSendLock>()};
     islock->inputs.emplace_back(uint256::ONE, 0);

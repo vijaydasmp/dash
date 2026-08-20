@@ -240,7 +240,7 @@ BOOST_AUTO_TEST_CASE(server_signfinaltx_nonparticipant_cannot_abort_session)
     TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
                                   *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
                                   *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
-                                  *Assert(m_node.llmq_ctx->isman));
+                                  *Assert(m_node.isman));
 
     // Seed an active signing session with one participant. That participant's
     // addr is deliberately not registered with connman -- a session-wide
@@ -278,7 +278,7 @@ BOOST_AUTO_TEST_CASE(server_signfinaltx_participant_oversized_count_is_rejected_
     TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
                                   *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
                                   *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
-                                  *Assert(m_node.llmq_ctx->isman));
+                                  *Assert(m_node.isman));
 
     // Same setup, but this time the oversized DSSIGNFINALTX comes from the
     // session participant itself. It must still be rejected without materializing
@@ -319,7 +319,7 @@ struct InOutsChecker : CCoinJoinBaseSession
 BOOST_AUTO_TEST_CASE(validation_uses_session_denom_snapshot)
 {
     Chainstate& chainstate{Assert(m_node.chainman)->ActiveChainstate()};
-    const auto& isman{*Assert(m_node.llmq_ctx->isman)};
+    const auto& isman{*Assert(m_node.isman)};
     const auto& mempool{*Assert(m_node.mempool)};
 
     const int session_denom{CoinJoin::AmountToDenomination(CoinJoin::GetSmallestDenomination())};
