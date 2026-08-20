@@ -351,7 +351,7 @@ BOOST_AUTO_TEST_CASE(server_addentry_binds_entries_to_accepted_collaterals)
     TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
                                   *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
                                   *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
-                                  *Assert(m_node.llmq_ctx->isman));
+                                  *Assert(m_node.isman));
 
     auto make_collateral = [](uint8_t tag) {
         CMutableTransaction tx;
@@ -403,7 +403,7 @@ BOOST_AUTO_TEST_CASE(server_addentry_rejects_entries_once_the_session_finalized)
     TestableCoinJoinServer server(m_node.peerman.get(), *Assert(m_node.chainman), *Assert(m_node.connman),
                                   *Assert(m_node.dmnman), *Assert(m_node.dstxman), *Assert(m_node.mn_metaman),
                                   *Assert(m_node.mempool), mn_activeman, *Assert(m_node.mn_sync),
-                                  *Assert(m_node.llmq_ctx->isman));
+                                  *Assert(m_node.isman));
 
     CMutableTransaction txCollateral;
     txCollateral.vin.emplace_back(COutPoint(uint256::ONE, 1));
