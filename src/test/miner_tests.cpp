@@ -5,7 +5,6 @@
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
-#include <consensus/validation.h>
 #include <node/miner.h>
 #include <policy/policy.h>
 #include <pow.h>
@@ -99,7 +98,6 @@ constexpr static struct {
               {0, 642154},  {0, 5835730}, {0, 164952},  {0, 1584353}, {0, 666367},  {0, 854797},
               {0, 2407599}, {0, 3328128}, {0, 245451},  {0, 2154593}, {0, 4043042}, {0, 2939387},
               {0, 3509685}, {0, 635871},  {0, 2645814}, {0, 1788871}, {0, 2263667}};
-constexpr static size_t blockinfo_size = sizeof(BLOCKINFO) / sizeof(BLOCKINFO[0]);
 
 static std::unique_ptr<CBlockIndex> CreateBlockIndex(int nHeight, CBlockIndex* active_chain_tip) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
@@ -587,6 +585,11 @@ void MinerTestingSetup::TestBasicMining(const CScript& scriptPubKey, const std::
         CBlockIndex* ancestor{Assert(m_node.chainman->ActiveChain().Tip()->GetAncestor(m_node.chainman->ActiveChain().Tip()->nHeight - i))};
         ancestor->nTime += SEQUENCE_LOCK_TIME; // Trick the MedianTimePast
     }
+    m_node.chainman->ActiveChain().Tip()->nHeight++;
+    SetMockTime(m_node.chainman->ActiveChain().Tip()->GetMedianTimePast() + 1);
+
+    BOOST_CHECK(pblocktemplate = AssemblerForTest(tx_mempool).CreateNewBlock(scriptPubKey));
+    BOOST_CHECK_EQUAL(pblocktemplate->block.vtx.size(), 5U);
 }
 
 void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const std::vector<CTransactionRef>& txFirst)
@@ -674,27 +677,25 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
 {
     // Note that by default, these tests run with size accounting enabled.
     CScript scriptPubKey = CScript() << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
-    std::unique_ptr<CBlockTemplate> pblocktemplate, pemptyblocktemplate;
+    std::unique_ptr<CBlockTemplate> pblocktemplate;
 
     CTxMemPool& tx_mempool{*m_node.mempool};
     // Simple block creation, nothing special yet:
-    BOOST_CHECK(pemptyblocktemplate = AssemblerForTest(tx_mempool).CreateNewBlock(scriptPubKey));
+    BOOST_CHECK(pblocktemplate = AssemblerForTest(tx_mempool).CreateNewBlock(scriptPubKey));
 
     // We can't make transactions until we have inputs
     // Therefore, load 100 blocks :)
     int baseheight = 0;
     std::vector<CTransactionRef> txFirst;
-
-    auto createAndProcessEmptyBlock = [&]() {
-        int i = WITH_LOCK(::cs_main, return m_node.chainman->ActiveChain().Height()) % blockinfo_size;
-        CBlock *pblock = &pemptyblocktemplate->block; // pointer for convenience
+    for (const auto& bi : BLOCKINFO) {
+        CBlock *pblock = &pblocktemplate->block; // pointer for convenience
         {
             LOCK(cs_main);
             pblock->nVersion = VERSIONBITS_TOP_BITS;
             pblock->nTime = m_node.chainman->ActiveChain().Tip()->GetMedianTimePast()+1;
             CMutableTransaction txCoinbase(*pblock->vtx[0]);
             txCoinbase.nVersion = 1;
-            txCoinbase.vin[0].scriptSig = CScript{} << (m_node.chainman->ActiveChain().Height() + 1) << BLOCKINFO[i].extranonce;
+            txCoinbase.vin[0].scriptSig = CScript{} << (m_node.chainman->ActiveChain().Height() + 1) << bi.extranonce;
             txCoinbase.vout[0].scriptPubKey = CScript();
             pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
             if (txFirst.size() == 0)
@@ -702,7 +703,7 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
             if (txFirst.size() < 4)
                 txFirst.push_back(pblock->vtx[0]);
             pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
-            pblock->nNonce = BLOCKINFO[i].nonce;
+            pblock->nNonce = bi.nonce;
 
             // This will usually succeed in the first round as we take the nonce from BLOCKINFO
             // It's however useful when adding new blocks with unknown nonces (you should add the found block to BLOCKINFO)
@@ -713,37 +714,15 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
         std::shared_ptr<const CBlock> shared_pblock = std::make_shared<const CBlock>(*pblock);
         BOOST_CHECK(Assert(m_node.chainman)->ProcessNewBlock(shared_pblock, true, nullptr));
         pblock->hashPrevBlock = pblock->GetHash();
-    };
-
-    for ([[maybe_unused]] const auto& _ : BLOCKINFO) {
-        createAndProcessEmptyBlock();
     }
 
-
-    {
     LOCK(cs_main);
 
     TestBasicMining(scriptPubKey, txFirst, baseheight);
-    }
 
-    // Mine an empty block
-    createAndProcessEmptyBlock();
-
-    {
-    LOCK(cs_main);
-
-    SetMockTime(m_node.chainman->ActiveChain().Tip()->GetMedianTimePast() + 1);
-
-    BOOST_CHECK(pblocktemplate = AssemblerForTest(tx_mempool).CreateNewBlock(scriptPubKey));
-    BOOST_CHECK_EQUAL(pblocktemplate->block.vtx.size(), 5U);
-    } // unlock cs_main while calling InvalidateBlock
-
-    BlockValidationState state;
-    m_node.chainman->ActiveChainstate().InvalidateBlock(state, WITH_LOCK(cs_main, return m_node.chainman->ActiveChain().Tip()));
-
+    m_node.chainman->ActiveChain().Tip()->nHeight--;
     SetMockTime(0);
 
-    LOCK(cs_main);
     TestPackageSelection(scriptPubKey, txFirst);
 
     m_node.chainman->ActiveChain().Tip()->nHeight--;
