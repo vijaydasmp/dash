@@ -338,6 +338,13 @@ private:
     void AddToSpends(const CWalletTx& wtx, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     std::set<COutPoint> setWalletUTXO;
+    /** May `wtx`'s outputs in the wallet UTXO set be counted as wallet funds?
+     *
+     *  setWalletUTXO holds every unspent output the wallet owns, including outputs of
+     *  transactions that will never confirm as they stand: conflicted ones, and ones that
+     *  were abandoned, never broadcast or rejected from the mempool. AvailableCoins()
+     *  filters those out, so consumers reading setWalletUTXO directly must do the same. */
+    bool IsWalletUTXOSpendable(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Add new UTXOs to the wallet UTXO set
      *
      *  @param[in] tx         Transaction to scan eligible UTXOs from

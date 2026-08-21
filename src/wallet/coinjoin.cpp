@@ -162,7 +162,7 @@ std::vector<CompactTallyItem> CWallet::SelectCoinsGroupedByAddresses(bool fSkipD
 
         if (wtx.IsCoinBase() && GetTxBlocksToMaturity(wtx) > 0) continue;
         if (fSkipUnconfirmed && !CachedTxIsTrusted(*this, wtx)) continue;
-        if (GetTxDepthInMainChain(wtx) < 0) continue;
+        if (!IsWalletUTXOSpendable(wtx)) continue;
 
         for (unsigned int i = 0; i < wtx.tx->vout.size(); i++) {
             CTxDestination txdest;
@@ -253,7 +253,7 @@ int CWallet::CountInputsWithAmount(CAmount nInputAmount) const
         const auto it{mapWallet.find(outpoint.hash)};
         if (it == mapWallet.end()) continue;
         if (it->second.tx->vout[outpoint.n].nValue != nInputAmount) continue;
-        if (GetTxDepthInMainChain(it->second) < 0) continue;
+        if (!IsWalletUTXOSpendable(it->second)) continue;
 
         nTotal++;
     }
@@ -542,6 +542,9 @@ float CWallet::GetAverageAnonymizedRounds() const
 
     LOCK(cs_wallet);
     for (const auto& outpoint : setWalletUTXO) {
+        const auto it{mapWallet.find(outpoint.hash)};
+        if (it == mapWallet.end()) continue;
+        if (!IsWalletUTXOSpendable(it->second)) continue;
         if (!IsDenominated(outpoint)) continue;
 
         nTotal += GetCappedOutpointCoinJoinRounds(outpoint);
@@ -568,7 +571,7 @@ CAmount CWallet::GetNormalizedAnonymizedBalance() const
 
         CAmount nValue = it->second.tx->vout[outpoint.n].nValue;
         if (!CoinJoin::IsDenominatedAmount(nValue)) continue;
-        if (GetTxDepthInMainChain(it->second) < 0) continue;
+        if (!IsWalletUTXOSpendable(it->second)) continue;
 
         int nRounds = GetCappedOutpointCoinJoinRounds(outpoint);
         nTotal += nValue * nRounds / CCoinJoinClientOptions::GetRounds();

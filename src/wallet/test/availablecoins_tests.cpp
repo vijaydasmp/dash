@@ -89,5 +89,27 @@ BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, AvailableCoinsTestingSetup)
     BOOST_CHECK_EQUAL(available_coins.legacy.size(), 2U);
 }
 
+BOOST_FIXTURE_TEST_CASE(UnconfirmableOutputsAreNotWalletFunds, AvailableCoinsTestingSetup)
+{
+    LOCK(wallet->cs_wallet);
+
+    const auto dest{wallet->GetNewDestination("")};
+    BOOST_ASSERT(dest);
+
+    CMutableTransaction mtx;
+    mtx.vin.emplace_back(COutPoint{uint256::ONE, 0});
+    mtx.vout.emplace_back(1 * COIN, GetScriptForDestination(*dest));
+    const CTransactionRef tx{MakeTransactionRef(mtx)};
+
+    // A transaction the wallet knows about but that never reached the mempool cannot
+    // confirm as it stands, so its outputs are not funds the wallet can spend or mix.
+    BOOST_CHECK(wallet->AddToWallet(tx, TxStateInactive{}));
+    BOOST_CHECK_EQUAL(wallet->CountInputsWithAmount(1 * COIN), 0);
+
+    // Once it is in the mempool they count.
+    BOOST_CHECK(wallet->AddToWallet(tx, TxStateInMempool{}));
+    BOOST_CHECK_EQUAL(wallet->CountInputsWithAmount(1 * COIN), 1);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 } // namespace wallet

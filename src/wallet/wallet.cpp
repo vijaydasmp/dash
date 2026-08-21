@@ -762,6 +762,14 @@ bool CWallet::IsSpent(const COutPoint& outpoint) const
     return false;
 }
 
+bool CWallet::IsWalletUTXOSpendable(const CWalletTx& wtx) const
+{
+    AssertLockHeld(cs_wallet);
+    const int depth{GetTxDepthInMainChain(wtx)};
+    if (depth < 0) return false;
+    return depth > 0 || wtx.InMempool();
+}
+
 void CWallet::AddToSpends(const COutPoint& outpoint, const uint256& wtxid, WalletBatch* batch)
 {
     mapTxSpends.insert(std::make_pair(outpoint, wtxid));
