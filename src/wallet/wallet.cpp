@@ -1448,6 +1448,11 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
         auto it = mapWallet.find(tx->GetHash());
         if (it != mapWallet.end()) {
             RefreshMempoolStatus(it->second, chain());
+            // The transaction is inactive now, so its outputs stop counting as wallet
+            // funds. The anonymizable tallies are served from a cache that would keep
+            // handing out the old answer until some unrelated event cleared it.
+            fAnonymizableTallyCached = false;
+            fAnonymizableTallyCachedNonDenom = false;
         }
     }
     // Handle transactions that were removed from the mempool because they

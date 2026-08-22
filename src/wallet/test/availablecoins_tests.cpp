@@ -3,6 +3,7 @@
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
 #include <coinjoin/coinjoin.h>
+#include <txmempool.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/coinjoin.h>
@@ -119,6 +120,38 @@ BOOST_FIXTURE_TEST_CASE(UnconfirmableOutputsAreNotWalletFunds, AvailableCoinsTes
     BOOST_CHECK(wallet->AddToWallet(tx, TxStateInMempool{}));
     BOOST_CHECK_EQUAL(wallet->CountInputsWithAmount(denom), 1);
     BOOST_CHECK_EQUAL(CachedTxGetAvailableCoinJoinCredits(*wallet, wtx).m_denominated, denom);
+}
+
+BOOST_FIXTURE_TEST_CASE(MempoolRemovalInvalidatesAnonymizableTally, AvailableCoinsTestingSetup)
+{
+    LOCK(wallet->cs_wallet);
+
+    const auto dest{wallet->GetNewDestination("")};
+    BOOST_ASSERT(dest);
+
+    // A wallet transaction in the mempool is trusted at depth zero, so its outputs count
+    // towards the anonymizable tally and that tally is cacheable.
+    auto created{CreateTransaction(*wallet, {CRecipient{GetScriptForDestination(*dest), 1 * COIN,
+                                                        /*fSubtractFeeFromAmount=*/false}},
+                                   RANDOM_CHANGE_POSITION, CCoinControl{})};
+    BOOST_REQUIRE(created);
+    const CTransactionRef tx{created->tx};
+    BOOST_CHECK(wallet->AddToWallet(tx, TxStateInMempool{}));
+
+    const auto tallied = [&](const CTxDestination& target) {
+        for (const auto& item : wallet->SelectCoinsGroupedByAddresses()) {
+            if (item.txdest == target) return true;
+        }
+        return false;
+    };
+
+    // Prime the cache, so that the check below cannot pass by recomputing the tally.
+    BOOST_REQUIRE(tallied(*dest));
+
+    // Leaving the mempool makes the transaction unconfirmable as it stands; the cached
+    // tally must not keep handing out its outputs.
+    wallet->transactionRemovedFromMempool(tx, MemPoolRemovalReason::EXPIRY);
+    BOOST_CHECK(!tallied(*dest));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
