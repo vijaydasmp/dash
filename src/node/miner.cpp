@@ -62,45 +62,42 @@ int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParam
     return nNewTime - nOldTime;
 }
 
-BlockAssembler::Options::Options()
+static BlockAssembler::Options ClampOptions(BlockAssembler::Options options)
 {
-    blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
-    nBlockMaxSize = DEFAULT_BLOCK_MAX_SIZE;
+    options.nBlockMaxSize = std::clamp<size_t>(options.nBlockMaxSize, 1000, DEFAULT_BLOCK_MAX_SIZE);
+    return options;
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, const CTxMemPool* mempool, const Options& options) :
       m_chain_helper(chainstate.ChainHelper()),
-      m_chainstate(chainstate),
+      m_chainstate{chainstate},
       m_evoDb(*Assert(node.evodb)),
       m_chainlocks(*Assert(node.chainlocks)),
       m_clhandler(*Assert(node.clhandler)),
       chainparams(chainstate.m_chainman.GetParams()),
-      m_mempool(mempool),
-      m_quorum_block_processor(*Assert(Assert(node.llmq_ctx)->quorum_block_processor))
+      m_mempool{mempool},
+      m_quorum_block_processor(*Assert(Assert(node.llmq_ctx)->quorum_block_processor)),
+      m_options{ClampOptions(options)}
 {
-    blockMinFeeRate = options.blockMinFeeRate;
-    nBlockMaxSize = options.nBlockMaxSize;
 }
 
-static BlockAssembler::Options DefaultOptions()
+void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& options)
 {
     // Block resource limits
+    options.nBlockMaxSize  = args.GetIntArg("-blockmaxsize", options.nBlockMaxSize);
+    if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
+        if (const auto parsed{ParseMoney(*blockmintxfee)}) options.blockMinFeeRate = CFeeRate{*parsed};
+    }
+}
+static BlockAssembler::Options ConfiguredOptions()
+{
     BlockAssembler::Options options;
-    options.nBlockMaxSize = DEFAULT_BLOCK_MAX_SIZE;
-    if (gArgs.IsArgSet("-blockmaxsize")) {
-        options.nBlockMaxSize = gArgs.GetIntArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
-    }
-    if (gArgs.IsArgSet("-blockmintxfee")) {
-        std::optional<CAmount> parsed = ParseMoney(gArgs.GetArg("-blockmintxfee", ""));
-        options.blockMinFeeRate = CFeeRate{parsed.value_or(DEFAULT_BLOCK_MIN_TX_FEE)};
-    } else {
-        options.blockMinFeeRate = CFeeRate{DEFAULT_BLOCK_MIN_TX_FEE};
-    }
+    ApplyArgsManOptions(gArgs, options);
     return options;
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, const CTxMemPool* mempool)
-    : BlockAssembler(chainstate, node, mempool, DefaultOptions()) {}
+    : BlockAssembler(chainstate, node, mempool, ConfiguredOptions()) {}
 
 void BlockAssembler::resetBlock()
 {
@@ -177,7 +174,7 @@ static bool CalcCbTxBestChainlock(const chainlock::Chainlocks& chainlocks, const
 
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& scriptPubKeyIn)
 {
-    int64_t nTimeStart = GetTimeMicros();
+    const auto time_start{SteadyClock::now()};
 
     resetBlock();
 
@@ -204,8 +201,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     const bool fV20Active_context{DeploymentActiveAfter(pindexPrev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_V20)};
 
     // Limit size to between 1K and MaxBlockSize()-1K for sanity:
-    nBlockMaxSize = std::max<unsigned int>(1000, std::min<unsigned int>(MaxBlockSize(fDIP0001Active_context) - 1000, nBlockMaxSize));
-    nBlockMaxSigOps = MaxBlockSigOps(fDIP0001Active_context);
+    m_options.nBlockMaxSize = std::max<unsigned int>(1000, std::min<unsigned int>(MaxBlockSize(fDIP0001Active_context) - 1000, m_options.nBlockMaxSize));
+    m_options.nBlockMaxSigOps = MaxBlockSigOps(fDIP0001Active_context);
 
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
     // Non-mainnet only: allow overriding block.nVersion with
@@ -241,7 +238,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
         addPackageTxs(*m_mempool, nPackagesSelected, nDescendantsUpdated, pindexPrev);
     }
 
-    int64_t nTime1 = GetTimeMicros();
+    const auto time_1{SteadyClock::now()};
 
     m_last_block_num_txs = nBlockTx;
     m_last_block_size = nBlockSize;
@@ -330,12 +327,15 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(*pblock->vtx[0]);
 
     BlockValidationState state;
-    if (!TestBlockValidity(state, m_chainlocks, m_evoDb, chainparams, m_chainstate, *pblock, pindexPrev, false, false)) {
+    if (m_options.test_block_validity && !TestBlockValidity(state, m_chainlocks, m_evoDb, chainparams, m_chainstate, *pblock, pindexPrev, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false)) {
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, state.ToString()));
     }
-    int64_t nTime2 = GetTimeMicros();
+    const auto time_2{SteadyClock::now()};
 
-    LogPrint(BCLog::BENCHMARK, "CreateNewBlock() packages: %.2fms (%d packages, %d updated descendants), validity: %.2fms (total %.2fms)\n", 0.001 * (nTime1 - nTimeStart), nPackagesSelected, nDescendantsUpdated, 0.001 * (nTime2 - nTime1), 0.001 * (nTime2 - nTimeStart));
+    LogPrint(BCLog::BENCHMARK, "CreateNewBlock() packages: %.2fms (%d packages, %d updated descendants), validity: %.2fms (total %.2fms)\n",
+             Ticks<MillisecondsDouble>(time_1 - time_start), nPackagesSelected, nDescendantsUpdated,
+             Ticks<MillisecondsDouble>(time_2 - time_1),
+             Ticks<MillisecondsDouble>(time_2 - time_start));
 
     return std::move(pblocktemplate);
 }
@@ -354,11 +354,11 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
 
 bool BlockAssembler::TestPackage(uint64_t packageSize, unsigned int packageSigOps) const
 {
-    if (nBlockSize + packageSize >= nBlockMaxSize) {
+    if (nBlockSize + packageSize >= m_options.nBlockMaxSize) {
         return false;
     }
 
-    if (nBlockSigOps + packageSigOps >= nBlockMaxSigOps) {
+    if (nBlockSigOps + packageSigOps >= m_options.nBlockMaxSigOps) {
         return false;
     }
     return true;
@@ -565,7 +565,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             packageSigOps = modit->nSigOpCountWithAncestors;
         }
 
-        if (packageFees < blockMinFeeRate.GetFee(packageSize)) {
+        if (packageFees < m_options.blockMinFeeRate.GetFee(packageSize)) {
             // Everything else we might consider has a lower fee rate
             return;
         }
@@ -581,7 +581,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
 
             ++nConsecutiveFailed;
 
-            if (nConsecutiveFailed > MAX_CONSECUTIVE_FAILURES && nBlockSize > nBlockMaxSize - 1000) {
+            if (nConsecutiveFailed > MAX_CONSECUTIVE_FAILURES && nBlockSize > m_options.nBlockMaxSize - 1000) {
                 // Give up if we're close to full and haven't succeeded in a while
                 break;
             }
