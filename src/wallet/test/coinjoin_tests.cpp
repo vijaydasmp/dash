@@ -552,6 +552,29 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_rebalance_rounds_reset_tests, CTransactionBuild
     }
 }
 
+BOOST_FIXTURE_TEST_CASE(coinjoin_rounds_cache_unknown_tx_tests, CTransactionBuilderTestSetup)
+{
+    constexpr CAmount nDenomAmount{10000100}; // 0.100001 DASH
+    BOOST_REQUIRE(CoinJoin::IsDenominatedAmount(nDenomAmount));
+
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount});
+    const CScript scriptOurs = GetScriptForRawPubKey(coinbaseKey.GetPubKey());
+
+    CMutableTransaction mtxMix;
+    mtxMix.vin.emplace_back(tallyItem.outpoints[0]);
+    mtxMix.vout.emplace_back(nDenomAmount, scriptOurs);
+    const COutPoint outpointMixed{mtxMix.GetHash(), 0};
+
+    // Queried before the wallet knows the tx, the way RPCs do for user-supplied
+    // preset inputs: unknown, reported as -1
+    BOOST_CHECK_EQUAL(wallet->GetRealOutpointCoinJoinRounds(outpointMixed), -1);
+
+    // Once the wallet learns the tx its rounds are computed from it; the miss
+    // above must not stick in mapOutpointRoundsCache
+    BOOST_REQUIRE(wallet->AddToWallet(MakeTransactionRef(mtxMix), TxStateInMempool{}));
+    BOOST_CHECK_EQUAL(wallet->GetRealOutpointCoinJoinRounds(outpointMixed), 1);
+}
+
 BOOST_FIXTURE_TEST_CASE(CTransactionBuilderTest, CTransactionBuilderTestSetup)
 {
     // NOTE: Mock wallet version is FEATURE_BASE which means that it uses uncompressed pubkeys

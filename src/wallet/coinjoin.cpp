@@ -284,10 +284,13 @@ int CWallet::GetRealOutpointCoinJoinRounds(const COutPoint& outpoint, int nRound
     const CWalletTx* wtx{GetWalletTx(outpoint.hash)};
 
     if (wtx == nullptr || wtx->tx == nullptr) {
-        // no such tx in this wallet
-        *nRoundsRef = -1;
+        // No such tx in this wallet: don't memoize the result, the wallet may
+        // still learn about the tx later (e.g. a rescan in progress) and nothing
+        // invalidates the cache when it does. RPCs feed user-supplied outpoints
+        // into this via IsFullyMixed, so this path is reachable for any outpoint.
+        mapOutpointRoundsCache.erase(pair.first);
         WalletCJLogPrint(this, "%s FAILED    %-70s %3d\n", __func__, outpoint.ToStringShort(), -1);
-        return *nRoundsRef;
+        return -1;
     }
 
     // bounds check
