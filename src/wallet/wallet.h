@@ -639,6 +639,13 @@ public:
     std::vector<COutPoint> SelectFullyMixedForPromotion(int nDenom, int nCount) const;
 
     bool IsSpent(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** May `wtx`'s outputs be counted as wallet funds?
+     *
+     *  The wallet knows about transactions that cannot confirm as they stand: conflicted
+     *  ones, and ones that were abandoned, never broadcast or rejected from the mempool.
+     *  AvailableCoins() filters their outputs out, so anything else that values wallet
+     *  outputs must do the same. */
+    bool IsWalletUTXOSpendable(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     // Whether this or any known UTXO with the same single key has been spent.
     bool IsSpentKey(const CScript& scriptPubKey) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
