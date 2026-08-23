@@ -3264,6 +3264,7 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
         for (auto spk_man : walletInstance->GetActiveScriptPubKeyMans()) {
             if (spk_man->HavePrivateKeys()) {
                 warnings.push_back(strprintf(_("Warning: Private keys detected in wallet {%s} with disabled private keys"), walletFile));
+                break;
             }
         }
     }
@@ -4553,16 +4554,19 @@ bool CWallet::MigrateToSQLite(bilingual_str& error)
 
     // Close this database and delete the file
     fs::path db_path = fs::PathFromString(m_database->Filename());
-    fs::path db_dir = db_path.parent_path();
     m_database->Close();
     fs::remove(db_path);
+
+    // Generate the path for the location of the migrated wallet
+    // Wallets that are plain files rather than wallet directories will be migrated to be wallet directories.
+    const fs::path wallet_path = fsbridge::AbsPathJoin(GetWalletDir(), fs::PathFromString(m_name));
 
     // Make new DB
     DatabaseOptions opts;
     opts.require_create = true;
     opts.require_format = DatabaseFormat::SQLITE;
     DatabaseStatus db_status;
-    std::unique_ptr<WalletDatabase> new_db = MakeDatabase(db_dir, opts, db_status, error);
+    std::unique_ptr<WalletDatabase> new_db = MakeDatabase(wallet_path, opts, db_status, error);
     assert(new_db); // This is to prevent doing anything further with this wallet. The original file was deleted, but a backup exists.
     m_database.reset();
     m_database = std::move(new_db);
@@ -4988,7 +4992,7 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(const std::string& walle
         // Migration successful, unload the wallet locally, then reload it.
         assert(local_wallet.use_count() == 1);
         local_wallet.reset();
-        LoadWallet(context, wallet_name, /*load_on_start=*/std::nullopt, options, status, error, warnings);
+        res.wallet = LoadWallet(context, wallet_name, /*load_on_start=*/std::nullopt, options, status, error, warnings);
         res.wallet_name = wallet_name;
     } else {
         // Migration failed, cleanup
