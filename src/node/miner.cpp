@@ -69,7 +69,6 @@ BlockAssembler::Options::Options()
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, const CTxMemPool* mempool, const Options& options) :
-      m_blockman(chainstate.m_blockman),
       m_chain_helper(chainstate.ChainHelper()),
       m_chainstate(chainstate),
       m_evoDb(*Assert(node.evodb)),
@@ -77,8 +76,7 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const NodeContext& node, 
       m_clhandler(*Assert(node.clhandler)),
       chainparams(chainstate.m_chainman.GetParams()),
       m_mempool(mempool),
-      m_quorum_block_processor(*Assert(Assert(node.llmq_ctx)->quorum_block_processor)),
-      m_qman(*Assert(Assert(node.llmq_ctx)->qman))
+      m_quorum_block_processor(*Assert(Assert(node.llmq_ctx)->quorum_block_processor))
 {
     blockMinFeeRate = options.blockMinFeeRate;
     nBlockMaxSize = options.nBlockMaxSize;
@@ -554,48 +552,6 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             }
         }
 
-        if (creditPoolDiff != std::nullopt) {
-            // If one transaction is skipped due to limits, it is not a reason to interrupt
-            // whole process of adding transactions.
-            // `state` is local here because used only to log info about this specific tx
-            TxValidationState state;
-
-            if (iter->GetTx().IsSpecialTxVersion() && iter->GetTx().nType == TRANSACTION_ASSET_UNLOCK) {
-                // ASSET_UNLOCK transactions may expire after being added to mempool
-                // They should not be included to the block
-                if (!CheckAssetUnlockTx(m_blockman, m_qman, iter->GetTx(), pindexPrev, creditPoolDiff->pool.indexes, state)) {
-                    if (fUsingModified) {
-                        mapModifiedTx.get<ancestor_score>().erase(modit);
-                        failedTx.insert(iter);
-                    }
-                    LogPrintf("%s: asset unlock tx %s is skipped due %s\n",
-                              __func__, iter->GetTx().GetHash().ToString(), state.ToString());
-                    continue;
-                }
-            }
-            if (!creditPoolDiff->ProcessLockUnlockTransaction(iter->GetTx(), state)) {
-                if (fUsingModified) {
-                    mapModifiedTx.get<ancestor_score>().erase(modit);
-                    failedTx.insert(iter);
-                }
-                LogPrintf("%s: asset-locks tx %s skipped due %s\n",
-                          __func__, iter->GetTx().GetHash().ToString(), state.ToString());
-                continue;
-            }
-        }
-        if (std::optional<uint8_t> signal = extractEHFSignal(iter->GetTx()); signal != std::nullopt) {
-            if (signals.find(*signal) != signals.end()) {
-                if (fUsingModified) {
-                    mapModifiedTx.get<ancestor_score>().erase(modit);
-                    failedTx.insert(iter);
-                }
-                LogPrintf("%s: ehf signal tx %s skipped due to duplicate %d\n",
-                          __func__, iter->GetTx().GetHash().ToString(), *signal);
-                continue;
-            }
-            signals.insert({*signal, 0});
-        }
-
         // We skip mapTx entries that are inBlock, and mapModifiedTx shouldn't
         // contain anything that is inBlock.
         assert(!inBlock.count(iter));
@@ -648,12 +604,47 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             continue;
         }
 
-        // This transaction will make it in; reset the failed counter.
-        nConsecutiveFailed = 0;
-
         // Package can be added. Sort the entries in a valid order.
         std::vector<CTxMemPool::txiter> sortedEntries;
         SortForBlock(ancestors, sortedEntries);
+
+        auto packageSignals = signals;
+        std::vector<CTransactionRef> creditPoolTransactions;
+        bool validPackage{true};
+        for (const auto& entry : sortedEntries) {
+            const auto& tx = entry->GetTx();
+            if (std::optional<uint8_t> signal = extractEHFSignal(tx); signal != std::nullopt) {
+                if (!packageSignals.emplace(*signal, 0).second) {
+                    LogPrintf("%s: package tx %s skipped due to duplicate EHF signal %d\n", __func__,
+                              tx.GetHash().ToString(), *signal);
+                    validPackage = false;
+                    break;
+                }
+            }
+            if (tx.IsSpecialTxVersion() && (tx.nType == TRANSACTION_ASSET_LOCK || tx.nType == TRANSACTION_ASSET_UNLOCK)) {
+                creditPoolTransactions.emplace_back(entry->GetSharedTx());
+            }
+        }
+
+        if (validPackage && creditPoolDiff != std::nullopt && !creditPoolTransactions.empty()) {
+            TxValidationState state;
+            if (!creditPoolDiff->ProcessLockUnlockTransactions(creditPoolTransactions, state)) {
+                LogPrintf("%s: package tx %s skipped due to credit pool state: %s\n", __func__,
+                          iter->GetTx().GetHash().ToString(), state.ToString());
+                validPackage = false;
+            }
+        }
+        if (!validPackage) {
+            if (fUsingModified) {
+                mapModifiedTx.get<ancestor_score>().erase(modit);
+                failedTx.insert(iter);
+            }
+            continue;
+        }
+
+        // This transaction will make it in; reset the failed counter.
+        nConsecutiveFailed = 0;
+        signals = std::move(packageSignals);
 
         for (size_t i = 0; i < sortedEntries.size(); ++i) {
             AddToBlock(sortedEntries[i]);
