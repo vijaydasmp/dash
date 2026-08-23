@@ -128,6 +128,19 @@ class CoinJoinTest(BitcoinTestFramework):
         node.newkeypool()
         assert_equal(node.getcoinjoininfo()['running'], False)
 
+    def simulate_mixing(self, node, inputs, denom, rounds):
+        # A same-denomination, fee-free self-spend advances each output by one
+        # round. Zero-fee transactions are not relayed, so mine them directly.
+        for _ in range(rounds):
+            outputs = [{node.getnewaddress(): denom} for _ in inputs]
+            raw_tx = node.createrawtransaction(inputs, outputs)
+            signed_tx = node.signrawtransactionwithwallet(raw_tx)
+            assert_equal(signed_tx['complete'], True)
+            txid = node.decoderawtransaction(signed_tx['hex'])['txid']
+            self.generateblock(self.nodes[0], output=node.getnewaddress(), transactions=[signed_tx['hex']])
+            inputs = [{'txid': txid, 'vout': n} for n in range(len(inputs))]
+        return inputs
+
     def test_use_cj_option(self, node):
         self.log.info('"use_cj" option should spend fully mixed coins only')
         addr = node.getnewaddress()
@@ -168,17 +181,10 @@ class CoinJoinTest(BitcoinTestFramework):
         inputs = [{'txid': funding_txid, 'vout': out['n']} for out in funding_tx['vout'] if out['value'] == denom]
         assert_equal(len(inputs), 2)
 
-        # Simulate mixing: a same-denomination, fee-free self-spend advances each
-        # output by one round. Zero-fee transactions are not relayed, so mine them
-        # directly. COINJOIN_ROUNDS_MIN + COINJOIN_RANDOM_ROUNDS rounds make
-        # IsFullyMixed() deterministic regardless of the wallet's salt.
-        for _ in range(COINJOIN_ROUNDS_MIN + COINJOIN_RANDOM_ROUNDS):
-            raw_tx = node.createrawtransaction(inputs, [{node.getnewaddress(): denom}, {node.getnewaddress(): denom}])
-            signed_tx = node.signrawtransactionwithwallet(raw_tx)
-            assert_equal(signed_tx['complete'], True)
-            txid = node.decoderawtransaction(signed_tx['hex'])['txid']
-            self.generateblock(self.nodes[0], output=node.getnewaddress(), transactions=[signed_tx['hex']])
-            inputs = [{'txid': txid, 'vout': n} for n in range(2)]
+        # COINJOIN_ROUNDS_MIN + COINJOIN_RANDOM_ROUNDS rounds make IsFullyMixed()
+        # deterministic regardless of the wallet's salt.
+        rounds = COINJOIN_ROUNDS_MIN + COINJOIN_RANDOM_ROUNDS
+        inputs = self.simulate_mixing(node, inputs, denom, rounds)
 
         # Both coins report full rounds and count towards the anonymized balance
         mixed_utxos = [(u['txid'], u['vout']) for u in node.listunspent()
