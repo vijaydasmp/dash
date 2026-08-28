@@ -103,12 +103,19 @@ QVBoxLayout* MakeBlock(QVBoxLayout* page_layout)
     return block;
 }
 
-QString FormatAmount(const WalletModel* wallet_model, CAmount amount)
+//! Formats collateral amounts, which are whole coins in every display unit, so
+//! a zero fraction is dropped entirely ("1 000.00000000 DASH" -> "1 000 DASH").
+QString FormatCollateralAmount(const WalletModel* wallet_model, CAmount amount)
 {
     const auto unit{wallet_model && wallet_model->getOptionsModel() ?
                         wallet_model->getOptionsModel()->getDisplayUnit() :
                         BitcoinUnits::Unit::DASH};
-    return BitcoinUnits::formatWithUnit(unit, amount, /*plussign=*/false, BitcoinUnits::SeparatorStyle::ALWAYS);
+    QString str{BitcoinUnits::format(unit, amount, /*plussign=*/false, BitcoinUnits::SeparatorStyle::ALWAYS)};
+    const int decimals{BitcoinUnits::decimals(unit)};
+    if (decimals > 0 && amount % BitcoinUnits::factor(unit) == 0) {
+        str.chop(decimals + 1);
+    }
+    return str + QLatin1Char(' ') + BitcoinUnits::name(unit);
 }
 } // anonymous namespace
 
@@ -235,7 +242,8 @@ QWidget* RegisterMasternodeWizard::createTypePage()
     layout->addWidget(MakeTitle(tr("Masternode type"), page));
 
     m_type_regular = new QRadioButton(
-        tr("Masternode — %1 collateral").arg(FormatAmount(m_walletModel, GetMnType(MnType::Regular).collat_amount)),
+        tr("Masternode — %1 collateral")
+            .arg(FormatCollateralAmount(m_walletModel, GetMnType(MnType::Regular).collat_amount)),
         page);
     m_type_regular->setChecked(true);
     auto regular_card{makeOptionCard(page, m_type_regular,
@@ -244,7 +252,8 @@ QWidget* RegisterMasternodeWizard::createTypePage()
     layout->addWidget(regular_card.card);
 
     m_type_evo = new QRadioButton(
-        tr("EvoNode — %1 collateral").arg(FormatAmount(m_walletModel, GetMnType(MnType::Evo).collat_amount)), page);
+        tr("EvoNode — %1 collateral").arg(FormatCollateralAmount(m_walletModel, GetMnType(MnType::Evo).collat_amount)),
+        page);
     auto evo_card{makeOptionCard(page, m_type_evo,
                                  tr("Additionally hosts Dash Platform, has four times the voting weight and earns a "
                                     "larger share of rewards. Requires a Platform node ID and extra services."))};
@@ -952,7 +961,7 @@ void RegisterMasternodeWizard::enterPage(Page page)
             m_fee_explain->setText(
                 tr("The selected address funds the %1 collateral plus the transaction fee. The exact fee is "
                    "calculated from your wallet settings when you register, and change returns to this address.")
-                    .arg(FormatAmount(m_walletModel, collateralAmount())));
+                    .arg(FormatCollateralAmount(m_walletModel, collateralAmount())));
         } else {
             m_fee_explain->setText(tr("The selected address pays the transaction fee."));
         }
@@ -984,7 +993,7 @@ bool RegisterMasternodeWizard::validatePage(Page page, QString& err)
             if (m_col_utxo_combo->currentIndex() < 0) {
                 err = tr("This wallet has no unspent output of exactly %1. Fund the collateral from the wallet "
                          "instead.")
-                          .arg(FormatAmount(m_walletModel, collateralAmount()));
+                          .arg(FormatCollateralAmount(m_walletModel, collateralAmount()));
             }
         } else {
             const QString txid{m_col_txid->text().trimmed()};
@@ -1080,7 +1089,7 @@ bool RegisterMasternodeWizard::validatePage(Page page, QString& err)
             err = isFundCollateral() ?
                       tr("No spendable wallet address holds the %1 collateral amount. The selected address must "
                          "also have enough for the fee calculated when you register.")
-                          .arg(FormatAmount(m_walletModel, collateralAmount())) :
+                          .arg(FormatCollateralAmount(m_walletModel, collateralAmount())) :
                       tr("No spendable wallet address has a positive balance available to pay the transaction "
                          "fee.");
         }
@@ -1294,7 +1303,7 @@ void RegisterMasternodeWizard::refreshCollateralCandidates(const std::set<COutPo
     m_col_utxo_none->setVisible(!have_candidates);
     m_col_utxo_none->setText(tr("This wallet has no unspent output of exactly %1 with a confirmation. Send the "
                                 "collateral from this wallet instead, or reference one held elsewhere.")
-                                 .arg(FormatAmount(m_walletModel, collateralAmount())));
+                                 .arg(FormatCollateralAmount(m_walletModel, collateralAmount())));
 }
 
 int RegisterMasternodeWizard::reviewLabelWidth(const QWidget* card) const
@@ -1387,7 +1396,7 @@ void RegisterMasternodeWizard::populateReview()
     }
 
     begin_section(tr("Collateral"));
-    row(tr("Amount"), FormatAmount(m_walletModel, collateralAmount()));
+    row(tr("Amount"), FormatCollateralAmount(m_walletModel, collateralAmount()));
     if (isFundCollateral()) {
         row(tr("Destination"), collateralAddress(), /*monospace=*/true);
         row(tr("Source"), tr("This wallet sends it as part of the registration"));
@@ -1542,14 +1551,14 @@ bool RegisterMasternodeWizard::confirmBroadcast()
     QString consequence;
     if (isFundCollateral()) {
         consequence = tr("This transaction creates %1 of collateral from this wallet and registers the %2.")
-                          .arg(FormatAmount(m_walletModel, collateralAmount()), node_type);
+                          .arg(FormatCollateralAmount(m_walletModel, collateralAmount()), node_type);
     } else if (isExternalCollateral()) {
         consequence = tr("This transaction registers the external %1 collateral and makes it the collateral for this "
                          "%2.")
-                          .arg(FormatAmount(m_walletModel, collateralAmount()), node_type);
+                          .arg(FormatCollateralAmount(m_walletModel, collateralAmount()), node_type);
     } else {
         consequence = tr("This transaction registers and locks the wallet's %1 collateral output for this %2.")
-                          .arg(FormatAmount(m_walletModel, collateralAmount()), node_type);
+                          .arg(FormatCollateralAmount(m_walletModel, collateralAmount()), node_type);
     }
     consequence += tr(
         " The network fee is calculated from the selected fee source using the wallet's current fee settings.");
