@@ -4,11 +4,13 @@
 
 #include <node/chainstate.h>
 
+#include <arith_uint256.h>
 #include <chain.h>
 #include <coins.h>
 #include <chainparamsbase.h>
 #include <consensus/params.h>
 #include <deploymentstatus.h>
+#include <logging.h>
 #include <node/blockstorage.h>
 #include <node/caches.h>
 #include <node/utxo_snapshot.h>
@@ -32,6 +34,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -301,13 +304,13 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
     assert(options.chainlocks);
     assert(options.mn_sync);
 
-    if (!hashAssumeValid.IsNull()) {
-        LogPrintf("Assuming ancestors of block %s have valid signatures.\n", hashAssumeValid.GetHex());
+    if (!chainman.AssumedValidBlock().IsNull()) {
+        LogPrintf("Assuming ancestors of block %s have valid signatures.\n", chainman.AssumedValidBlock().GetHex());
     } else {
         LogPrintf("Validating signatures for all blocks.\n");
     }
-    LogPrintf("Setting nMinimumChainWork=%s\n", nMinimumChainWork.GetHex());
-    if (nMinimumChainWork < UintToArith256(chainman.GetConsensus().nMinimumChainWork)) {
+    LogPrintf("Setting nMinimumChainWork=%s\n", chainman.MinimumChainWork().GetHex());
+    if (chainman.MinimumChainWork() < UintToArith256(chainman.GetConsensus().nMinimumChainWork)) {
         LogPrintf("Warning: nMinimumChainWork set below default value of %s\n", chainman.GetConsensus().nMinimumChainWork.GetHex());
     }
     if (nPruneTarget == std::numeric_limits<uint64_t>::max()) {

@@ -4,6 +4,8 @@
 
 #include <test/util/setup_common.h>
 
+#include <kernel/validation_cache_sizes.h>
+
 #include <addrman.h>
 #include <banman.h>
 #include <chainlock/chainlock.h>
@@ -29,6 +31,7 @@
 #include <node/mempool_args.h>
 #include <node/miner.h>
 #include <node/sync_manager.h>
+#include <node/validation_cache_args.h>
 #include <policy/fees.h>
 #include <policy/fees_args.h>
 #include <policy/settings.h>
@@ -88,6 +91,8 @@
 #include <memory>
 #include <stdexcept>
 
+using kernel::ValidationCacheSizes;
+using node::ApplyArgsManOptions;
 using node::BlockAssembler;
 using node::CalculateCacheSizes;
 using node::LoadChainstate;
@@ -188,8 +193,11 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
     LogInstance().StartLogging();
     m_node.kernel = std::make_unique<kernel::Context>();
     SetupEnvironment();
-    InitSignatureCache();
-    InitScriptExecutionCache();
+
+    ValidationCacheSizes validation_cache_sizes{};
+    ApplyArgsManOptions(*m_node.args, validation_cache_sizes);
+    Assert(InitSignatureCache(validation_cache_sizes.signature_cache_bytes));
+    Assert(InitScriptExecutionCache(validation_cache_sizes.script_execution_cache_bytes));
 
     m_node.chain = interfaces::MakeChain(m_node);
     m_node.netgroupman = std::make_unique<NetGroupManager>(/*asmap=*/std::vector<bool>());
@@ -214,8 +222,6 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
     }
 
     m_node.connman = std::make_unique<ConnmanTestMsg>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman); // Deterministic randomness for tests.
-
-    fCheckBlockIndex = true;
 
     m_node.mn_metaman = std::make_unique<CMasternodeMetaMan>();
     m_node.netfulfilledman = std::make_unique<CNetFulfilledRequestManager>();
@@ -274,6 +280,7 @@ ChainTestingSetup::ChainTestingSetup(const std::string& chainName, const std::ve
 
     const ChainstateManager::Options chainman_opts{
         .chainparams = chainparams,
+        .check_block_index = true,
     };
     m_node.chainman = std::make_unique<ChainstateManager>(chainman_opts);
     m_node.chainman->m_blockman.m_block_tree_db = std::make_unique<CBlockTreeDB>(m_cache_sizes.block_tree_db, true);
@@ -282,10 +289,8 @@ ChainTestingSetup::ChainTestingSetup(const std::string& chainName, const std::ve
 
     m_node.clhandler = std::make_unique<chainlock::ChainlockHandler>(*m_node.chainlocks, *m_node.chainman, *m_node.mempool, *m_node.mn_sync);
 
-    // Start script-checking threads. Set g_parallel_script_checks to true so they are used.
     constexpr int script_check_threads = 2;
     StartScriptCheckWorkerThreads(script_check_threads);
-    g_parallel_script_checks = true;
 }
 
 ChainTestingSetup::~ChainTestingSetup()
