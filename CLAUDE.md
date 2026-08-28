@@ -49,6 +49,12 @@ Short version, in order of preference:
   (best-effort) by `test/lint/lint-assertions.py` for `src/rpc/` and
   `src/wallet/rpc*`.
 
+The production-crash guidance above does not apply to C++ regression and
+unit-test sources under `src/test/` and `src/wallet/test/`. They compile into test
+binaries, not user-facing `dashd` or `dash-qt`; `assert`, `Assert`, `Assume`,
+and related fatal test checks are all acceptable. Do not flag the choice among
+them as a production-crash risk.
+
 None of these validate input. Data from peers, RPC arguments, wallet files, or
 on-disk state must be checked and rejected through normal error handling -
 asserting on it turns a peer-triggered inconsistency into a remote crash.
@@ -173,6 +179,11 @@ source-history work, not only conflict resolution.
 - Keep upstream backport commits as close to 1:1 as practical. Put shared Dash
   repair work on a staging/base branch instead of hiding it inside an unrelated
   upstream backport commit.
+- When reviewing Bitcoin Core backports, absent a clear bug, prefer staying
+  aligned with upstream. Do not request Dash-only policy or style changes, such
+  as replacing an assertion primitive solely to match this guide. Dash-specific
+  correctness, security, or consensus issues are valid reasons to adapt
+  upstream code.
 - Compare the upstream diff to the Dash diff file by file.
 - Check prerequisite PRs. If an upstream hunk depends on a helper, test, type,
   or file introduced by an earlier Bitcoin PR, either backport the prerequisite
