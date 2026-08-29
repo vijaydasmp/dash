@@ -19,6 +19,29 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+//! Formats an amount at the user's configured decimal precision, dropping
+//! insignificant trailing zeros ("1.00 DASH" -> "1 DASH").
+QString formatProposalAmount(const BitcoinUnit& unit, const CAmount& amount)
+{
+    const QString suffix{QLatin1Char(' ') + BitcoinUnits::name(unit)};
+    QString result{BitcoinUnits::floorWithUnit(unit, amount, /*plussign=*/false, BitcoinUnits::SeparatorStyle::ALWAYS)};
+    result.chop(suffix.size());
+
+    if (result.contains('.')) {
+        while (result.endsWith('0')) {
+            result.chop(1);
+        }
+
+        if (result.endsWith('.')) {
+            result.chop(1);
+        }
+    }
+
+    return result + suffix;
+}
+} // anonymous namespace
+
 Proposal::Proposal(ClientModel& client_model, const CGovernanceObject& govObj,
                    const interfaces::GOV::GovernanceInfo& govInfo, int collateral_confs,
                    bool is_broadcast) :
@@ -213,8 +236,7 @@ QVariant ProposalModel::data(const QModelIndex& index, int role) const
         case Column::END_DATE:
             return proposal->endDate().date();
         case Column::PAYMENT_AMOUNT: {
-            return BitcoinUnits::floorWithUnit(m_display_unit, proposal->paymentAmount(), false,
-                                               BitcoinUnits::SeparatorStyle::ALWAYS);
+            return formatProposalAmount(m_display_unit, proposal->paymentAmount());
         }
         case Column::VOTING_STATUS: {
             const int margin = proposal->getAbsoluteYesCount() - nAbsVoteReq;
