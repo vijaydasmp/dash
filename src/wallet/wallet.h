@@ -345,6 +345,19 @@ private:
      *  @param[in] ret_dups   Allow UTXOs already in set to be included in return value
      *  @returns              Set of all new UTXOs (eligible to be) added to set */
     std::set<COutPoint> AddWalletUTXOs(CTransactionRef tx, bool ret_dups) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Reconcile the wallet UTXO set with `tx`'s inputs after a state change of `tx`
+     *
+     *  AddToSpends() removes an outpoint from the set (and unlocks it) as soon as
+     *  some wallet transaction spends it, but nothing maintained the set across the
+     *  spender's later state changes. Whenever `tx` changes state, re-evaluate each
+     *  outpoint it consumes: an outpoint no wallet transaction spends any more goes
+     *  back in the set, with the masternode-collateral and dust locks a wallet
+     *  reload would apply; an outpoint that became spent again — the abandoned
+     *  spender re-entered the mempool or a block — is erased and unlocked.
+     *
+     *  @param[in] tx         Transaction whose inputs to reconsider
+     *  @param[in] batch      Batch to write coin-lock updates to */
+    void ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     mutable std::map<COutPoint, int> mapOutpointRoundsCache GUARDED_BY(cs_wallet);
 
     /**

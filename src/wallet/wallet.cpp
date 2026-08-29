@@ -1080,6 +1080,11 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const 
         if (state.index() != wtx.m_state.index()) {
             wtx.m_state = state;
             fUpdated = true;
+            // An abandoned transaction re-entering the mempool or a block
+            // spends its inputs again; take the outpoints
+            // ReconcileWalletUTXOs() restored on abandonment back out of the
+            // wallet UTXO set (AddToSpends() only ran on first insertion).
+            ReconcileWalletUTXOs(wtx.tx, batch);
         } else {
             assert(TxStateSerializedIndex(wtx.m_state) == TxStateSerializedIndex(state));
             assert(TxStateSerializedBlockHash(wtx.m_state) == TxStateSerializedBlockHash(state));
@@ -1200,6 +1205,34 @@ std::set<COutPoint> CWallet::AddWalletUTXOs(CTransactionRef tx, bool ret_dups)
         }
     }
     return ret;
+}
+
+void CWallet::ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch)
+{
+    AssertLockHeld(cs_wallet);
+    std::set<COutPoint> restored;
+    for (const CTxIn& txin : tx->vin) {
+        const auto it{mapWallet.find(txin.prevout.hash)};
+        if (it == mapWallet.end() || txin.prevout.n >= it->second.tx->vout.size()) continue;
+        if (!IsMine(it->second.tx->vout[txin.prevout.n])) continue;
+        if (IsSpent(txin.prevout)) {
+            setWalletUTXO.erase(txin.prevout);
+            UnlockCoin(txin.prevout, &batch);
+        } else if (setWalletUTXO.insert(txin.prevout).second) {
+            restored.insert(txin.prevout);
+        }
+    }
+    if (restored.empty()) return;
+    // AddToSpends() unlocked these outpoints when the spend appeared; reapply
+    // the automatic protections a wallet reload would.
+    LockProTxCoins(restored, &batch);
+    if (m_dust_protection_threshold > 0) {
+        for (const COutPoint& outpoint : restored) {
+            if (IsDustProtectionTarget(mapWallet.at(outpoint.hash), outpoint.n)) {
+                LockCoin(outpoint, &batch);
+            }
+        }
+    }
 }
 
 bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxState& state, WalletBatch& batch, bool fUpdate, bool rescanning_old_block)
@@ -1410,6 +1443,7 @@ void CWallet::RecursiveUpdateTxState(const uint256& tx_hash, const TryUpdatingSt
             // If a transaction changes its tx state, that usually changes the balance
             // available of the outputs it spends. So force those to be recomputed
             MarkInputsDirty(wtx.tx);
+            ReconcileWalletUTXOs(wtx.tx, batch);
         }
     }
 
