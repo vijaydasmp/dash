@@ -484,13 +484,15 @@ std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, cons
     // The knapsack solver has some legacy behavior where it will spend dust outputs. We retain this behavior, so don't filter for positive only here.
     std::vector<OutputGroup> all_groups = GroupOutputs(wallet, available_coins, coin_selection_params, eligibility_filter, /*positive_only=*/false);
     if (auto knapsack_result{KnapsackSolver(all_groups, nTargetValue, coin_selection_params.m_min_change_target,
-                                            coin_selection_params.rng_fast, max_inputs_weight, nCoinType == CoinType::ONLY_FULLY_MIXED,
+                                            coin_selection_params.rng_fast, max_inputs_weight,
+                                            coin_selection_params.m_coin_type == CoinType::ONLY_FULLY_MIXED,
                                             wallet.m_default_max_tx_fee)}) {
         knapsack_result->ComputeAndSetWaste(coin_selection_params.min_viable_change, coin_selection_params.m_cost_of_change, coin_selection_params.m_change_fee);
         results.push_back(*knapsack_result);
     }
 
-    if (auto srd_result{SelectCoinsSRD(positive_groups, nTargetValue, coin_selection_params.rng_fast, max_inputs_weight, nCoinType == CoinType::ONLY_FULLY_MIXED)}) {
+    if (auto srd_result{SelectCoinsSRD(positive_groups, nTargetValue, coin_selection_params.rng_fast, max_inputs_weight,
+                                       coin_selection_params.m_coin_type == CoinType::ONLY_FULLY_MIXED)}) {
         srd_result->ComputeAndSetWaste(coin_selection_params.min_viable_change, coin_selection_params.m_cost_of_change, coin_selection_params.m_change_fee);
         results.push_back(*srd_result);
     }
@@ -827,6 +829,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
 
     CoinSelectionParams coin_selection_params{rng_fast}; // Parameters for coin selection, init with dummy
     coin_selection_params.m_avoid_partial_spends = coin_control.m_avoid_partial_spends;
+    coin_selection_params.m_coin_type = coin_control.nCoinType;
 
     // Set the long term feerate estimate to the wallet's consolidate feerate
     coin_selection_params.m_long_term_feerate = wallet.m_consolidate_feerate;
