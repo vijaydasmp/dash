@@ -104,7 +104,7 @@ std::vector<OutputGroup> GroupOutputs(const CWallet& wallet, const std::vector<C
  *                                       If failed, a nullopt
  */
 std::optional<SelectionResult> AttemptSelection(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const CoinsResult& available_coins,
-                                                const CoinSelectionParams& coin_selection_params, bool allow_mixed_output_types, CoinType nCoinType = CoinType::ALL_COINS);
+                                                const CoinSelectionParams& coin_selection_params, bool allow_mixed_output_types);
 
 /**
  * Attempt to find a valid input set that meets the provided eligibility filter and target.
@@ -120,7 +120,7 @@ std::optional<SelectionResult> AttemptSelection(const CWallet& wallet, const CAm
  *                                       If failed, a nullopt
  */
 std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const std::vector<COutput>& available_coins,
-                                                     const CoinSelectionParams& coin_selection_params, CoinType nCoinType = CoinType::ALL_COINS);
+                                                     const CoinSelectionParams& coin_selection_params);
 
 /**
  * Select a set of coins such that nTargetValue is met and at least
