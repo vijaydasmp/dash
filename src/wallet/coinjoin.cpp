@@ -6,6 +6,7 @@
 #include <wallet/coinjoin.h>
 
 #include <key_io.h>
+#include <wallet/coincontrol.h>
 #include <wallet/receive.h>
 #include <wallet/spend.h>
 #include <wallet/transaction.h>
@@ -43,11 +44,6 @@ bool CWallet::SetCoinJoinSalt(const uint256& cj_salt)
         return true;
     }
     return false;
-}
-
-bool CWallet::SelectTxDSInsByDenomination(int nDenom, CAmount nValueMax, std::vector<CTxDSIn>& vecTxDSInRet)
-{
-    return SelectTxDSInsByDenomination(nDenom, nValueMax, vecTxDSInRet, CoinType::ONLY_READY_TO_MIX);
 }
 
 bool CWallet::SelectTxDSInsByDenomination(int nDenom, CAmount nValueMax, std::vector<CTxDSIn>& vecTxDSInRet, CoinType nCoinType)
