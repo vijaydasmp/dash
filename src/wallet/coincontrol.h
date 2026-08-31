@@ -12,6 +12,7 @@
 #include <script/keyorigin.h>
 #include <script/signingprovider.h>
 #include <script/standard.h>
+#include <wallet/coinselection.h>
 
 #include <algorithm>
 #include <map>
@@ -19,19 +20,6 @@
 #include <set>
 
 namespace wallet {
-enum class CoinType : uint8_t
-{
-    ALL_COINS,
-    ONLY_FULLY_MIXED,
-    ONLY_READY_TO_MIX,
-    ONLY_NONDENOMINATED,
-    ONLY_MASTERNODE_COLLATERAL, // find masternode outputs including locked ones (use with caution)
-    ONLY_COINJOIN_COLLATERAL,
-    // Attributes
-    MIN_COIN_TYPE = ALL_COINS,
-    MAX_COIN_TYPE = ONLY_COINJOIN_COLLATERAL,
-};
-
 //! Default for -avoidpartialspends
 static constexpr bool DEFAULT_AVOIDPARTIALSPENDS = false;
 

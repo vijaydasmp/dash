@@ -11,6 +11,7 @@
 #include <random.h>
 #include <util/result.h>
 
+#include <cstdint>
 #include <optional>
 
 namespace wallet {
@@ -18,6 +19,19 @@ namespace wallet {
 static constexpr CAmount CHANGE_LOWER{50000};
 //! upper bound for randomly-chosen target change amount
 static constexpr CAmount CHANGE_UPPER{1000000};
+
+enum class CoinType : uint8_t
+{
+    ALL_COINS,
+    ONLY_FULLY_MIXED,
+    ONLY_READY_TO_MIX,
+    ONLY_NONDENOMINATED,
+    ONLY_MASTERNODE_COLLATERAL, // find masternode outputs including locked ones (use with caution)
+    ONLY_COINJOIN_COLLATERAL,
+    // Attributes
+    MIN_COIN_TYPE = ALL_COINS,
+    MAX_COIN_TYPE = ONLY_COINJOIN_COLLATERAL,
+};
 
 /** A UTXO under consideration for use in funding a new transaction. */
 struct COutput {
@@ -146,6 +160,8 @@ struct CoinSelectionParams {
      * associated with the same address. This helps reduce privacy leaks resulting from address
      * reuse. Dust outputs are not eligible to be added to output groups and thus not considered. */
     bool m_avoid_partial_spends = false;
+    /** Dash: which class of coins may be selected (from CCoinControl::nCoinType). */
+    CoinType m_coin_type{CoinType::ALL_COINS};
 
     CoinSelectionParams(FastRandomContext& rng_fast, size_t change_output_size, size_t change_spend_size,
                         CAmount min_change_target, CFeeRate effective_feerate,
