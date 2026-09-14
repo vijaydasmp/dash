@@ -463,6 +463,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """ NOTE! If this method is updated - backport changes to  DashTestFramework.setup_nodes"""
         self.add_nodes(self.num_nodes, self.extra_args)
         self.start_nodes()
+        # Bump mocktime before wallets are created, so that wallet timers (e.g. the
+        # resend timer) are scheduled relative to it rather than to the cached chain.
+        if not self.setup_clean_chain and not self.disable_mocktime:
+            self.bump_mocktime(156 * 200, update_schedulers=False)
         if self._requires_wallet:
             self.import_deterministic_coinbase_privkeys()
         if not self.setup_clean_chain:
@@ -472,7 +476,6 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # must have a timestamp not too old (see IsInitialBlockDownload()).
             if not self.disable_mocktime:
                 self.log.debug('Generate a block with current mocktime')
-                self.bump_mocktime(156 * 200, update_schedulers=False)
             block_hash = self.generate(self.nodes[0], 1, sync_fun=self.no_op)[0]
             block = self.nodes[0].getblock(blockhash=block_hash, verbosity=0)
             for n in self.nodes:
